@@ -1,0 +1,1217 @@
+{
+    "found_parameters": [
+        {
+            "field": "equity_shares_count_py",
+            "value": 345713.0,
+            "row_label": "Ordinary/Share Equity Class count PY",
+            "cell": "B21",
+            "section": "Section I"
+        },
+        {
+            "field": "part_pref_shares_count_py",
+            "value": 5030.0,
+            "row_label": "Participating Preference Share Class count PY",
+            "cell": "B22",
+            "section": "Section I"
+        },
+        {
+            "field": "equity_face_value_py",
+            "value": 10.0,
+            "row_label": "Ordinary/Share Equity Face Value PY",
+            "cell": "B26",
+            "section": "Section I"
+        },
+        {
+            "field": "part_pref_face_value_py",
+            "value": 10.0,
+            "row_label": "Participating Preference Share Face Value PY",
+            "cell": "B27",
+            "section": "Section I"
+        },
+        {
+            "field": "email_id",
+            "value": "srikrishna@kritilabs.com",
+            "row_label": "E-Mail ID (Head of the institution)*",
+            "cell": "C10",
+            "section": "Section I"
+        },
+        {
+            "field": "designation",
+            "value": "Director",
+            "row_label": "Designation*",
+            "cell": "C12",
+            "section": "Section I"
+        },
+        {
+            "field": "nic_code",
+            "value": "Computer programming, consultancy and related activities",
+            "row_label": "Nature of Business*",
+            "cell": "C15",
+            "section": "Section I"
+        },
+        {
+            "field": "equity_shares_count_fy",
+            "value": 345713.0,
+            "row_label": "Ordinary/Share Equity Class count FY",
+            "cell": "C21",
+            "section": "Section I"
+        },
+        {
+            "field": "part_pref_shares_count_fy",
+            "value": 5030.0,
+            "row_label": "Participating Preference Share Class count FY",
+            "cell": "C22",
+            "section": "Section I"
+        },
+        {
+            "field": "equity_face_value_fy",
+            "value": 10.0,
+            "row_label": "Ordinary/Share Equity Face Value FY",
+            "cell": "C26",
+            "section": "Section I"
+        },
+        {
+            "field": "part_pref_face_value_fy",
+            "value": 10.0,
+            "row_label": "Participating Preference Share Face Value FY",
+            "cell": "C27",
+            "section": "Section I"
+        },
+        {
+            "field": "company_name",
+            "value": "KRITILABS TECHNOLOGIES PRIVATE LIMITED",
+            "row_label": "1. Name of the Indian Company*",
+            "cell": "C4",
+            "section": "Section I"
+        },
+        {
+            "field": "cin_number",
+            "value": "U74999TN2019PTC128763",
+            "row_label": "3. CIN number*",
+            "cell": "C6",
+            "section": "Section I"
+        },
+        {
+            "field": "contact_name",
+            "value": "Maroor Varadarajan Srikrishna",
+            "row_label": "Name of the Contact Person*",
+            "cell": "C7",
+            "section": "Section I"
+        },
+        {
+            "field": "nr_shares_individuals_py",
+            "value": 8431.0,
+            "row_label": "1. Individuals (NR) PY",
+            "cell": "D12",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_companies_py",
+            "value": 15941.0,
+            "row_label": "2. Companies (NR) PY",
+            "cell": "D13",
+            "section": "Section II"
+        },
+        {
+            "field": "employee_payroll_count_py",
+            "value": 466,
+            "row_label": "6.1 No. of employees on payroll PY",
+            "cell": "D43",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_individuals_fy",
+            "value": 8431.0,
+            "row_label": "1. Individuals (NR) FY",
+            "cell": "E12",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_companies_fy",
+            "value": 15941.0,
+            "row_label": "2. Companies (NR) FY",
+            "cell": "E13",
+            "section": "Section II"
+        },
+        {
+            "field": "employee_payroll_count_fy",
+            "value": 466,
+            "row_label": "6.1 No. of employees on payroll FY",
+            "cell": "E43",
+            "section": "Section II"
+        },
+        {
+            "field": "profit_before_tax_py",
+            "value": 495.6,
+            "row_label": "3.1 Profit(+)/Loss(-) before tax PY",
+            "cell": "F26",
+            "section": "Section II"
+        },
+        {
+            "field": "profit_after_tax_py",
+            "value": 27.79,
+            "row_label": "3.2 Profit(+)/Loss(-) after tax PY",
+            "cell": "F27",
+            "section": "Section II"
+        },
+        {
+            "field": "reserves_and_surplus_py",
+            "value": 2378.46,
+            "row_label": "4.1 Reserves & Surplus PY",
+            "cell": "F32",
+            "section": "Section II"
+        },
+        {
+            "field": "pl_balance_py",
+            "value": 992.56,
+            "row_label": "4.2 Of which, Profit (+) and Loss (-) balance PY",
+            "cell": "F33",
+            "section": "Section II"
+        },
+        {
+            "field": "domestic_sales_py",
+            "value": 4345.96,
+            "row_label": "5.1 Domestic Sales PY",
+            "cell": "F36",
+            "section": "Section II"
+        },
+        {
+            "field": "export_sales_py",
+            "value": 0.0,
+            "row_label": "5.2 Exports PY",
+            "cell": "F37",
+            "section": "Section II"
+        },
+        {
+            "field": "domestic_purchases_py",
+            "value": 1971.36,
+            "row_label": "5.4 Domestic Purchase PY",
+            "cell": "F39",
+            "section": "Section II"
+        },
+        {
+            "field": "import_purchases_py",
+            "value": 112.6,
+            "row_label": "5.5 Imports PY",
+            "cell": "F40",
+            "section": "Section II"
+        },
+        {
+            "field": "profit_before_tax_fy",
+            "value": 959.67,
+            "row_label": "3.1 Profit(+)/Loss(-) before tax FY",
+            "cell": "G26",
+            "section": "Section II"
+        },
+        {
+            "field": "profit_after_tax_fy",
+            "value": 71.0,
+            "row_label": "3.2 Profit(+)/Loss(-) after tax FY",
+            "cell": "G27",
+            "section": "Section II"
+        },
+        {
+            "field": "reserves_and_surplus_fy",
+            "value": 3193.0,
+            "row_label": "4.1 Reserves & Surplus FY",
+            "cell": "G32",
+            "section": "Section II"
+        },
+        {
+            "field": "pl_balance_fy",
+            "value": 1807.1,
+            "row_label": "4.2 Of which, Profit (+) and Loss (-) balance FY",
+            "cell": "G33",
+            "section": "Section II"
+        },
+        {
+            "field": "domestic_sales_fy",
+            "value": 5861.17,
+            "row_label": "5.1 Domestic Sales FY",
+            "cell": "G36",
+            "section": "Section II"
+        },
+        {
+            "field": "export_sales_fy",
+            "value": 0.0,
+            "row_label": "5.2 Exports FY",
+            "cell": "G37",
+            "section": "Section II"
+        },
+        {
+            "field": "domestic_purchases_fy",
+            "value": 990.09,
+            "row_label": "5.4 Domestic Purchase FY",
+            "cell": "G39",
+            "section": "Section II"
+        },
+        {
+            "field": "import_purchases_fy",
+            "value": 54.5,
+            "row_label": "5.5 Imports FY",
+            "cell": "G40",
+            "section": "Section II"
+        },
+        {
+            "field": "fdi_investor_1_name",
+            "value": "",
+            "row_label": "FDI 1: Name of the Non-Resident Company",
+            "cell": "B17",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_1_country",
+            "value": "",
+            "row_label": "FDI 1: Country of Non-Resident Investor",
+            "cell": "C17",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_1_equity_percent_py",
+            "value": 0.0,
+            "row_label": "FDI 1: Equity % PY",
+            "cell": "D17",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_less_than_10_countries_count",
+            "value": 2,
+            "row_label": "2.a Number of countries with <10%",
+            "cell": "D32",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investors_count",
+            "value": 11,
+            "row_label": "1.a No. of foreign direct investors",
+            "cell": "D6",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_1_equity_percent_fy",
+            "value": 0.0,
+            "row_label": "FDI 1: Equity % FY",
+            "cell": "E17",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_2_name",
+            "value": "United Kingdom, US",
+            "row_label": "FDI 2: Name of the Non-Resident Company",
+            "cell": "Z29",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_2_country",
+            "value": "United Kingdom, US",
+            "row_label": "FDI 2: Country of Non-Resident Investor",
+            "cell": "Z30",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_2_equity_percent_py",
+            "value": 6.9486775217181815,
+            "row_label": "FDI 2: Equity % PY",
+            "cell": "Z31",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_2_equity_percent_fy",
+            "value": 6.9486775217181815,
+            "row_label": "FDI 2: Equity % FY",
+            "cell": "Z32",
+            "section": "Section III"
+        }
+    ],
+    "missing_parameters": [
+        {
+            "field": "non_part_pref_shares_count_py",
+            "default": 0,
+            "row_label": "Non-participating preference Share Class count PY",
+            "cell": "B23",
+            "section": "Section I"
+        },
+        {
+            "field": "non_part_pref_face_value_py",
+            "default": 1,
+            "row_label": "Non-participating preference Share Face Value PY",
+            "cell": "B28",
+            "section": "Section I"
+        },
+        {
+            "field": "website",
+            "default": "",
+            "row_label": "Website (if any)",
+            "cell": "C13",
+            "section": "Section I"
+        },
+        {
+            "field": "merged_status",
+            "default": "No",
+            "row_label": "Whether your company is merged/amalgamated during year",
+            "cell": "C16",
+            "section": "Section I"
+        },
+        {
+            "field": "listed_status",
+            "default": "No",
+            "row_label": "Whether the company is listed?*",
+            "cell": "C17",
+            "section": "Section I"
+        },
+        {
+            "field": "non_part_pref_shares_count_fy",
+            "default": 0,
+            "row_label": "Non-participating preference Share Class count FY",
+            "cell": "C23",
+            "section": "Section I"
+        },
+        {
+            "field": "non_part_pref_face_value_fy",
+            "default": 10,
+            "row_label": "Non-participating preference Share Face Value FY",
+            "cell": "C28",
+            "section": "Section I"
+        },
+        {
+            "field": "filing_year",
+            "default": 2025,
+            "row_label": "Year",
+            "cell": "C3",
+            "section": "Section I"
+        },
+        {
+            "field": "inward_fdi_status",
+            "default": "Yes",
+            "row_label": "Identification of reporting company",
+            "cell": "C33",
+            "section": "Section I"
+        },
+        {
+            "field": "company_type",
+            "default": "Private Limited",
+            "row_label": "Type of company*",
+            "cell": "C34",
+            "section": "Section I"
+        },
+        {
+            "field": "amc_status",
+            "default": "No",
+            "row_label": "Whether the Company is Asset Management Company?*",
+            "cell": "C35",
+            "section": "Section I"
+        },
+        {
+            "field": "tech_collab_status",
+            "default": "No",
+            "row_label": "Whether the Company has Technical Foreign collaboration?*",
+            "cell": "C36",
+            "section": "Section I"
+        },
+        {
+            "field": "business_activity_status",
+            "default": "Yes",
+            "row_label": "Whether the company has any business activity?*",
+            "cell": "C37",
+            "section": "Section I"
+        },
+        {
+            "field": "pan_number",
+            "default": "",
+            "row_label": "2. PAN number*",
+            "cell": "C5",
+            "section": "Section I"
+        },
+        {
+            "field": "telephone",
+            "default": "",
+            "row_label": "Telephone No. (with extension)*",
+            "cell": "C8",
+            "section": "Section I"
+        },
+        {
+            "field": "mobile_number",
+            "default": "",
+            "row_label": "Mobile Number*",
+            "cell": "C9",
+            "section": "Section I"
+        },
+        {
+            "field": "nr_shares_fiis_py",
+            "default": 0,
+            "row_label": "3. Foreign Institutional Investors PY",
+            "cell": "D14",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_fvcis_py",
+            "default": 0,
+            "row_label": "4. Foreign Venture Capital Investors PY",
+            "cell": "D15",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_trusts_py",
+            "default": 0,
+            "row_label": "5. Foreign Trusts PY",
+            "cell": "D16",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_pe_funds_py",
+            "default": 0,
+            "row_label": "6. Private Equity Funds PY",
+            "cell": "D17",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_pension_funds_py",
+            "default": 0,
+            "row_label": "7. Pension/Provident Funds PY",
+            "cell": "D18",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_sovereign_funds_py",
+            "default": 0,
+            "row_label": "8. Sovereign Wealth Funds PY",
+            "cell": "D19",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_partnerships_py",
+            "default": 0,
+            "row_label": "9. Partnership/Proprietorship firms PY",
+            "cell": "D20",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_fin_inst_py",
+            "default": 0,
+            "row_label": "10. Financial Institutions PY",
+            "cell": "D21",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_nris_py",
+            "default": 0,
+            "row_label": "11. NRIs/PIO PY",
+            "cell": "D22",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_non_part_pref_py",
+            "default": 0,
+            "row_label": "2.2 Non-Participating Preference Share (NR) PY",
+            "cell": "D23",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_fiis_fy",
+            "default": 0,
+            "row_label": "3. Foreign Institutional Investors FY",
+            "cell": "E14",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_fvcis_fy",
+            "default": 0,
+            "row_label": "4. Foreign Venture Capital Investors FY",
+            "cell": "E15",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_trusts_fy",
+            "default": 0,
+            "row_label": "5. Foreign Trusts FY",
+            "cell": "E16",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_pe_funds_fy",
+            "default": 0,
+            "row_label": "6. Private Equity Funds FY",
+            "cell": "E17",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_pension_funds_fy",
+            "default": 0,
+            "row_label": "7. Pension/Provident Funds FY",
+            "cell": "E18",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_sovereign_funds_fy",
+            "default": 0,
+            "row_label": "8. Sovereign Wealth Funds FY",
+            "cell": "E19",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_partnerships_fy",
+            "default": 0,
+            "row_label": "9. Partnership/Proprietorship firms FY",
+            "cell": "E20",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_fin_inst_fy",
+            "default": 0,
+            "row_label": "10. Financial Institutions FY",
+            "cell": "E21",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_nris_fy",
+            "default": 0,
+            "row_label": "11. NRIs/PIO FY",
+            "cell": "E22",
+            "section": "Section II"
+        },
+        {
+            "field": "nr_shares_non_part_pref_fy",
+            "default": 0,
+            "row_label": "2.2 Non-Participating Preference Share (NR) FY",
+            "cell": "E23",
+            "section": "Section II"
+        },
+        {
+            "field": "dividend_paid_py",
+            "default": 0.0,
+            "row_label": "3.3 Dividend PY",
+            "cell": "F28",
+            "section": "Section II"
+        },
+        {
+            "field": "tax_on_dividend_py",
+            "default": 0.0,
+            "row_label": "3.4 Tax on Dividend PY",
+            "cell": "F29",
+            "section": "Section II"
+        },
+        {
+            "field": "dividend_paid_fy",
+            "default": 0.0,
+            "row_label": "3.3 Dividend FY",
+            "cell": "G28",
+            "section": "Section II"
+        },
+        {
+            "field": "tax_on_dividend_fy",
+            "default": 0.0,
+            "row_label": "3.4 Tax on Dividend FY",
+            "cell": "G29",
+            "section": "Section II"
+        },
+        {
+            "field": "fdi_investor_1_liabilities_py",
+            "default": 0.0,
+            "row_label": "1.1 Liabilities to Direct Investors PY",
+            "cell": "D21",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_1_claims_py",
+            "default": 0.0,
+            "row_label": "1.2 Claims on Direct Investors PY",
+            "cell": "D22",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_1_other_liabilities_py",
+            "default": 0.0,
+            "row_label": "2.1 Liabilities to Direct Investor PY",
+            "cell": "D24",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_1_other_claims_py",
+            "default": 0.0,
+            "row_label": "2.2 Claims on Direct Investor PY",
+            "cell": "D25",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_1_disinvestment_py",
+            "default": 0.0,
+            "row_label": "3 Disinvestments in India PY",
+            "cell": "D26",
+            "section": "Section III"
+        },
+        {
+            "field": "portfolio_equity_percent_py",
+            "default": 0.0,
+            "row_label": "Block 3 Portfolio: Equity % PY",
+            "cell": "D56",
+            "section": "Section III"
+        },
+        {
+            "field": "portfolio_equity_mv_py",
+            "default": 0.0,
+            "row_label": "Block 3 Portfolio: Equity at Market Value PY",
+            "cell": "D60",
+            "section": "Section III"
+        },
+        {
+            "field": "portfolio_money_market_py",
+            "default": 0.0,
+            "row_label": "2.1 Money Market Instruments PY",
+            "cell": "D62",
+            "section": "Section III"
+        },
+        {
+            "field": "portfolio_bonds_py",
+            "default": 0.0,
+            "row_label": "2.2 Bonds and Other instruments PY",
+            "cell": "D64",
+            "section": "Section III"
+        },
+        {
+            "field": "portfolio_disinvestment_py",
+            "default": 0.0,
+            "row_label": "3 Disinvestments in India during year PY",
+            "cell": "D66",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_first_received_date",
+            "default": "N/A",
+            "row_label": "1.a.1 Month and Year of receiving FDI first time",
+            "cell": "D7",
+            "section": "Section III"
+        },
+        {
+            "field": "unrelated_trade_credit_liab_py",
+            "default": 0.0,
+            "row_label": "Block 4: 1.1 Trade Credit PY",
+            "cell": "D70",
+            "section": "Section III"
+        },
+        {
+            "field": "unrelated_loans_liab_py",
+            "default": 0.0,
+            "row_label": "Block 4: 1.2 Loans PY",
+            "cell": "D71",
+            "section": "Section III"
+        },
+        {
+            "field": "unrelated_deposits_liab_py",
+            "default": 0.0,
+            "row_label": "Block 4: 1.3 Currency & Deposits PY",
+            "cell": "D72",
+            "section": "Section III"
+        },
+        {
+            "field": "unrelated_other_payables_liab_py",
+            "default": 0.0,
+            "row_label": "Block 4: 1.4 Other receivable/payable PY",
+            "cell": "D73",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_1_liabilities_fy",
+            "default": 0.0,
+            "row_label": "1.1 Liabilities to Direct Investors FY",
+            "cell": "E21",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_1_claims_fy",
+            "default": 0.0,
+            "row_label": "1.2 Claims on Direct Investors FY",
+            "cell": "E22",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_1_other_liabilities_fy",
+            "default": 0.0,
+            "row_label": "2.1 Liabilities to Direct Investor FY",
+            "cell": "E24",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_1_other_claims_fy",
+            "default": 0.0,
+            "row_label": "2.2 Claims on Direct Investor FY",
+            "cell": "E25",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_1_disinvestment_fy",
+            "default": 0.0,
+            "row_label": "3 Disinvestments in India FY",
+            "cell": "E26",
+            "section": "Section III"
+        },
+        {
+            "field": "portfolio_equity_percent_fy",
+            "default": 0.0,
+            "row_label": "Block 3 Portfolio: Equity % FY",
+            "cell": "E56",
+            "section": "Section III"
+        },
+        {
+            "field": "portfolio_equity_mv_fy",
+            "default": 0.0,
+            "row_label": "Block 3 Portfolio: Equity at Market Value FY",
+            "cell": "E60",
+            "section": "Section III"
+        },
+        {
+            "field": "portfolio_money_market_fy",
+            "default": 0.0,
+            "row_label": "2.1 Money Market Instruments FY",
+            "cell": "E62",
+            "section": "Section III"
+        },
+        {
+            "field": "portfolio_bonds_fy",
+            "default": 0.0,
+            "row_label": "2.2 Bonds and Other instruments FY",
+            "cell": "E64",
+            "section": "Section III"
+        },
+        {
+            "field": "portfolio_disinvestment_fy",
+            "default": 0.0,
+            "row_label": "3 Disinvestments in India during year FY",
+            "cell": "E66",
+            "section": "Section III"
+        },
+        {
+            "field": "unrelated_trade_credit_liab_fy",
+            "default": 0.0,
+            "row_label": "Block 4: 1.1 Trade Credit FY",
+            "cell": "E70",
+            "section": "Section III"
+        },
+        {
+            "field": "unrelated_loans_liab_fy",
+            "default": 0.0,
+            "row_label": "Block 4: 1.2 Loans FY",
+            "cell": "E71",
+            "section": "Section III"
+        },
+        {
+            "field": "unrelated_deposits_liab_fy",
+            "default": 0.0,
+            "row_label": "Block 4: 1.3 Currency & Deposits FY",
+            "cell": "E72",
+            "section": "Section III"
+        },
+        {
+            "field": "unrelated_other_payables_liab_fy",
+            "default": 0.0,
+            "row_label": "Block 4: 1.4 Other receivable/payable FY",
+            "cell": "E73",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_2_liabilities_py",
+            "default": 0.0,
+            "row_label": "1.1 Liabilities to Direct Investors PY",
+            "cell": "Z35",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_2_liabilities_fy",
+            "default": 0.0,
+            "row_label": "1.1 Liabilities to Direct Investors FY",
+            "cell": "Z36",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_2_claims_py",
+            "default": 0.0,
+            "row_label": "1.2 Claims on Direct Investors PY",
+            "cell": "Z37",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_2_claims_fy",
+            "default": 0.0,
+            "row_label": "1.2 Claims on Direct Investors FY",
+            "cell": "Z38",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_2_other_liabilities_py",
+            "default": 0.0,
+            "row_label": "2.1 Liabilities to Direct Investor PY",
+            "cell": "Z41",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_2_other_liabilities_fy",
+            "default": 0.0,
+            "row_label": "2.1 Liabilities to Direct Investor FY",
+            "cell": "Z42",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_2_other_claims_py",
+            "default": 0.0,
+            "row_label": "2.2 Claims on Direct Investor PY",
+            "cell": "Z43",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_2_other_claims_fy",
+            "default": 0.0,
+            "row_label": "2.2 Claims on Direct Investor FY",
+            "cell": "Z44",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_2_disinvestment_py",
+            "default": 0.0,
+            "row_label": "3 Disinvestments in India PY",
+            "cell": "Z45",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_2_disinvestment_fy",
+            "default": 0.0,
+            "row_label": "3 Disinvestments in India FY",
+            "cell": "Z46",
+            "section": "Section III"
+        },
+        {
+            "field": "fdi_investor_2_unused",
+            "default": 0,
+            "row_label": "Unused",
+            "cell": "Z47",
+            "section": "Section III"
+        },
+        {
+            "field": "die_1_name",
+            "default": "",
+            "row_label": "DIE 1 Name",
+            "cell": "A19",
+            "section": "Section IV"
+        },
+        {
+            "field": "odi_first_made_date",
+            "default": "N/A",
+            "row_label": "1.a.1 Month and Year of ODI made first time",
+            "cell": "D10",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_country",
+            "default": "",
+            "row_label": "DIE 1 Country",
+            "cell": "D19",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_currency",
+            "default": "",
+            "row_label": "DIE 1 Currency",
+            "cell": "D25",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_total_equity_py",
+            "default": 0.0,
+            "row_label": "DIE 1 Total Equity PY (FC)",
+            "cell": "D26",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_equity_held_py",
+            "default": 0.0,
+            "row_label": "DIE 1 Equity held by you PY (FC)",
+            "cell": "D27",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_reserves_py",
+            "default": 0.0,
+            "row_label": "DIE 1 Reserves and Surplus PY (FC)",
+            "cell": "D28",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_pl_balance_py",
+            "default": 0.0,
+            "row_label": "DIE 1 Of which, P&L balance PY (FC)",
+            "cell": "D29",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_exchange_rate_py",
+            "default": 0,
+            "row_label": "DIE 1 Exchange rate PY",
+            "cell": "D31",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_sales_py",
+            "default": 0.0,
+            "row_label": "DIE 1 Total Sales PY (FC)",
+            "cell": "D32",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_exports_py",
+            "default": 0.0,
+            "row_label": "DIE 1 of which Exports PY (FC)",
+            "cell": "D33",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_purchases_py",
+            "default": 0.0,
+            "row_label": "DIE 1 Total Purchase PY (FC)",
+            "cell": "D34",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_imports_py",
+            "default": 0.0,
+            "row_label": "DIE 1 of which Imports PY (FC)",
+            "cell": "D35",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_employees_py",
+            "default": 0,
+            "row_label": "DIE 1 No. of Employees PY",
+            "cell": "D36",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_liabilities_py",
+            "default": 0.0,
+            "row_label": "DIE 1 Liabilities to DIE PY (INR Lakhs)",
+            "cell": "D40",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_claims_py",
+            "default": 0.0,
+            "row_label": "DIE 1 Claims on DIE PY (INR Lakhs)",
+            "cell": "D41",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_other_liabilities_py",
+            "default": 0.0,
+            "row_label": "DIE 1 Other Liabilities to DIE PY (INR Lakhs)",
+            "cell": "D43",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_other_claims_py",
+            "default": 0.0,
+            "row_label": "DIE 1 Other Claims on DIE PY (INR Lakhs)",
+            "cell": "D44",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_disinvestment_py",
+            "default": 0.0,
+            "row_label": "DIE 1 Disinvestments abroad PY (INR Lakhs)",
+            "cell": "D45",
+            "section": "Section IV"
+        },
+        {
+            "field": "odi_less_than_10_countries_count",
+            "default": 0,
+            "row_label": "2.a No. of Countries with <10% equity abroad",
+            "cell": "D52",
+            "section": "Section IV"
+        },
+        {
+            "field": "portfolio_abroad_countries_count",
+            "default": 0,
+            "row_label": "3.a Country of Non-Resident Enterprise (Portfolio)",
+            "cell": "D75",
+            "section": "Section IV"
+        },
+        {
+            "field": "odi_die_count",
+            "default": 0,
+            "row_label": "1.a No. of Direct Investment Enterprises (DIE)",
+            "cell": "D9",
+            "section": "Section IV"
+        },
+        {
+            "field": "unrelated_trade_credit_assets_py",
+            "default": 0.0,
+            "row_label": "Block 4: 1.1 Trade Credit PY (Assets)",
+            "cell": "D96",
+            "section": "Section IV"
+        },
+        {
+            "field": "unrelated_loans_assets_py",
+            "default": 0.0,
+            "row_label": "Block 4: 1.2 Loans PY (Assets)",
+            "cell": "D97",
+            "section": "Section IV"
+        },
+        {
+            "field": "unrelated_deposits_assets_py",
+            "default": 0.0,
+            "row_label": "Block 4: 1.3 Currency & Deposits PY (Assets)",
+            "cell": "D98",
+            "section": "Section IV"
+        },
+        {
+            "field": "unrelated_other_receivables_assets_py",
+            "default": 0.0,
+            "row_label": "Block 4: 1.4 Other receivable PY (Assets)",
+            "cell": "D99",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_equity_percent_py",
+            "default": 0.0,
+            "row_label": "DIE 1 Equity % PY",
+            "cell": "E19",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_total_equity_fy",
+            "default": 0.0,
+            "row_label": "DIE 1 Total Equity FY (FC)",
+            "cell": "E26",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_equity_held_fy",
+            "default": 0.0,
+            "row_label": "DIE 1 Equity held by you FY (FC)",
+            "cell": "E27",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_reserves_fy",
+            "default": 0.0,
+            "row_label": "DIE 1 Reserves and Surplus FY (FC)",
+            "cell": "E28",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_pl_balance_fy",
+            "default": 0.0,
+            "row_label": "DIE 1 Of which, P&L balance FY (FC)",
+            "cell": "E29",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_exchange_rate_fy",
+            "default": 0,
+            "row_label": "DIE 1 Exchange rate FY",
+            "cell": "E31",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_sales_fy",
+            "default": 0.0,
+            "row_label": "DIE 1 Total Sales FY (FC)",
+            "cell": "E32",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_exports_fy",
+            "default": 0.0,
+            "row_label": "DIE 1 of which Exports FY (FC)",
+            "cell": "E33",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_purchases_fy",
+            "default": 0.0,
+            "row_label": "DIE 1 Total Purchase FY (FC)",
+            "cell": "E34",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_imports_fy",
+            "default": 0.0,
+            "row_label": "DIE 1 of which Imports FY (FC)",
+            "cell": "E35",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_employees_fy",
+            "default": 0,
+            "row_label": "DIE 1 No. of Employees FY",
+            "cell": "E36",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_liabilities_fy",
+            "default": 0.0,
+            "row_label": "DIE 1 Liabilities to DIE FY (INR Lakhs)",
+            "cell": "E40",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_claims_fy",
+            "default": 0.0,
+            "row_label": "DIE 1 Claims on DIE FY (INR Lakhs)",
+            "cell": "E41",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_other_liabilities_fy",
+            "default": 0.0,
+            "row_label": "DIE 1 Other Liabilities to DIE FY (INR Lakhs)",
+            "cell": "E43",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_other_claims_fy",
+            "default": 0.0,
+            "row_label": "DIE 1 Other Claims on DIE FY (INR Lakhs)",
+            "cell": "E44",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_disinvestment_fy",
+            "default": 0.0,
+            "row_label": "DIE 1 Disinvestments abroad FY (INR Lakhs)",
+            "cell": "E45",
+            "section": "Section IV"
+        },
+        {
+            "field": "unrelated_trade_credit_assets_fy",
+            "default": 0.0,
+            "row_label": "Block 4: 1.1 Trade Credit FY (Assets)",
+            "cell": "E96",
+            "section": "Section IV"
+        },
+        {
+            "field": "unrelated_loans_assets_fy",
+            "default": 0.0,
+            "row_label": "Block 4: 1.2 Loans FY (Assets)",
+            "cell": "E97",
+            "section": "Section IV"
+        },
+        {
+            "field": "unrelated_deposits_assets_fy",
+            "default": 0.0,
+            "row_label": "Block 4: 1.3 Currency & Deposits FY (Assets)",
+            "cell": "E98",
+            "section": "Section IV"
+        },
+        {
+            "field": "unrelated_other_receivables_assets_fy",
+            "default": 0.0,
+            "row_label": "Block 4: 1.4 Other receivable FY (Assets)",
+            "cell": "E99",
+            "section": "Section IV"
+        },
+        {
+            "field": "die_1_equity_percent_fy",
+            "default": 0.0,
+            "row_label": "DIE 1 Equity % FY",
+            "cell": "F19",
+            "section": "Section IV"
+        }
+    ]
+}

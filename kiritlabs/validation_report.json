@@ -1,0 +1,47 @@
+[
+  {
+    "check_name": "Equity Share Capital Math",
+    "status": "PASSED",
+    "details": "Calculated: 34.5713 Lakhs, Expected (Shares * Face Value / 100000): 34.57 Lakhs"
+  },
+  {
+    "check_name": "Total Paid-Up Capital Consolidation",
+    "status": "PASSED",
+    "details": "Total PUC: 35.0743 Lakhs, Sum of Equity & Preference: 35.0743 Lakhs"
+  },
+  {
+    "check_name": "Non-Resident Shareholding Percentage",
+    "status": "PASSED",
+    "details": "Fitted Percent: 6.95%, Expected: 6.95% (NR Capital: 2.4372000000000003 / Total Capital: 35.0743)"
+  },
+  {
+    "check_name": "Retained Profit formula",
+    "status": "PASSED",
+    "details": "Retained Profit: 27.79 Lakhs, Expected (PAT - Dividend): 27.79 Lakhs"
+  },
+  {
+    "check_name": "Company Net Worth formula",
+    "status": "PASSED",
+    "details": "Net Worth: 2413.5343000000003 Lakhs, Expected (Paid Up Capital + Reserves): 2413.5343000000003 Lakhs"
+  },
+  {
+    "check_name": "Total Sales Consolidation",
+    "status": "PASSED",
+    "details": "Total Sales: 4345.96 Lakhs, Sum of Domestic & Exports: 4345.96 Lakhs"
+  },
+  {
+    "check_name": "Total Purchase Consolidation",
+    "status": "PASSED",
+    "details": "Total Purchases: 2083.96 Lakhs, Sum of Domestic & Imports: 2083.96 Lakhs"
+  },
+  {
+    "check_name": "FDI Investor Count validity",
+    "status": "PASSED",
+    "details": "Number of direct foreign investors: 11"
+  },
+  {
+    "check_name": "Overseas DIE 1 Net Worth formula",
+    "status": "PASSED",
+    "details": "DIE Net Worth: 0.0 FC, Expected (DIE Equity + Reserves): 0.0 FC"
+  }
+]

@@ -1,0 +1,33 @@
+==================================================
+       RBI FLA RETURN AUDIT & VALIDATION REPORT     
+==================================================
+
+Summary: 9 / 9 checks passed.
+
+[PASSED] Equity Share Capital Math
+      Details: Calculated: 34.5713 Lakhs, Expected (Shares * Face Value / 100000): 34.57 Lakhs
+
+[PASSED] Total Paid-Up Capital Consolidation
+      Details: Total PUC: 35.0743 Lakhs, Sum of Equity & Preference: 35.0743 Lakhs
+
+[PASSED] Non-Resident Shareholding Percentage
+      Details: Fitted Percent: 6.95%, Expected: 6.95% (NR Capital: 2.4372000000000003 / Total Capital: 35.0743)
+
+[PASSED] Retained Profit formula
+      Details: Retained Profit: 27.79 Lakhs, Expected (PAT - Dividend): 27.79 Lakhs
+
+[PASSED] Company Net Worth formula
+      Details: Net Worth: 2413.5343000000003 Lakhs, Expected (Paid Up Capital + Reserves): 2413.5343000000003 Lakhs
+
+[PASSED] Total Sales Consolidation
+      Details: Total Sales: 4345.96 Lakhs, Sum of Domestic & Exports: 4345.96 Lakhs
+
+[PASSED] Total Purchase Consolidation
+      Details: Total Purchases: 2083.96 Lakhs, Sum of Domestic & Imports: 2083.96 Lakhs
+
+[PASSED] FDI Investor Count validity
+      Details: Number of direct foreign investors: 11
+
+[PASSED] Overseas DIE 1 Net Worth formula
+      Details: DIE Net Worth: 0.0 FC, Expected (DIE Equity + Reserves): 0.0 FC
+
