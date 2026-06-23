@@ -1,6 +1,6 @@
 import openpyxl
 
-wb = openpyxl.load_workbook("/Users/apple/Desktop/FLA/excel/FLA Return existing skeletal.xlsx", data_only=False)
+wb = openpyxl.load_workbook("/Users/apple/Desktop/FLA/fla_automation_engine/fla_automation_engine/excel/FLA Return existing skeletal.xlsx", data_only=False)
 sheet = wb["Section IV"]
 
 # Let's inspect some rows: 26, 27, 28, 29, 30 (Net Worth), 31, 39 (Equity Capital), 42 (Other Capital)

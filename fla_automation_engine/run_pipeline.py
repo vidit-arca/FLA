@@ -43,9 +43,10 @@ from engine.validator import ReturnValidator
 
 def main():
     # Resolve default paths relative to this script's parent folder
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    engine_dir = os.path.abspath(os.path.dirname(__file__))
+    base_dir = os.path.abspath(os.path.join(engine_dir, ".."))
     default_input = os.path.join(base_dir, "signed") if os.path.exists(os.path.join(base_dir, "signed")) else "signed"
-    default_skeletal = os.path.join(base_dir, "excel", "FLA Return existing skeletal.xlsx") if os.path.exists(os.path.join(base_dir, "excel")) else "excel/FLA Return existing skeletal.xlsx"
+    default_skeletal = os.path.join(engine_dir, "excel", "FLA Return existing skeletal.xlsx") if os.path.exists(os.path.join(engine_dir, "excel")) else "excel/FLA Return existing skeletal.xlsx"
     default_output = os.path.join(base_dir, "output", "FLA Return Populated.xlsx") if os.path.exists(os.path.join(base_dir, "output")) else "output/FLA Return Populated.xlsx"
     default_config = os.path.join(os.path.dirname(__file__), "rules_config.json")
 

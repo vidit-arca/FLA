@@ -149,6 +149,56 @@ class DocumentParser:
                     
         return extracted
 
+    def extract_block4_from_text(self, text):
+        """Extracts Block 4 Unrelated Party Liabilities & Assets from text"""
+        extracted = {}
+        
+        # 1.1 Trade Credit
+        tc_liab = re.search(r'(?i)1\.1\s*Trade\s*Credit[\s\S]{0,100}?(?:Liabilities)?[\s\S]{0,50}?\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', text)
+        if tc_liab:
+            extracted["unrelated_trade_credit_liab_fy"] = self.parse_number(tc_liab.group(1))
+            extracted["unrelated_trade_credit_liab_py"] = self.parse_number(tc_liab.group(2))
+            
+        tc_ass = re.search(r'(?i)1\.1\s*Trade\s*Credit[\s\S]{0,100}?(?:Assets|Claims)[\s\S]{0,50}?\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', text)
+        if tc_ass:
+            extracted["unrelated_trade_credit_assets_fy"] = self.parse_number(tc_ass.group(1))
+            extracted["unrelated_trade_credit_assets_py"] = self.parse_number(tc_ass.group(2))
+            
+        # 1.2 Loans
+        loan_liab = re.search(r'(?i)1\.2\s*Loans[\s\S]{0,100}?(?:Liabilities)?[\s\S]{0,50}?\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', text)
+        if loan_liab:
+            extracted["unrelated_loans_liab_fy"] = self.parse_number(loan_liab.group(1))
+            extracted["unrelated_loans_liab_py"] = self.parse_number(loan_liab.group(2))
+            
+        loan_ass = re.search(r'(?i)1\.2\s*Loans[\s\S]{0,100}?(?:Assets|Claims)[\s\S]{0,50}?\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', text)
+        if loan_ass:
+            extracted["unrelated_loans_assets_fy"] = self.parse_number(loan_ass.group(1))
+            extracted["unrelated_loans_assets_py"] = self.parse_number(loan_ass.group(2))
+            
+        # 1.3 Currency & Deposits
+        cd_liab = re.search(r'(?i)1\.3\s*Currency\s*(?:&|and)\s*Deposits[\s\S]{0,100}?(?:Liabilities)?[\s\S]{0,50}?\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', text)
+        if cd_liab:
+            extracted["unrelated_deposits_liab_fy"] = self.parse_number(cd_liab.group(1))
+            extracted["unrelated_deposits_liab_py"] = self.parse_number(cd_liab.group(2))
+            
+        cd_ass = re.search(r'(?i)1\.3\s*Currency\s*(?:&|and)\s*Deposits[\s\S]{0,100}?(?:Assets|Claims)[\s\S]{0,50}?\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', text)
+        if cd_ass:
+            extracted["unrelated_deposits_assets_fy"] = self.parse_number(cd_ass.group(1))
+            extracted["unrelated_deposits_assets_py"] = self.parse_number(cd_ass.group(2))
+            
+        # 1.4 Other receivable and payable accounts
+        oth_liab = re.search(r'(?i)1\.4\s*Other\s*(?:receivable\s*(?:and|&)\s*payable\s*accounts|payable|receivable)[\s\S]{0,100}?(?:Liabilities)?[\s\S]{0,50}?\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', text)
+        if oth_liab:
+            extracted["unrelated_other_payables_liab_fy"] = self.parse_number(oth_liab.group(1))
+            extracted["unrelated_other_payables_liab_py"] = self.parse_number(oth_liab.group(2))
+            
+        oth_ass = re.search(r'(?i)1\.4\s*Other\s*(?:receivable\s*(?:and|&)\s*payable\s*accounts|receivable|payable)[\s\S]{0,100}?(?:Assets|Claims)[\s\S]{0,50}?\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', text)
+        if oth_ass:
+            extracted["unrelated_other_receivables_assets_fy"] = self.parse_number(oth_ass.group(1))
+            extracted["unrelated_other_receivables_assets_py"] = self.parse_number(oth_ass.group(2))
+            
+        return extracted
+
     def parse_markdown_tables(self, md_content):
         """Parses markdown tables into lists of dictionaries."""
         tables = []
@@ -282,15 +332,53 @@ class DocumentParser:
                         xl = pd.ExcelFile(extra_path)
                         extra_tables = []
                         for sheet in xl.sheet_names:
-                            df = pd.read_excel(xl, sheet_name=sheet)
-                            header = [str(c).lower() for c in df.columns]
-                            data = [[str(x) if pd.notna(x) else "" for x in r] for r in df.values]
+                            df = pd.read_excel(xl, sheet_name=sheet, header=None)
+                            
+                            # Find dynamic header row (look for PY/FY in first 10 rows)
+                            header_idx = 0
+                            for i in range(min(10, len(df))):
+                                row_vals = [str(x).lower() if pd.notna(x) else "" for x in df.iloc[i].values]
+                                if any('previous' in x or 'py' in x for x in row_vals) and any('current' in x or 'fy' in x for x in row_vals):
+                                    header_idx = i
+                                    break
+                                    
+                            header = [str(c).lower() if pd.notna(c) else "" for c in df.iloc[header_idx].values]
+                            
+                            data = []
+                            for i in range(header_idx + 1, len(df)):
+                                row = [str(x) if pd.notna(x) else "" for x in df.iloc[i].values]
+                                data.append(row)
+                                
                             extra_tables.append([header] + data)
                         extra_data = self.extract_financials_from_tables(extra_tables)
                         all_extracted.update(extra_data)
                         print(f"    [+] Extracted {len(extra_data)} dynamic fields from extra Excel.")
                     except Exception as e:
                         print(f"    [!] Error parsing extra details: {e}")
+                else:
+                    # Native Text/MD fallback for extra details
+                    print(f"    [*] Extracting Block 4 details from {os.path.basename(extra_path)} (Text Mode)...")
+                    try:
+                        extra_text = ""
+                        if extra_path.endswith(".md") or extra_path.endswith(".txt"):
+                            with open(extra_path, "r", encoding="utf-8") as f:
+                                extra_text = f.read()
+                        elif extra_path.endswith(".pdf"):
+                            basename = os.path.basename(extra_path)
+                            if ocr_outputs and basename in ocr_outputs and os.path.exists(ocr_outputs[basename].get("md", "")):
+                                with open(ocr_outputs[basename]["md"], "r", encoding="utf-8") as f:
+                                    extra_text = f.read()
+                            else:
+                                import pdfplumber
+                                with pdfplumber.open(extra_path) as pdf:
+                                    extra_text = "\n".join([page.extract_text() for page in pdf.pages if page.extract_text()])
+                        
+                        if extra_text:
+                            block4_data = self.extract_block4_from_text(extra_text)
+                            all_extracted.update(block4_data)
+                            print(f"    [+] Extracted Block 4 native details from text.")
+                    except Exception as e:
+                        print(f"    [!] Error parsing native extra details text: {e}")
 
             if "odi_details" in docs_paths:
                 odi_path = docs_paths["odi_details"]
@@ -415,6 +503,10 @@ class DocumentParser:
                     for k, v in text_info.items():
                         if k not in all_extracted:
                             all_extracted[k] = v
+                    
+                    # Also extract Block 4 from other_text (e.g. extra_details document)
+                    block4_info = self.extract_block4_from_text(other_text)
+                    all_extracted.update(block4_info)
                 
         # 2. Parse Financials from OCR outputs (Markdown / JSON) or Native PDF
         tables = []
@@ -498,7 +590,9 @@ class DocumentParser:
                     
         if tables:
             fin_details = self.extract_financials_from_tables(tables)
-            all_extracted.update(fin_details)
+            for k, v in fin_details.items():
+                if k not in all_extracted:
+                    all_extracted[k] = v
             
         if md_content:
             # Try to extract PAN/CIN from financials text too if not found in Board Report
@@ -569,7 +663,53 @@ class DocumentParser:
                 all_extracted["import_purchases_fy"] = self.parse_number(imp_match.group(1))
                 all_extracted["import_purchases_py"] = self.parse_number(imp_match.group(2))
 
-        # 6. Dynamically extract Nature of Business / NIC Code
+        # 6. Related Party Transactions (Liabilities & Claims for FDI Block 1, 2, 3 and DI Block 1, 2, 3)
+        for prefix in ["fdi_investor", "di_investor"]:
+            for i in range(1, 4):
+                inv_key = f"{prefix}_{i}_name"
+                if inv_key in all_extracted and all_extracted[inv_key]:
+                    investor_name = all_extracted[inv_key]
+                    
+                    # Focus on Related Party section if it exists
+                    search_content = md_content
+                    rpt_match = re.search(r'(?i)(?:Related\s+party\s+disclosures?|Related\s+party\s+transactions?)', md_content)
+                    if rpt_match:
+                        search_content = md_content[rpt_match.start():]
+
+                    # 2.1 Other Liabilities (Trade payables, loans from investor)
+                    payables_match = re.search(r'(?:trade payable|payable|trade creditor|creditor|owed|outstanding|ecb|loan|ccd|ccp)[\s\S]{0,100}?' + re.escape(investor_name) + r'[\s\S]{0,100}?\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', search_content, re.IGNORECASE)
+                    if payables_match:
+                        all_extracted[f"{prefix}_{i}_other_liabilities_fy"] = self.parse_number(payables_match.group(1))
+                        all_extracted[f"{prefix}_{i}_other_liabilities_py"] = self.parse_number(payables_match.group(2))
+                        
+                    # 2.2 Other Claims (Trade receivables from investor)
+                    receivables_match = re.search(r'(?:trade receivable|receivable|trade debtor|debtor|due from)[\s\S]{0,100}?' + re.escape(investor_name) + r'[\s\S]{0,100}?\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', search_content, re.IGNORECASE)
+                    if receivables_match:
+                        all_extracted[f"{prefix}_{i}_other_claims_fy"] = self.parse_number(receivables_match.group(1))
+                        all_extracted[f"{prefix}_{i}_other_claims_py"] = self.parse_number(receivables_match.group(2))
+                        
+                    # 1.2 Claims on Direct Investors (Reverse Investment)
+                    inv_match = re.search(r'investment[\s\S]{0,50}?' + re.escape(investor_name) + r'[\s\S]{0,100}?\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', search_content, re.IGNORECASE)
+                    if inv_match:
+                        all_extracted[f"{prefix}_{i}_claims_fy"] = self.parse_number(inv_match.group(1))
+                        all_extracted[f"{prefix}_{i}_claims_py"] = self.parse_number(inv_match.group(2))
+
+                    # 3 Disinvestments
+                    if f"{prefix}_{i}_equity_percent_py" in all_extracted and f"{prefix}_{i}_equity_percent_fy" in all_extracted:
+                        py_pct = all_extracted[f"{prefix}_{i}_equity_percent_py"]
+                        fy_pct = all_extracted[f"{prefix}_{i}_equity_percent_fy"]
+                        if fy_pct < py_pct:
+                            dis_match = re.search(r'(?:buyback|transfer|reduction)[\s\S]{0,150}?\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', search_content, re.IGNORECASE)
+                            if dis_match:
+                                all_extracted[f"{prefix}_{i}_disinvestment_fy"] = self.parse_number(dis_match.group(1))
+                                all_extracted[f"{prefix}_{i}_disinvestment_py"] = self.parse_number(dis_match.group(2))
+                    
+        # 6c. First FDI Date
+        fcgpr_match = re.search(r'(?:FCGPR|first allotment|first share allotment)[\s\S]{0,100}?((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4})', md_content, re.IGNORECASE)
+        if fcgpr_match:
+            all_extracted["fdi_first_received_date"] = fcgpr_match.group(1).strip()
+
+        # 7. Dynamically extract Nature of Business / NIC Code
         # Combine Board Report text and Financials md_content
         br_text = text if "text" in locals() else ""
         fin_text = md_content if "md_content" in locals() else ""
@@ -606,7 +746,7 @@ class DocumentParser:
         try:
             import openpyxl
             engine_dir = os.path.dirname(os.path.abspath(__file__))
-            skeletal_path = os.path.abspath(os.path.join(engine_dir, "..", "..", "excel", "FLA Return existing skeletal.xlsx"))
+            skeletal_path = os.path.abspath(os.path.join(engine_dir, "..", "excel", "FLA Return existing skeletal.xlsx"))
             if os.path.exists(skeletal_path):
                 wb_sk = openpyxl.load_workbook(skeletal_path, data_only=True)
                 if "Annex 1" in wb_sk.sheetnames:

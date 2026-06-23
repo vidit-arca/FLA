@@ -159,15 +159,37 @@ class RuleEngine:
         cell_values["Section III"]["D20"] = (fdi1_eq_pct_py / 100.0) * net_worth_py
         cell_values["Section III"]["E20"] = (fdi1_eq_pct_fy / 100.0) * net_worth_fy
         
+        # FDI 1: 1.1 Liabilities to Direct Investors (D21, E21)
+        cell_values["Section III"]["D21"] = cell_values["Section III"]["D20"]
+        cell_values["Section III"]["E21"] = cell_values["Section III"]["E20"]
+        
         # FDI 1 Other Capital (D23 = D24 - D25, E23 = E24 - E25)
         cell_values["Section III"]["D23"] = get_val("Section III", "D24") - get_val("Section III", "D25")
         cell_values["Section III"]["E23"] = get_val("Section III", "E24") - get_val("Section III", "E25")
+
+        # FDI 2 Equity Capital holding (Z33 = (Z31 / 100) * Net_Worth_PY, Z34 = (Z32 / 100) * Net_Worth_FY)
+        fdi2_eq_pct_py = get_val("Section III", "Z31")
+        fdi2_eq_pct_fy = get_val("Section III", "Z32")
+        cell_values["Section III"]["Z33"] = (fdi2_eq_pct_py / 100.0) * net_worth_py
+        cell_values["Section III"]["Z34"] = (fdi2_eq_pct_fy / 100.0) * net_worth_fy
+        
+        # FDI 2: 1.1 Liabilities to Direct Investors (Z35, Z36)
+        cell_values["Section III"]["Z35"] = cell_values["Section III"]["Z33"]
+        cell_values["Section III"]["Z36"] = cell_values["Section III"]["Z34"]
+
+        # FDI 2 Other Capital (Z39 = Z41 - Z43, Z40 = Z42 - Z44)
+        cell_values["Section III"]["Z39"] = get_val("Section III", "Z41") - get_val("Section III", "Z43")
+        cell_values["Section III"]["Z40"] = get_val("Section III", "Z42") - get_val("Section III", "Z44")
 
         # Block 2 DI 1 Equity Capital holding (D44 = (C41 / 100) * Net_Worth_PY, E44 = (D41 / 100) * Net_Worth_FY)
         di1_eq_pct_py = get_val("Section III", "C41")
         di1_eq_pct_fy = get_val("Section III", "D41")
         cell_values["Section III"]["D44"] = (di1_eq_pct_py / 100.0) * net_worth_py
         cell_values["Section III"]["E44"] = (di1_eq_pct_fy / 100.0) * net_worth_fy
+        
+        # Block 2 DI 1: 1.1 Liabilities to Direct Investors (D45, E45)
+        cell_values["Section III"]["D45"] = cell_values["Section III"]["D44"]
+        cell_values["Section III"]["E45"] = cell_values["Section III"]["E44"]
 
         # Block 2 DI 1 Other Capital (D47 = D48 - D49, E47 = E48 - E49)
         cell_values["Section III"]["D47"] = get_val("Section III", "D48") - get_val("Section III", "D49")

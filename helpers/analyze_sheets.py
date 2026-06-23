@@ -49,8 +49,8 @@ def analyze_tool(file_path):
     return results
 
 if __name__ == "__main__":
-    skel = analyze_skeletal("/Users/apple/Desktop/FLA/excel/FLA Return existing skeletal.xlsx")
-    tool = analyze_tool("/Users/apple/Desktop/FLA/excel/FLA_Tool_v5_fixed.xlsx")
+    skel = analyze_skeletal("/Users/apple/Desktop/FLA/fla_automation_engine/fla_automation_engine/excel/FLA Return existing skeletal.xlsx")
+    tool = analyze_tool("/Users/apple/Desktop/FLA/fla_automation_engine/excel/FLA_Tool_v5_fixed.xlsx")
     
     with open("/Users/apple/Desktop/FLA/skel_structure.json", "w") as f:
         json.dump(skel, f, indent=2)

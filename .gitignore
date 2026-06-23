@@ -2,7 +2,9 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
 .env
+.env.*
 venv/
 env/
 .venv/
@@ -14,9 +16,12 @@ build/
 .npm/
 
 # Data and Outputs (FLA specific)
-/data/
-/output/
+data/
+output/
 *.log
+*.db
+*.sqlite
+*.sqlite3
 
 # OS generated files
 .DS_Store
@@ -29,3 +34,13 @@ build/
 .vscode/
 .idea/
 *.swp
+
+# Miscellaneous Project Files
+Screenrecoding/
+*.zip
+*.png
+*.jpg
+*.jpeg
+comparsion_dump.json
+new_fla.json
+old_fla.json

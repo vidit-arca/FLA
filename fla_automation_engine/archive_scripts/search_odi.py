@@ -1,6 +1,6 @@
 import pandas as pd
 
-xl = pd.ExcelFile("/Users/apple/Desktop/FLA/excel/FLA_Tool_v5_fixed.xlsx")
+xl = pd.ExcelFile("/Users/apple/Desktop/FLA/fla_automation_engine/excel/FLA_Tool_v5_fixed.xlsx")
 df = pd.read_excel(xl, sheet_name="2_FINANCIALS")
 
 for r_idx, row in df.iterrows():

@@ -1,6 +1,6 @@
 import openpyxl
 
-wb = openpyxl.load_workbook("/Users/apple/Desktop/FLA/excel/FLA Return existing skeletal.xlsx", data_only=True)
+wb = openpyxl.load_workbook("/Users/apple/Desktop/FLA/fla_automation_engine/fla_automation_engine/excel/FLA Return existing skeletal.xlsx", data_only=True)
 sheet = wb["Section III"]
 
 print("=== SKELETAL SPREADSHEET ROWS 20-25 COLUMNS F & G ===")

@@ -53,7 +53,7 @@ class DocumentIngestion:
             if f.endswith('.pdf') or f.endswith('.md'):
                 if "board" in lower_name:
                     docs["board_report"] = full_path
-                elif "odi" not in lower_name and any(k in lower_name for k in ["financial", "merged", "auditor", "auditor financial", "balance sheet", "profit and loss", "p&l"]):
+                elif "odi" not in lower_name and any(k in lower_name for k in ["financial", "merged", "auditor", "auditor financial", "balance sheet", "profit and loss", "p&l", "bspl", "standalone"]):
                     if f.endswith('.md'):
                         financial_mds.append(full_path)
                     elif "merged_financials_combined.pdf" not in lower_name:

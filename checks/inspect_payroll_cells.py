@@ -1,6 +1,6 @@
 import openpyxl
 
-wb = openpyxl.load_workbook("/Users/apple/Desktop/FLA/excel/FLA Return existing skeletal.xlsx")
+wb = openpyxl.load_workbook("/Users/apple/Desktop/FLA/fla_automation_engine/fla_automation_engine/excel/FLA Return existing skeletal.xlsx")
 sheet = wb["Section II"]
 
 print("=== INSPECTING ROW 7 ===")

@@ -156,11 +156,11 @@
     },
     "domestic_sales": {
       "keywords": [
-        "domestic sales",
-        "sales within india",
         "domestic revenue",
         "total revenue",
-        "total income"
+        "total income",
+        "sales within india",
+        "domestic sales"
       ],
       "py_col_keywords": [
         "previous year",
@@ -173,11 +173,12 @@
     },
     "export_sales": {
       "keywords": [
-        "export sales",
-        "fob value of exports",
         "exports",
         "foreign exchange earnings",
-        "Export of Services"
+        "export",
+        "Export of Services",
+        "fob value of exports",
+        "export sales"
       ],
       "py_col_keywords": [
         "previous year",
@@ -190,9 +191,10 @@
     },
     "domestic_purchases": {
       "keywords": [
-        "domestic purchases",
         "indigenous materials",
-        "domestic consumption"
+        "domestic purchases",
+        "domestic consumption",
+        "domestic purchase"
       ],
       "py_col_keywords": [
         "previous year",
@@ -205,10 +207,10 @@
     },
     "import_purchases": {
       "keywords": [
+        "import of raw materials",
         "cif value of imports",
         "imports",
-        "foreign exchange outgo on imports",
-        "import of raw materials"
+        "foreign exchange outgo on imports"
       ],
       "py_col_keywords": [
         "previous year",
@@ -233,6 +235,144 @@
       "fy_col_keywords": [
         "current year",
         "2025"
+      ]
+    },
+    "equity_shares_count": {
+      "keywords": [
+        "equity shares \u2013 total number of shares issued & fully paid",
+        "number of equity shares",
+        "total number of shares issued",
+        "equity shares issued",
+        "equity shares outstanding",
+        "equity shares issued and fully paid"
+      ]
+    },
+    "part_pref_shares_count": {
+      "keywords": [
+        "preference shares participating",
+        "participating preference shares \u2013 no. of shares",
+        "participating preference shares"
+      ]
+    },
+    "non_part_pref_shares_count": {
+      "keywords": [
+        "preference shares non participating",
+        "non-participating preference shares \u2013 no. of shares",
+        "non-participating preference shares",
+        "non participating preference"
+      ]
+    },
+    "equity_face_value": {
+      "keywords": [
+        "face value per equity share",
+        "equity shares of",
+        "face value of equity"
+      ]
+    },
+    "part_pref_face_value": {
+      "keywords": [
+        "face value per participating preference share",
+        "face value participating preference"
+      ]
+    },
+    "non_part_pref_face_value": {
+      "keywords": [
+        "face value per non-participating preference share",
+        "face value non participating preference"
+      ]
+    },
+    "nr_shares_individuals": {
+      "keywords": [
+        "non resident individuals",
+        "individual foreign investors",
+        "nr individual investors",
+        "foreign individuals",
+        "1. individuals"
+      ]
+    },
+    "nr_shares_companies": {
+      "keywords": [
+        "foreign corporate shareholders",
+        "foreign companies",
+        "2. companies",
+        "overseas corporate bodies",
+        "non resident companies"
+      ]
+    },
+    "nr_shares_fiis": {
+      "keywords": [
+        "fiis \u2013 foreign institutional investors",
+        "foreign institutional investors",
+        "fpi",
+        "fii"
+      ]
+    },
+    "nr_shares_fvcis": {
+      "keywords": [
+        "fvci",
+        "fvcis \u2013 foreign venture capital investors",
+        "foreign venture capital investors"
+      ]
+    },
+    "nr_shares_trusts": {
+      "keywords": [
+        "nr trusts",
+        "foreign trusts"
+      ]
+    },
+    "nr_shares_pe_funds": {
+      "keywords": [
+        "foreign private equity",
+        "foreign private equity funds",
+        "private equity funds",
+        "pe fund investors"
+      ]
+    },
+    "nr_shares_pension_funds": {
+      "keywords": [
+        "foreign pension",
+        "foreign pension / provident funds",
+        "provident funds",
+        "pension funds"
+      ]
+    },
+    "nr_shares_sovereign_funds": {
+      "keywords": [
+        "foreign sovereign funds",
+        "sovereign wealth funds",
+        "sovereign funds"
+      ]
+    },
+    "nr_shares_partnerships": {
+      "keywords": [
+        "proprietorship firms",
+        "foreign partnership",
+        "foreign partnership / proprietorship firms",
+        "partnership firms"
+      ]
+    },
+    "nr_shares_fin_inst": {
+      "keywords": [
+        "foreign financial institutions",
+        "financial institutions"
+      ]
+    },
+    "nr_shares_nris": {
+      "keywords": [
+        "nri",
+        "pio",
+        "non resident indians",
+        "persons of indian origin",
+        "nris / pios",
+        "nris"
+      ]
+    },
+    "nr_shares_non_part_pref": {
+      "keywords": [
+        "non-participating preference share (nr)",
+        "non-participating preference shares held by nr investors",
+        "nr holders of non-participating preference shares",
+        "non-participating preference shares held by nr"
       ]
     }
   },
@@ -1022,16 +1162,14 @@
       "FDI1_Liabilities_PY": {
         "row_label": "1.1 Liabilities to Direct Investors PY",
         "cell": "D21",
-        "type": "extracted",
-        "field": "fdi_investor_1_liabilities_py",
-        "default": 0.0
+        "type": "calculated",
+        "formula": "calculate_fdi_equity('fdi_investor_1_equity_percent_py', 'Net_Worth_PY')"
       },
       "FDI1_Liabilities_FY": {
         "row_label": "1.1 Liabilities to Direct Investors FY",
         "cell": "E21",
-        "type": "extracted",
-        "field": "fdi_investor_1_liabilities_fy",
-        "default": 0.0
+        "type": "calculated",
+        "formula": "calculate_fdi_equity('fdi_investor_1_equity_percent_fy', 'Net_Worth_FY')"
       },
       "FDI1_Claims_PY": {
         "row_label": "1.2 Claims on Direct Investors PY",
@@ -1289,16 +1427,14 @@
       "FDI2_Liabilities_PY": {
         "row_label": "1.1 Liabilities to Direct Investors PY",
         "cell": "Z35",
-        "type": "extracted",
-        "field": "fdi_investor_2_liabilities_py",
-        "default": 0.0
+        "type": "calculated",
+        "formula": "calculate_fdi_equity('fdi_investor_2_equity_percent_py', 'Net_Worth_PY')"
       },
       "FDI2_Liabilities_FY": {
         "row_label": "1.1 Liabilities to Direct Investors FY",
         "cell": "Z36",
-        "type": "extracted",
-        "field": "fdi_investor_2_liabilities_fy",
-        "default": 0.0
+        "type": "calculated",
+        "formula": "calculate_fdi_equity('fdi_investor_2_equity_percent_fy', 'Net_Worth_FY')"
       },
       "FDI2_Claims_PY": {
         "row_label": "1.2 Claims on Direct Investors PY",
@@ -1409,16 +1545,12 @@
       "FDI3_Liabilities_PY": {
         "row_label": "1.1 Liabilities to Direct Investors PY",
         "cell": "D45",
-        "type": "extracted",
-        "field": "fdi_investor_2_liabilities_py",
-        "default": 0.0
+        "type": "calculated"
       },
       "FDI3_Liabilities_FY": {
         "row_label": "1.1 Liabilities to Direct Investors FY",
         "cell": "E45",
-        "type": "extracted",
-        "field": "fdi_investor_2_liabilities_fy",
-        "default": 0.0
+        "type": "calculated"
       },
       "FDI3_Claims_PY": {
         "row_label": "1.2 Claims on Direct Investors PY",

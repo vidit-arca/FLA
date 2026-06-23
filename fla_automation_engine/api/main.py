@@ -18,6 +18,7 @@ from engine.rule_engine import RuleEngine
 from engine.excel_writer import ExcelWriter
 from engine.validator import ReturnValidator
 from engine.comparison_platform.manager import ComparisonPlatformManager
+from engine.workflow.graph import create_workflow_graph
 
 from . import models
 from .database import engine, get_db
@@ -67,52 +68,42 @@ def process_pipeline(task_id: str):
         
     try:
         task.status = "processing"
-        task.logs = "Starting Pipeline...\n"
+        task.logs = "Starting LangGraph Pipeline...\n"
         db.commit()
         
-        # 1. Ingestion
-        task.logs += "[*] Stage 1: Scanning input directory...\n"
-        db.commit()
-        ingestor = DocumentIngestion(task.input_dir)
-        docs = ingestor.find_documents()
+        graph = create_workflow_graph()
         
-        # 2. Parsing
-        task.logs += "[*] Stage 2 & 3: Parsing documents...\n"
-        db.commit()
-        parser = DocumentParser("rules_config.json")
-        extracted_data = parser.parse_all(docs, {})
+        initial_state = {
+            "task_id": task_id,
+            "input_dir": task.input_dir,
+            "company_name": task.company_name,
+            "financial_docs": [],
+            "previous_fla_file": "",
+            "ocr_outputs": {},
+            "extracted_data": {},
+            "target_cells": {},
+            "comparison_results": [],
+            "output_excel": "",
+            "status": "processing",
+            "logs": []
+        }
         
-        # 3. Rule Engine
-        task.logs += "[*] Stage 4: Applying business rules...\n"
-        db.commit()
-        rule_engine = RuleEngine("rules_config.json")
-        target_cells = rule_engine.evaluate_all(extracted_data)
+        final_state = graph.invoke(initial_state)
         
-        task.logs += "[*] Stage 5: Exporting to Excel...\n"
-        db.commit()
+        task.extracted_data = final_state.get("extracted_data", {})
+        task.ocr_outputs = final_state.get("ocr_outputs", {})
+        task.output_excel = final_state.get("output_excel", "")
         
-        safe_company_name = "".join(c if c.isalnum() or c in " .-_" else "_" for c in task.company_name)
-        output_dir = os.path.join(BASE_OUTPUT_DIR, safe_company_name)
-        os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, "FLA_Return_Populated.xlsx")
-
-        engine_dir = os.path.dirname(os.path.abspath(__file__))
-        skeletal_path = os.path.abspath(os.path.join(engine_dir, "..", "..", "excel", "FLA Return existing skeletal.xlsx"))
+        if final_state.get("comparison_results"):
+            final_state["logs"].append(f"[+] Comparison generated {len(final_state['comparison_results'])} results.")
+            # Store comparison results inside extracted data for UI access
+            task.extracted_data["comparison_results"] = final_state["comparison_results"]
+            
+        task.logs += "\n".join(final_state["logs"])
+        task.logs += "\n[+] LangGraph Pipeline finished successfully.\n"
         
-        writer = ExcelWriter(skeletal_path, output_path)
-        writer.write_values(target_cells)
-        
-        task.logs += "[*] Stage 6: Running Validations...\n"
-        db.commit()
-        validator = ReturnValidator()
-        validator.run_all_checks(target_cells)
-        validator.save_report(output_dir)
-        
-        task.extracted_data = extracted_data
         task.status = "completed"
-        task.output_excel = output_path
         task.completed_at = datetime.utcnow()
-        task.logs += "[+] Pipeline finished successfully.\n"
         db.commit()
         
     except Exception as e:
@@ -157,7 +148,7 @@ async def export_excel(task_id: str, reviewed_data: dict, db: Session = Depends(
         output_path = os.path.join(output_dir, "FLA_Return_Populated.xlsx")
 
         engine_dir = os.path.dirname(os.path.abspath(__file__))
-        skeletal_path = os.path.abspath(os.path.join(engine_dir, "..", "..", "excel", "FLA Return existing skeletal.xlsx"))
+        skeletal_path = os.path.abspath(os.path.join(engine_dir, "..", "excel", "FLA Return existing skeletal.xlsx"))
         
         writer = ExcelWriter(skeletal_path, output_path)
         writer.write_values(target_cells)

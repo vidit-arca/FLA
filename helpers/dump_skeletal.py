@@ -17,4 +17,4 @@ def dump_skeletal(file_path):
     wb.close()
 
 if __name__ == "__main__":
-    dump_skeletal("/Users/apple/Desktop/FLA/excel/FLA Return existing skeletal.xlsx")
+    dump_skeletal("/Users/apple/Desktop/FLA/fla_automation_engine/fla_automation_engine/excel/FLA Return existing skeletal.xlsx")

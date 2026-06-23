@@ -6,7 +6,7 @@ sys.path.append(os.path.abspath('.'))
 from engine.extractors.excel_extractor import ExcelExtractor
 
 extractor = ExcelExtractor()
-result = extractor.extract_odi_data("/Users/apple/Desktop/FLA/excel/FLA_Tool_v5_fixed.xlsx")
+result = extractor.extract_odi_data("/Users/apple/Desktop/FLA/fla_automation_engine/excel/FLA_Tool_v5_fixed.xlsx")
 
 for key, val in result.items():
     if "json" in key:

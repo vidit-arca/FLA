@@ -1,7 +1,7 @@
 import pandas as pd
 
 try:
-    xl = pd.ExcelFile("/Users/apple/Desktop/FLA/excel/FLA_Tool_v5_fixed.xlsx")
+    xl = pd.ExcelFile("/Users/apple/Desktop/FLA/fla_automation_engine/excel/FLA_Tool_v5_fixed.xlsx")
     print("Sheets:", xl.sheet_names)
     
     # Try reading the first sheet

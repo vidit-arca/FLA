@@ -6,3 +6,6 @@ pandas>=2.0.0
 # VLM OCR Pipeline (Marker PDF)
 # Note: marker requires torch and layout transformers.
 # It can be installed globally or in a conda environment.
+
+# Orchestration
+langgraph>=0.0.26

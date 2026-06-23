@@ -13,5 +13,6 @@ class ExtractionTask(Base):
     completed_at = Column(DateTime, nullable=True)
     input_dir = Column(String)
     extracted_data = Column(JSON, nullable=True)
+    ocr_outputs = Column(JSON, nullable=True)
     logs = Column(Text, default="")
     output_excel = Column(String, nullable=True)

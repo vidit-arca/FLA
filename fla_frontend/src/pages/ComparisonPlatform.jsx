@@ -161,29 +161,42 @@ export default function ComparisonPlatform() {
             <table className="w-full text-sm text-left">
               <thead className="text-xs text-slate-400 uppercase bg-black/20 border-b border-white/5">
                 <tr>
-                  <th className="px-6 py-4 font-semibold">Cell/Field</th>
-                  <th className="px-6 py-4 font-semibold">Source Value</th>
-                  <th className="px-6 py-4 font-semibold">Target Value</th>
-                  <th className="px-6 py-4 font-semibold">Status</th>
+                  <th className="px-6 py-4 font-semibold">Field Name</th>
+                  <th className="px-6 py-4 font-semibold">Instruction</th>
+                  <th className="px-6 py-4 font-semibold">Previous FLA</th>
+                  <th className="px-6 py-4 font-semibold">Current FLA</th>
+                  <th className="px-6 py-4 font-semibold">Final Value</th>
+                  <th className="px-6 py-4 font-semibold">Reason</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
                 {results.map((row, idx) => (
                   <tr key={idx} className="hover:bg-white/[0.02] transition-colors">
-                    <td className="px-6 py-4 font-medium text-slate-300">{row.cell}</td>
-                    <td className="px-6 py-4 text-slate-400">{row.sourceValue}</td>
-                    <td className="px-6 py-4 text-slate-400">{row.targetValue}</td>
+                    <td className="px-6 py-4 font-medium text-slate-300">{row.fieldName || row.cell}</td>
                     <td className="px-6 py-4">
-                      {row.status === 'Match' ? (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                          <CheckCircle className="w-3 h-3" />
-                          Match
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700">
+                        {row.mappingType || 'N/A'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-slate-400">{row.previousValue || row.sourceValue || '-'}</td>
+                    <td className="px-6 py-4 text-slate-400">{row.currentValue || row.targetValue || '-'}</td>
+                    <td className="px-6 py-4">
+                      <span className="font-bold text-white bg-indigo-500/10 px-2 py-1 rounded">
+                        {row.finalSelectedValue || '-'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      {row.reason ? (
+                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
+                          row.reason.includes('Missing -> Used Previous') || row.reason.includes('Both Missing') ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 
+                          row.reason.includes('Different -> Used Current') ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
+                          'bg-blue-500/10 text-blue-400 border-blue-500/20'
+                        }`}>
+                          {row.reason.includes('Used Current') || row.reason.includes('Used Previous') ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                          {row.reason}
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
-                          <AlertCircle className="w-3 h-3" />
-                          Mismatch
-                        </span>
+                        <span className="text-slate-500 italic text-xs">No reason provided</span>
                       )}
                     </td>
                   </tr>
