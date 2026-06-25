@@ -1,6 +1,6 @@
 import sys
 sys.path.append("/Users/apple/Desktop/FLA")
-from fla_automation_engine.engine.extractors.excel_extractor import ExcelExtractor
+from automation_engine.automation_engine.modules.fla.extractors.excel_extractor import ExcelExtractor
 import pandas as pd
 
 extractor = ExcelExtractor()

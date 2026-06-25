@@ -19,6 +19,6 @@ def dump_financials_details(file_path, out_path):
 
 if __name__ == "__main__":
     dump_financials_details(
-        "/Users/apple/Desktop/FLA/fla_automation_engine/excel/FLA_Tool_v5_fixed.xlsx",
+        "/Users/apple/Desktop/FLA/automation_engine/excel/FLA_Tool_v5_fixed.xlsx",
         "/Users/apple/Desktop/FLA/financials_details.txt"
     )

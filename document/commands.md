@@ -2,13 +2,13 @@ Step 1: Run the OCR Batch Process
 This command processes the PDFs and caches the extracted text.
 
 bash
-cd /Users/apple/Desktop/FLA/fla_automation_engine
+cd /Users/apple/Desktop/FLA/automation_engine
 python run_ocr_batch.py --input-dir "/Users/apple/Desktop/FLA/data/ERIC"
 Step 2: Run the Main Pipeline
 Once the OCR process is complete, run this command to populate the FLA return skeletal Excel file with the extracted data.
 
 bash
-cd /Users/apple/Desktop/FLA/fla_automation_engine
+cd /Users/apple/Desktop/FLA/automation_engine
 python run_pipeline.py \
   --input-dir "/Users/apple/Desktop/FLA/data/ERIC" \
   --skeletal "/Users/apple/Desktop/FLA/excel/FLA Return existing skeletal.xlsx" \

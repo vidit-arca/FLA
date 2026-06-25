@@ -1,6 +1,6 @@
 import pandas as pd
-comp_df = pd.read_excel('/Users/apple/Desktop/FLA/fla_automation_engine/excel/FLA_comparsion.xlsx', sheet_name='Section I', header=None)
-skel_df = pd.read_excel('/Users/apple/Desktop/FLA/fla_automation_engine/fla_automation_engine/excel/FLA Return existing skeletal.xlsx', sheet_name='Section I', header=None)
+comp_df = pd.read_excel('/Users/apple/Desktop/FLA/automation_engine/excel/FLA_comparsion.xlsx', sheet_name='Section I', header=None)
+skel_df = pd.read_excel('/Users/apple/Desktop/FLA/automation_engine/automation_engine/excel/FLA Return existing skeletal.xlsx', sheet_name='Section I', header=None)
 
 for i in range(1, 10):
     print(f"Row {i}:")

@@ -1,0 +1,10 @@
+{
+    "meta": {
+        "module": "aoc4",
+        "description": "Extraction and Mapping rules for MCA AOC 4 Financial Return"
+    },
+    "financial_extraction_rules": {},
+    "metadata_extraction_rules": {},
+    "cell_mappings": {},
+    "formulas": {}
+}

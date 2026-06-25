@@ -16,7 +16,7 @@ export default function FLAHub() {
   const fetchTasks = async () => {
     try {
       const res = await axios.get('http://localhost:8000/api/tasks');
-      setTasks(res.data);
+      setTasks(res.data.filter(t => t.module_type === 'fla' || !t.module_type));
     } catch (error) {
       console.error("Error fetching tasks:", error);
     } finally {

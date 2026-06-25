@@ -18,6 +18,6 @@ def inspect_formulas(file_path, sheet_name, num_rows=100):
         print(f"Row {r:03d} (has_formula={has_form}): {vals}")
 
 if __name__ == "__main__":
-    file_path = "/Users/apple/Desktop/FLA/fla_automation_engine/excel/FLA_Tool_v5_fixed.xlsx"
+    file_path = "/Users/apple/Desktop/FLA/automation_engine/excel/FLA_Tool_v5_fixed.xlsx"
     inspect_formulas(file_path, "2_FINANCIALS", 80)
     inspect_formulas(file_path, "3_FLA_RETURN", 80)

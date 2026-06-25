@@ -23,5 +23,5 @@ def inspect_file(file_path):
     print("\n")
 
 if __name__ == "__main__":
-    inspect_file("/Users/apple/Desktop/FLA/fla_automation_engine/excel/FLA_Tool_v5_fixed.xlsx")
-    inspect_file("/Users/apple/Desktop/FLA/fla_automation_engine/fla_automation_engine/excel/FLA Return existing skeletal.xlsx")
+    inspect_file("/Users/apple/Desktop/FLA/automation_engine/excel/FLA_Tool_v5_fixed.xlsx")
+    inspect_file("/Users/apple/Desktop/FLA/automation_engine/automation_engine/excel/FLA Return existing skeletal.xlsx")

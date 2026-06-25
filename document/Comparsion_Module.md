@@ -1,6 +1,6 @@
 # Comparison Module Implementation Plan
 
-This plan details the creation of a new, scalable comparison module within the FLA AI platform's backend (`fla_automation_engine`). The primary goal is to compare a user-provided ("given") Excel file with the system-generated ("extracted") Excel file.
+This plan details the creation of a new, scalable comparison module within the FLA AI platform's backend (`automation_engine`). The primary goal is to compare a user-provided ("given") Excel file with the system-generated ("extracted") Excel file.
 
 ## Goal Description
 Implement an extensible comparison engine that currently supports Excel-to-Excel comparison but is designed to scale, allowing new comparison modules (e.g., PDF-to-Excel, JSON-to-Excel, or semantic comparisons) to be easily plugged in later.
@@ -61,7 +61,7 @@ classDiagram
 
 ### 1. Engine Architecture (Backend)
 
-We will create a new directory `fla_automation_engine/engine/comparison/`.
+We will create a new directory `automation_engine/engine/comparison/`.
 
 #### [NEW] `engine/comparison/base.py`
 - Define an abstract base class `BaseComparisonEngine`.

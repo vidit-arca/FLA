@@ -3,7 +3,7 @@ import shutil
 
 def main():
     root_dir = "/Users/apple/Desktop/FLA"
-    engine_dest = os.path.join(root_dir, "fla_automation_engine")
+    engine_dest = os.path.join(root_dir, "automation_engine")
     engine_pkg_dest = os.path.join(engine_dest, "engine")
     helpers_dest = os.path.join(root_dir, "helpers")
     
@@ -64,7 +64,7 @@ def main():
             shutil.move(src_path, os.path.join(helpers_dest, helper))
             print(f"    - Organized helper {helper} -> helpers/")
             
-    # Write the updated, robust run_pipeline.py into the fla_automation_engine directory
+    # Write the updated, robust run_pipeline.py into the automation_engine directory
     updated_run_pipeline_code = """import os
 import argparse
 import sys
@@ -72,18 +72,18 @@ import sys
 # Ensure engine package is in sys.path
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
-from engine.ingestion import DocumentIngestion
-from engine.ocr_pipeline import OcrPipeline
-from engine.parser import DocumentParser
-from engine.rule_engine import RuleEngine
-from engine.excel_writer import ExcelWriter
-from engine.validator import ReturnValidator
+from automation_engine.core.ingestion import DocumentIngestion
+from automation_engine.core.ocr_pipeline import OcrPipeline
+from automation_engine.modules.fla.parser import DocumentParser
+from automation_engine.modules.fla.rule_engine import RuleEngine
+from automation_engine.core.excel_writer import ExcelWriter
+from automation_engine.modules.fla.validator import ReturnValidator
 
 def main():
     # Resolve default paths relative to this script's parent folder
     base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     default_input = os.path.join(base_dir, "signed") if os.path.exists(os.path.join(base_dir, "signed")) else "signed"
-    default_skeletal = os.path.join(base_dir, "excel", "FLA Return existing skeletal.xlsx") if os.path.exists(os.path.join(base_dir, "excel")) else "fla_automation_engine/excel/FLA Return existing skeletal.xlsx"
+    default_skeletal = os.path.join(base_dir, "excel", "FLA Return existing skeletal.xlsx") if os.path.exists(os.path.join(base_dir, "excel")) else "automation_engine/excel/FLA Return existing skeletal.xlsx"
     default_output = os.path.join(base_dir, "output", "FLA Return Populated.xlsx") if os.path.exists(os.path.join(base_dir, "output")) else "output/FLA Return Populated.xlsx"
     default_config = os.path.join(os.path.dirname(__file__), "rules_config.json")
 

@@ -188,11 +188,12 @@ export default function ComparisonPlatform() {
                     <td className="px-6 py-4">
                       {row.reason ? (
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${
-                          row.reason.includes('Missing -> Used Previous') || row.reason.includes('Both Missing') ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 
-                          row.reason.includes('Different -> Used Current') ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
+                          row.reason.includes('Mismatch Detected') ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                          row.reason.includes('Missing in Current') || row.reason.includes('Both Missing') || row.reason.includes('Missing -> Used Previous') ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 
+                          row.reason.includes('Match Perfectly') || row.reason.includes('Different -> Used Current') ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 
                           'bg-blue-500/10 text-blue-400 border-blue-500/20'
                         }`}>
-                          {row.reason.includes('Used Current') || row.reason.includes('Used Previous') ? <CheckCircle className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+                          {row.reason.includes('Mismatch') || row.reason.includes('Missing') ? <AlertCircle className="w-3 h-3" /> : <CheckCircle className="w-3 h-3" />}
                           {row.reason}
                         </span>
                       ) : (

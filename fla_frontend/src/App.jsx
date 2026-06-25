@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom';
 import Dashboard from './pages/Dashboard';
 import FLAHub from './pages/modules/fla/FLAHub';
+import AOCHub from './pages/modules/aoc/AOCHub';
 import Upload from './pages/Upload';
 import TaskView from './pages/TaskView';
 import ComparisonPlatform from './pages/ComparisonPlatform';
@@ -79,6 +80,14 @@ function App() {
               FLA Module
             </NavLink>
             
+            <NavLink
+              to="/aoc"
+              className={({ isActive }) => `flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 font-medium text-sm ${isActive ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 shadow-inner' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'}`}
+            >
+              <FileText className="w-4 h-4" />
+              AOC Module
+            </NavLink>
+            
             <div className="h-px bg-white/5 my-4 mx-3" />
             <p className="px-3 text-[0.65rem] font-bold text-slate-500 uppercase tracking-wider mb-2">System</p>
 
@@ -125,6 +134,9 @@ function App() {
               <Route path="/fla" element={<FLAHub />} />
               <Route path="/fla/upload" element={<Upload />} />
               <Route path="/fla/task/:taskId" element={<TaskView />} />
+              <Route path="/aoc" element={<AOCHub />} />
+              <Route path="/aoc/upload" element={<Upload />} />
+              <Route path="/aoc/task/:taskId" element={<TaskView />} />
             </Routes>
           </div>
         </main>

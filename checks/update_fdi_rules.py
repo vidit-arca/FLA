@@ -1,6 +1,6 @@
 import json
 
-with open("fla_automation_engine/rules_config.json", "r") as f:
+with open("automation_engine/rules_config.json", "r") as f:
     config = json.load(f)
 
 sec3 = config["cell_mappings"]["Section III"]
@@ -67,7 +67,7 @@ for k, v in fdi2_rules.items():
 for k, v in fdi3_rules.items():
     sec3[k] = v
 
-with open("fla_automation_engine/rules_config.json", "w") as f:
+with open("automation_engine/rules_config.json", "w") as f:
     json.dump(config, f, indent=2)
 
 print("Updated rules_config.json successfully!")

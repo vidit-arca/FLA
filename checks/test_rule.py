@@ -1,6 +1,6 @@
 import sys
-sys.path.append('fla_automation_engine')
-from engine.rule_engine import RuleEngine
+sys.path.append('automation_engine')
+from automation_engine.modules.fla.rule_engine import RuleEngine
 extracted_data = {
     "fdi_investors_count": 12,
     "fdi_investor_1_name": "Pontaq Nominees Limited",
@@ -8,7 +8,7 @@ extracted_data = {
     "fdi_investor_1_equity_percent_py": 1.007,
     "fdi_investor_1_equity_percent_fy": 1.007,
 }
-engine = RuleEngine("fla_automation_engine/rules_config.json")
+engine = RuleEngine("automation_engine/rules_config.json")
 cells = engine.evaluate_all(extracted_data)
 print("B17:", cells["Section III"].get("B17"))
 print("B29:", cells["Section III"].get("B29"))

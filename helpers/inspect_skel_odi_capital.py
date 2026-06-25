@@ -1,6 +1,6 @@
 import openpyxl
 
-wb = openpyxl.load_workbook("/Users/apple/Desktop/FLA/fla_automation_engine/fla_automation_engine/excel/FLA Return existing skeletal.xlsx", data_only=False)
+wb = openpyxl.load_workbook("/Users/apple/Desktop/FLA/automation_engine/automation_engine/excel/FLA Return existing skeletal.xlsx", data_only=False)
 sheet = wb["Section IV"]
 
 print("=== Formulas in Section IV Row 39 (Equity Capital and PPS) ===")

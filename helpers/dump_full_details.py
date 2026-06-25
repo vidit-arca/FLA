@@ -19,6 +19,6 @@ def dump_full_details(file_path, out_path):
 
 if __name__ == "__main__":
     dump_full_details(
-        "/Users/apple/Desktop/FLA/fla_automation_engine/fla_automation_engine/excel/FLA Return existing skeletal.xlsx",
+        "/Users/apple/Desktop/FLA/automation_engine/automation_engine/excel/FLA Return existing skeletal.xlsx",
         "/Users/apple/Desktop/FLA/skel_details.txt"
     )

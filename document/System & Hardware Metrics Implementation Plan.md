@@ -12,7 +12,7 @@ The objective of this plan is to build out the backend logic required to serve *
 ### 1. New Backend Endpoint for Metrics
 We will add a new GET endpoint to the FastAPI backend that aggregates system health and hardware usage.
 
-#### [MODIFY] [api/main.py](file:///Users/apple/Desktop/FLA/fla_automation_engine/api/main.py)
+#### [MODIFY] [api/main.py](file:///Users/apple/Desktop/FLA/automation_engine/api/main.py)
 - **New Endpoint:** `@app.get("/api/metrics/global")`
 - **Avg Extraction Time Logic:** 
   - Query all `ExtractionTask` records where `status == "completed"`.

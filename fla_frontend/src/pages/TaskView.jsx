@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { Loader2, CheckCircle, Download, FileSpreadsheet, ArrowLeft } from 'lucide-react';
+import { Loader2, CheckCircle, Download, FileSpreadsheet, ArrowLeft, AlertCircle, FileText } from 'lucide-react';
 import ExcelViewer from '../components/ExcelViewer';
 
 export default function TaskView() {
@@ -73,7 +73,7 @@ export default function TaskView() {
     <div className="max-w-5xl mx-auto">
       <div className="flex items-center justify-between mb-8">
         <div className="flex items-center gap-4">
-          <button onClick={() => navigate('/fla')} className="bg-white/5 hover:bg-white/10 p-2.5 rounded-xl transition-colors border border-white/10 text-slate-400 hover:text-white shadow-sm">
+          <button onClick={() => navigate(task?.module_type === 'aoc4' ? '/aoc' : '/fla')} className="bg-white/5 hover:bg-white/10 p-2.5 rounded-xl transition-colors border border-white/10 text-slate-400 hover:text-white shadow-sm">
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
@@ -129,9 +129,81 @@ export default function TaskView() {
       )}
 
       {isCompleted && (
-        <div className="mt-8 mb-8">
-            <h2 className="text-xl font-bold text-slate-200 mb-4">Live Excel Editor</h2>
-            <ExcelViewer taskId={taskId} />
+        <div className="flex flex-col lg:flex-row gap-6 mb-10 h-auto lg:h-[700px]">
+          {/* Left Panel: Validation Flags */}
+          {task?.extracted_data?.comparison_results && task.extracted_data.comparison_results.length > 0 && (
+            <div className="w-full lg:w-1/3 flex flex-col bg-[#1A2235] border border-slate-700 rounded-xl overflow-hidden shadow-xl">
+              <div className="p-4 border-b border-slate-700 bg-[#131B2C]">
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <FileText className="w-5 h-5 text-indigo-400" />
+                  Automated Validation Flags
+                </h3>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-[#131B2C]/50">
+                {task.extracted_data.comparison_results.map((row, idx) => {
+                  const isNeedsReview = row.reason.includes('Needs Review');
+                  const isWarning = isNeedsReview || row.reason.includes('Both Missing') || row.reason.includes('Missing -> Used Previous');
+                  const isError = !isNeedsReview && (row.reason.includes('Mismatch') || row.reason.includes('Missing'));
+                  
+                  let cardColor = 'border-blue-500/20 bg-blue-500/5';
+                  let iconColor = 'text-blue-400';
+                  let Icon = CheckCircle;
+                  
+                  if (isError) {
+                    cardColor = 'border-rose-500/30 bg-rose-500/10 shadow-[0_0_15px_rgba(244,63,94,0.1)]';
+                    iconColor = 'text-rose-400';
+                    Icon = AlertCircle;
+                  } else if (isWarning) {
+                    cardColor = 'border-amber-500/30 bg-amber-500/10 shadow-[0_0_15px_rgba(245,158,11,0.1)]';
+                    iconColor = 'text-amber-400';
+                    Icon = AlertCircle;
+                  } else if (row.reason.includes('Match Perfectly') || row.reason.includes('Used Current')) {
+                    cardColor = 'border-emerald-500/20 bg-emerald-500/5';
+                    iconColor = 'text-emerald-400';
+                  }
+
+                  return (
+                    <div key={idx} className={`p-4 rounded-xl border ${cardColor} transition-colors flex flex-col gap-2`}>
+                      <div className="flex items-start gap-2">
+                        <Icon className={`w-5 h-5 mt-0.5 shrink-0 ${iconColor}`} />
+                        <div className="flex-1">
+                          <h4 className="text-sm font-semibold text-white leading-tight">{row.fieldName || row.cell}</h4>
+                        </div>
+                      </div>
+                      <div className="ml-7 space-y-2 mt-1">
+                        <div className="text-xs text-slate-400 flex flex-col gap-1">
+                          <div className="flex justify-between">
+                            <span>Previous:</span>
+                            <span className="text-slate-300 font-medium truncate max-w-[120px]" title={row.previousValue || row.sourceValue || '-'}>{row.previousValue || row.sourceValue || '-'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Current:</span>
+                            <span className="text-slate-300 font-medium truncate max-w-[120px]" title={row.currentValue || row.targetValue || '-'}>{row.currentValue || row.targetValue || '-'}</span>
+                          </div>
+                        </div>
+                        <div className={`text-xs font-medium mt-2 pt-2 border-t border-white/5 ${iconColor}`}>
+                          {row.reason || 'No reason provided'}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Right Panel: Excel Editor */}
+          <div className="w-full lg:flex-1 flex flex-col min-w-0 bg-[#1A2235] border border-slate-700 rounded-xl overflow-hidden shadow-xl">
+             <div className="p-4 border-b border-slate-700 bg-[#131B2C]">
+                <h3 className="text-lg font-bold text-white flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-emerald-400" />
+                  Live Excel Editor
+                </h3>
+              </div>
+             <div className="flex-1 overflow-hidden flex flex-col [&>div]:h-full [&>div]:border-none [&>div]:rounded-none">
+               <ExcelViewer taskId={taskId} />
+             </div>
+          </div>
         </div>
       )}
       

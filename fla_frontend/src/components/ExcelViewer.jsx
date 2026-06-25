@@ -80,10 +80,10 @@ export default function ExcelViewer({ taskId }) {
   });
 
   return (
-    <div className="flex flex-col bg-[#1A2235] border border-slate-700 rounded-xl shadow-sm overflow-hidden font-sans">
+    <div className="flex flex-col bg-[#1A2235] border border-slate-700 rounded-xl shadow-sm overflow-hidden font-sans h-full">
       
       {/* Tabs */}
-      <div className="flex overflow-x-auto border-b border-slate-700 bg-[#131B2C]">
+      <div className="flex overflow-x-auto border-b border-slate-700 bg-[#131B2C] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         {workbook.SheetNames.map((name, idx) => (
           <button
             key={name}
@@ -118,7 +118,7 @@ export default function ExcelViewer({ taskId }) {
       </div>
 
       {/* Spreadsheet Grid */}
-      <div className="overflow-auto max-h-[600px] w-full">
+      <div className="flex-1 overflow-auto w-full min-h-0">
         <table className="border-collapse w-full">
           <thead>
             <tr>

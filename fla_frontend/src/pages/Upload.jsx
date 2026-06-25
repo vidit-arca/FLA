@@ -7,6 +7,7 @@ export default function Upload() {
   const [files, setFiles] = useState([]);
   const [previousFlaFile, setPreviousFlaFile] = useState(null);
   const [companyName, setCompanyName] = useState('');
+  const moduleType = 'fla';
   const [uploading, setUploading] = useState(false);
   const navigate = useNavigate();
 
@@ -42,7 +43,7 @@ export default function Upload() {
 
     try {
       // POST upload
-      const res = await axios.post(`http://localhost:8000/api/upload?company_name=${encodeURIComponent(companyName)}`, formData, {
+      const res = await axios.post(`http://localhost:8000/api/upload?company_name=${encodeURIComponent(companyName)}&module_type=${moduleType}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
@@ -188,14 +189,14 @@ export default function Upload() {
                     <File className="w-6 h-6 text-indigo-400/70" />
                   </div>
                   <div className="text-left">
-                    <p className="text-slate-300 font-medium text-sm">Select Previous Year Excel or MD</p>
-                    <p className="text-slate-500 text-xs mt-0.5">.xlsx, .md</p>
+                    <p className="text-slate-300 font-medium text-sm">Select Previous Year PDF, Excel or MD</p>
+                    <p className="text-slate-500 text-xs mt-0.5">.pdf, .xlsx, .md</p>
                   </div>
                 </div>
                 <input
                   id="prev-file-upload"
                   type="file"
-                  accept=".xlsx,.md"
+                  accept=".pdf,.xlsx,.md"
                   className="hidden"
                   onChange={(e) => { if (e.target.files[0]) setPreviousFlaFile(e.target.files[0]); }}
                 />

@@ -46,7 +46,7 @@ export default function Dashboard() {
             <span className="text-xs font-medium text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded-full">Live</span>
           </div>
           <p className="text-xs text-slate-400 font-semibold tracking-wide uppercase">Active Modules</p>
-          <p className="text-2xl font-extrabold text-white mt-1">1</p>
+          <p className="text-2xl font-extrabold text-white mt-1">2</p>
         </div>
         
         <div className="bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-white/10 p-5 shadow-xl hover:-translate-y-1 transition-transform">
@@ -205,17 +205,21 @@ export default function Dashboard() {
               <p className="text-xs text-slate-400">Foreign Liabilities and Assets OCR & Comparison Platform.</p>
             </div>
 
-            {/* Upcoming Module Placeholder */}
-            <div className="bg-white/5 border border-white/5 p-4 rounded-xl opacity-60 cursor-not-allowed">
+            {/* AOC Module Card */}
+            <div 
+              onClick={() => navigate('/aoc')}
+              className="bg-black/20 border border-emerald-500/30 hover:border-emerald-400/60 p-4 rounded-xl cursor-pointer transition-all hover:bg-emerald-500/10 group"
+            >
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-3">
-                  <div className="p-2 bg-white/5 rounded-lg">
-                    <Package className="w-5 h-5 text-slate-400" />
+                  <div className="p-2 bg-emerald-500/20 rounded-lg group-hover:bg-emerald-500/30 transition-colors">
+                    <FileText className="w-5 h-5 text-emerald-400" />
                   </div>
-                  <h3 className="font-bold text-white">AOC Module <span className="text-[10px] bg-slate-700 px-2 py-0.5 rounded-full ml-2">Coming Soon</span></h3>
+                  <h3 className="font-bold text-white">AOC Module</h3>
                 </div>
+                <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
               </div>
-              <p className="text-xs text-slate-500">Automated extraction for Annual Return files.</p>
+              <p className="text-xs text-slate-400">MCA Annual Return OCR & Extraction Platform.</p>
             </div>
           </div>
         </div>

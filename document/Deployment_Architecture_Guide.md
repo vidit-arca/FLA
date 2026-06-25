@@ -45,7 +45,7 @@ services:
 
   # 2. The Python FastAPI Backend
   backend:
-    build: ./fla_automation_engine
+    build: ./automation_engine
     restart: always
     deploy:
       resources:

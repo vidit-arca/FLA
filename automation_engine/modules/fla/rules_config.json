@@ -1,0 +1,2002 @@
+{
+  "company_extraction_rules": {
+    "company_name": {
+      "keywords": [
+        "name of the company",
+        "company name",
+        "name of the indian company"
+      ],
+      "regex": [
+        "To\\s+The\\s+Members\\s+of\\s+([A-Z\\s]{3,100}PRIVATE\\s+LIMITED)",
+        "To\\s+The\\s+Members\\s+of\\s+([A-Z\\s]{3,100}LIMITED)",
+        "([A-Z\\s]{3,100}PRIVATE\\s+LIMITED)"
+      ]
+    },
+    "cin_number": {
+      "keywords": [
+        "cin",
+        "corporate identification number"
+      ],
+      "regex": [
+        "[UuLl][0-9]{5}[A-Za-z]{2}[0-9]{4}[A-Za-z]{3}[0-9]{6}"
+      ]
+    },
+    "pan_number": {
+      "keywords": [
+        "pan",
+        "permanent account number"
+      ],
+      "regex": [
+        "[A-Za-z]{5}[0-9]{4}[A-Za-z]{1}"
+      ]
+    },
+    "email": {
+      "keywords": [
+        "email",
+        "e-mail",
+        "email id"
+      ],
+      "regex": [
+        "[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}"
+      ]
+    },
+    "mobile": {
+      "keywords": [
+        "mobile number",
+        "mobile no",
+        "telephone no"
+      ],
+      "regex": [
+        "(?:\\+91|91)?[6789][0-9]{9}"
+      ]
+    }
+  },
+  "financial_extraction_rules": {
+    "profit_before_tax": {
+      "keywords": [
+        "profit before tax",
+        "pbt",
+        "profit / (loss) before tax",
+        "profit/(loss) before tax",
+        "profit/ (loss) before tax",
+        "profit / (loss) before exceptional",
+        "profit/(loss) before exceptional items",
+        "profit/(loss) before exceptional and extraordinary",
+        "Profit before tax (III) - (IV)"
+      ],
+      "py_col_keywords": [
+        "previous year",
+        "2024",
+        "py",
+        "end march 2024"
+      ],
+      "fy_col_keywords": [
+        "current year",
+        "2025",
+        "fy",
+        "end march 2025"
+      ]
+    },
+    "profit_after_tax": {
+      "keywords": [
+        "profit after tax",
+        "pat",
+        "profit / (loss) for the year",
+        "profit/(loss) for the year",
+        "net profit after tax",
+        "profit for the period",
+        "earning per share -profit after tax",
+        "profit(+)/loss(-) after tax (during the year)",
+        "profit(+)/loss(-) after tax",
+        "profit (loss) for the period",
+        "profit after tax (v) - (vi)"
+      ],
+      "py_col_keywords": [
+        "previous year",
+        "2024",
+        "py",
+        "end march 2024"
+      ],
+      "fy_col_keywords": [
+        "current year",
+        "2025",
+        "fy",
+        "end march 2025"
+      ]
+    },
+    "dividend_paid": {
+      "keywords": [
+        "dividend",
+        "dividend paid",
+        "interim dividend",
+        "proposed dividend",
+        "dividend declared"
+      ],
+      "py_col_keywords": [
+        "previous year",
+        "2024"
+      ],
+      "fy_col_keywords": [
+        "current year",
+        "2025"
+      ]
+    },
+    "reserves_and_surplus": {
+      "keywords": [
+        "reserves and surplus",
+        "total reserves",
+        "other equity"
+      ],
+      "py_col_keywords": [
+        "previous year",
+        "2024"
+      ],
+      "fy_col_keywords": [
+        "current year",
+        "2025"
+      ]
+    },
+    "pl_balance": {
+      "keywords": [
+        "surplus in statement of profit and loss",
+        "surplus in statement of p&l",
+        "profit and loss account balance",
+        "balance in p&l",
+        "retained earnings",
+        "reserves & surplus"
+      ],
+      "py_col_keywords": [
+        "previous year",
+        "2024"
+      ],
+      "fy_col_keywords": [
+        "current year",
+        "2025"
+      ]
+    },
+    "domestic_sales": {
+      "keywords": [
+        "domestic revenue",
+        "total revenue",
+        "total income",
+        "sales within india",
+        "domestic sales"
+      ],
+      "py_col_keywords": [
+        "previous year",
+        "2024"
+      ],
+      "fy_col_keywords": [
+        "current year",
+        "2025"
+      ]
+    },
+    "export_sales": {
+      "keywords": [
+        "exports",
+        "foreign exchange earnings",
+        "export",
+        "Export of Services",
+        "fob value of exports",
+        "export sales"
+      ],
+      "py_col_keywords": [
+        "previous year",
+        "2024"
+      ],
+      "fy_col_keywords": [
+        "current year",
+        "2025"
+      ]
+    },
+    "domestic_purchases": {
+      "keywords": [
+        "indigenous materials",
+        "domestic purchases",
+        "domestic consumption",
+        "domestic purchase"
+      ],
+      "py_col_keywords": [
+        "previous year",
+        "2024"
+      ],
+      "fy_col_keywords": [
+        "current year",
+        "2025"
+      ]
+    },
+    "import_purchases": {
+      "keywords": [
+        "import of raw materials",
+        "cif value of imports",
+        "imports",
+        "foreign exchange outgo on imports"
+      ],
+      "py_col_keywords": [
+        "previous year",
+        "2024"
+      ],
+      "fy_col_keywords": [
+        "current year",
+        "2025"
+      ]
+    },
+    "employee_payroll_count": {
+      "keywords": [
+        "employees on payroll",
+        "number of employees",
+        "employee count",
+        "headcount"
+      ],
+      "py_col_keywords": [
+        "previous year",
+        "2024"
+      ],
+      "fy_col_keywords": [
+        "current year",
+        "2025"
+      ]
+    },
+    "equity_shares_count": {
+      "keywords": [
+        "equity shares \u2013 total number of shares issued & fully paid",
+        "number of equity shares",
+        "total number of shares issued",
+        "equity shares issued",
+        "equity shares outstanding",
+        "equity shares issued and fully paid"
+      ]
+    },
+    "part_pref_shares_count": {
+      "keywords": [
+        "preference shares participating",
+        "participating preference shares \u2013 no. of shares",
+        "participating preference shares"
+      ]
+    },
+    "non_part_pref_shares_count": {
+      "keywords": [
+        "preference shares non participating",
+        "non-participating preference shares \u2013 no. of shares",
+        "non-participating preference shares",
+        "non participating preference"
+      ]
+    },
+    "equity_face_value": {
+      "keywords": [
+        "face value per equity share",
+        "equity shares of",
+        "face value of equity"
+      ]
+    },
+    "part_pref_face_value": {
+      "keywords": [
+        "face value per participating preference share",
+        "face value participating preference"
+      ]
+    },
+    "non_part_pref_face_value": {
+      "keywords": [
+        "face value per non-participating preference share",
+        "face value non participating preference"
+      ]
+    },
+    "nr_shares_individuals": {
+      "keywords": [
+        "non resident individuals",
+        "individual foreign investors",
+        "nr individual investors",
+        "foreign individuals",
+        "1. individuals"
+      ]
+    },
+    "nr_shares_companies": {
+      "keywords": [
+        "foreign corporate shareholders",
+        "foreign companies",
+        "2. companies",
+        "overseas corporate bodies",
+        "non resident companies"
+      ]
+    },
+    "nr_shares_fiis": {
+      "keywords": [
+        "fiis \u2013 foreign institutional investors",
+        "foreign institutional investors",
+        "fpi",
+        "fii"
+      ]
+    },
+    "nr_shares_fvcis": {
+      "keywords": [
+        "fvci",
+        "fvcis \u2013 foreign venture capital investors",
+        "foreign venture capital investors"
+      ]
+    },
+    "nr_shares_trusts": {
+      "keywords": [
+        "nr trusts",
+        "foreign trusts"
+      ]
+    },
+    "nr_shares_pe_funds": {
+      "keywords": [
+        "foreign private equity",
+        "foreign private equity funds",
+        "private equity funds",
+        "pe fund investors"
+      ]
+    },
+    "nr_shares_pension_funds": {
+      "keywords": [
+        "foreign pension",
+        "foreign pension / provident funds",
+        "provident funds",
+        "pension funds"
+      ]
+    },
+    "nr_shares_sovereign_funds": {
+      "keywords": [
+        "foreign sovereign funds",
+        "sovereign wealth funds",
+        "sovereign funds"
+      ]
+    },
+    "nr_shares_partnerships": {
+      "keywords": [
+        "proprietorship firms",
+        "foreign partnership",
+        "foreign partnership / proprietorship firms",
+        "partnership firms"
+      ]
+    },
+    "nr_shares_fin_inst": {
+      "keywords": [
+        "foreign financial institutions",
+        "financial institutions"
+      ]
+    },
+    "nr_shares_nris": {
+      "keywords": [
+        "nri",
+        "pio",
+        "non resident indians",
+        "persons of indian origin",
+        "nris / pios",
+        "nris"
+      ]
+    },
+    "nr_shares_non_part_pref": {
+      "keywords": [
+        "non-participating preference share (nr)",
+        "non-participating preference shares held by nr investors",
+        "nr holders of non-participating preference shares",
+        "non-participating preference shares held by nr"
+      ]
+    }
+  },
+  "cell_mappings": {
+    "Section I": {
+      "Year": {
+        "row_label": "Year",
+        "cell": "C3",
+        "type": "extracted",
+        "field": "filing_year",
+        "default": 2025
+      },
+      "Company_Name": {
+        "row_label": "1. Name of the Indian Company*",
+        "cell": "C4",
+        "type": "extracted",
+        "field": "company_name"
+      },
+      "PAN_Number": {
+        "row_label": "2. PAN number*",
+        "cell": "C5",
+        "type": "extracted",
+        "field": "pan_number",
+        "default": ""
+      },
+      "CIN_Number": {
+        "row_label": "3. CIN number*",
+        "cell": "C6",
+        "type": "extracted",
+        "field": "cin_number"
+      },
+      "Contact_Person": {
+        "row_label": "Name of the Contact Person*",
+        "cell": "C7",
+        "type": "extracted",
+        "field": "contact_name",
+        "default": ""
+      },
+      "Telephone": {
+        "row_label": "Telephone No. (with extension)*",
+        "cell": "C8",
+        "type": "extracted",
+        "field": "telephone",
+        "default": ""
+      },
+      "Mobile": {
+        "row_label": "Mobile Number*",
+        "cell": "C9",
+        "type": "extracted",
+        "field": "mobile_number",
+        "default": ""
+      },
+      "Email_Head": {
+        "row_label": "E-Mail ID (Head of the institution)*",
+        "cell": "C10",
+        "type": "extracted",
+        "field": "email_id",
+        "default": ""
+      },
+      "Email_Contact": {
+        "row_label": "E-Mail of Contact person*",
+        "cell": "C11",
+        "type": "extracted",
+        "field": "email_id",
+        "default": ""
+      },
+      "Designation": {
+        "row_label": "Designation*",
+        "cell": "C12",
+        "type": "extracted",
+        "field": "designation",
+        "default": ""
+      },
+      "Website": {
+        "row_label": "Website (if any)",
+        "cell": "C13",
+        "type": "extracted",
+        "field": "website",
+        "default": ""
+      },
+      "Closing_Date": {
+        "row_label": "Account Closing date*",
+        "cell": "C14",
+        "type": "calculated",
+        "formula": "get_closing_date()"
+      },
+      "Nature_of_Business": {
+        "row_label": "Nature of Business*",
+        "cell": "C15",
+        "type": "extracted",
+        "field": "nic_code",
+        "default": ""
+      },
+      "Merged_Status": {
+        "row_label": "Whether your company is merged/amalgamated during year",
+        "cell": "C16",
+        "type": "extracted",
+        "field": "merged_status",
+        "default": "No"
+      },
+      "Listed_Status": {
+        "row_label": "Whether the company is listed?*",
+        "cell": "C17",
+        "type": "extracted",
+        "field": "listed_status",
+        "default": "No"
+      },
+      "Equity_Share_Count_PY": {
+        "row_label": "Ordinary/Share Equity Class count PY",
+        "cell": "B21",
+        "type": "extracted",
+        "field": "equity_shares_count_py",
+        "default": ""
+      },
+      "Equity_Share_Count_FY": {
+        "row_label": "Ordinary/Share Equity Class count FY",
+        "cell": "C21",
+        "type": "extracted",
+        "field": "equity_shares_count_fy",
+        "default": ""
+      },
+      "Part_Pref_Share_Count_PY": {
+        "row_label": "Participating Preference Share Class count PY",
+        "cell": "B22",
+        "type": "extracted",
+        "field": "part_pref_shares_count_py",
+        "default": ""
+      },
+      "Part_Pref_Share_Count_FY": {
+        "row_label": "Participating Preference Share Class count FY",
+        "cell": "C22",
+        "type": "extracted",
+        "field": "part_pref_shares_count_fy",
+        "default": ""
+      },
+      "Non_Part_Pref_Share_Count_PY": {
+        "row_label": "Non-participating preference Share Class count PY",
+        "cell": "B23",
+        "type": "extracted",
+        "field": "non_part_pref_shares_count_py",
+        "default": 0
+      },
+      "Non_Part_Pref_Share_Count_FY": {
+        "row_label": "Non-participating preference Share Class count FY",
+        "cell": "C23",
+        "type": "extracted",
+        "field": "non_part_pref_shares_count_fy",
+        "default": 0
+      },
+      "Equity_FV_PY": {
+        "row_label": "Ordinary/Share Equity Face Value PY",
+        "cell": "B26",
+        "type": "extracted",
+        "field": "equity_face_value_py",
+        "default": 1
+      },
+      "Equity_FV_FY": {
+        "row_label": "Ordinary/Share Equity Face Value FY",
+        "cell": "C26",
+        "type": "extracted",
+        "field": "equity_face_value_fy",
+        "default": 1
+      },
+      "Part_Pref_FV_PY": {
+        "row_label": "Participating Preference Share Face Value PY",
+        "cell": "B27",
+        "type": "extracted",
+        "field": "part_pref_face_value_py",
+        "default": ""
+      },
+      "Part_Pref_FV_FY": {
+        "row_label": "Participating Preference Share Face Value FY",
+        "cell": "C27",
+        "type": "extracted",
+        "field": "part_pref_face_value_fy",
+        "default": ""
+      },
+      "Non_Part_Pref_FV_PY": {
+        "row_label": "Non-participating preference Share Face Value PY",
+        "cell": "B28",
+        "type": "extracted",
+        "field": "non_part_pref_face_value_py",
+        "default": ""
+      },
+      "Non_Part_Pref_FV_FY": {
+        "row_label": "Non-participating preference Share Face Value FY",
+        "cell": "C28",
+        "type": "extracted",
+        "field": "non_part_pref_face_value_fy",
+        "default": ""
+      },
+      "Listed_Market_Price_PY": {
+        "row_label": "Ordinary/Share Equity Market Value PY",
+        "cell": "B32",
+        "type": "calculated",
+        "formula": "get_listed_market_price('py')"
+      },
+      "Listed_Market_Price_FY": {
+        "row_label": "Ordinary/Share Equity Market Value FY",
+        "cell": "C32",
+        "type": "calculated",
+        "formula": "get_listed_market_price('fy')"
+      },
+      "Identification_Inward_FDI": {
+        "row_label": "Identification of reporting company",
+        "cell": "C33",
+        "type": "extracted",
+        "field": "inward_fdi_status",
+        "default": "Yes"
+      },
+      "Type_of_Company": {
+        "row_label": "Type of company*",
+        "cell": "C34",
+        "type": "extracted",
+        "field": "company_type",
+        "default": "Private Limited"
+      },
+      "AMC_Status": {
+        "row_label": "Whether the Company is Asset Management Company?*",
+        "cell": "C35",
+        "type": "extracted",
+        "field": "amc_status",
+        "default": "No"
+      },
+      "Tech_Collab_Status": {
+        "row_label": "Whether the Company has Technical Foreign collaboration?*",
+        "cell": "C36",
+        "type": "extracted",
+        "field": "tech_collab_status",
+        "default": "No"
+      },
+      "Business_Activity_Status": {
+        "row_label": "Whether the company has any business activity?*",
+        "cell": "C37",
+        "type": "extracted",
+        "field": "business_activity_status",
+        "default": "Yes"
+      }
+    },
+    "Section II": {
+      "Paid_Up_Capital_PY": {
+        "row_label": "Total Paid-up Capital PY",
+        "cell": "F5",
+        "type": "calculated",
+        "formula": "sum_cells('Section II', ['F6', 'F9'])"
+      },
+      "Paid_Up_Capital_FY": {
+        "row_label": "Total Paid-up Capital FY",
+        "cell": "G5",
+        "type": "calculated",
+        "formula": "sum_cells('Section II', ['G6', 'G9'])"
+      },
+      "Equity_Pref_Capital_PY": {
+        "row_label": "Total Equity & Participating Preference share Capital PY",
+        "cell": "F6",
+        "type": "calculated",
+        "formula": "sum_cells('Section II', ['F7', 'F8'])"
+      },
+      "Equity_Pref_Capital_FY": {
+        "row_label": "Total Equity & Participating Preference share Capital FY",
+        "cell": "G6",
+        "type": "calculated",
+        "formula": "sum_cells('Section II', ['G7', 'G8'])"
+      },
+      "Ordinary_Equity_Shares_PY": {
+        "row_label": "Ordinary/Equity Share Count PY",
+        "cell": "D7",
+        "type": "extracted",
+        "field": "equity_shares_count_py"
+      },
+      "Ordinary_Equity_Shares_FY": {
+        "row_label": "Ordinary/Equity Share Count FY",
+        "cell": "E7",
+        "type": "extracted",
+        "field": "equity_shares_count_fy"
+      },
+      "Ordinary_Equity_Amount_PY": {
+        "row_label": "Ordinary/Equity Share Amount PY",
+        "cell": "F7",
+        "type": "calculated",
+        "formula": "shares_to_lakhs('equity_shares_count_py', 'equity_face_value_py')"
+      },
+      "Ordinary_Equity_Amount_FY": {
+        "row_label": "Ordinary/Equity Share Amount FY",
+        "cell": "G7",
+        "type": "calculated",
+        "formula": "shares_to_lakhs('equity_shares_count_fy', 'equity_face_value_fy')"
+      },
+      "Part_Pref_Shares_PY": {
+        "row_label": "Participating Preference Share Count PY",
+        "cell": "D8",
+        "type": "extracted",
+        "field": "part_pref_shares_count_py"
+      },
+      "Part_Pref_Shares_FY": {
+        "row_label": "Participating Preference Share Count FY",
+        "cell": "E8",
+        "type": "extracted",
+        "field": "part_pref_shares_count_fy"
+      },
+      "Part_Pref_Amount_PY": {
+        "row_label": "Participating Preference Share Amount PY",
+        "cell": "F8",
+        "type": "calculated",
+        "formula": "shares_to_lakhs('part_pref_shares_count_py', 'part_pref_face_value_py')"
+      },
+      "Part_Pref_Amount_FY": {
+        "row_label": "Participating Preference Share Amount FY",
+        "cell": "G8",
+        "type": "calculated",
+        "formula": "shares_to_lakhs('part_pref_shares_count_fy', 'part_pref_face_value_fy')"
+      },
+      "Non_Part_Pref_Shares_PY": {
+        "row_label": "Non-Participating Preference share Count PY",
+        "cell": "D9",
+        "type": "extracted",
+        "field": "non_part_pref_shares_count_py"
+      },
+      "Non_Part_Pref_Shares_FY": {
+        "row_label": "Non-Participating Preference share Count FY",
+        "cell": "E9",
+        "type": "extracted",
+        "field": "non_part_pref_shares_count_fy"
+      },
+      "Non_Part_Pref_Amount_PY": {
+        "row_label": "Non-Participating Preference share Amount PY",
+        "cell": "F9",
+        "type": "calculated",
+        "formula": "shares_to_lakhs('non_part_pref_shares_count_py', 'non_part_pref_face_value_py')"
+      },
+      "Non_Part_Pref_Amount_FY": {
+        "row_label": "Non-Participating Preference share Amount FY",
+        "cell": "G9",
+        "type": "calculated",
+        "formula": "shares_to_lakhs('non_part_pref_shares_count_fy', 'non_part_pref_face_value_fy')"
+      },
+      "NR_Equity_Pref_Capital_PY": {
+        "row_label": "Equity and Participating Preference Share Capital (NR) PY",
+        "cell": "F11",
+        "type": "calculated",
+        "formula": "sum_cells('Section II', ['F12', 'F13', 'F14', 'F15', 'F16', 'F17', 'F18', 'F19', 'F20', 'F21', 'F22'])"
+      },
+      "NR_Equity_Pref_Capital_FY": {
+        "row_label": "Equity and Participating Preference Share Capital (NR) FY",
+        "cell": "G11",
+        "type": "calculated",
+        "formula": "sum_cells('Section II', ['G12', 'G13', 'G14', 'G15', 'G16', 'G17', 'G18', 'G19', 'G20', 'G21', 'G22'])"
+      },
+      "NR_Individuals_PY": {
+        "row_label": "1. Individuals (NR) PY",
+        "cell": "D12",
+        "type": "extracted",
+        "field": "nr_shares_individuals_py",
+        "default": 0
+      },
+      "NR_Individuals_FY": {
+        "row_label": "1. Individuals (NR) FY",
+        "cell": "E12",
+        "type": "extracted",
+        "field": "nr_shares_individuals_fy",
+        "default": 0
+      },
+      "NR_Companies_PY": {
+        "row_label": "2. Companies (NR) PY",
+        "cell": "D13",
+        "type": "extracted",
+        "field": "nr_shares_companies_py",
+        "default": 0
+      },
+      "NR_Companies_FY": {
+        "row_label": "2. Companies (NR) FY",
+        "cell": "E13",
+        "type": "extracted",
+        "field": "nr_shares_companies_fy",
+        "default": 0
+      },
+      "NR_FIIs_PY": {
+        "row_label": "3. Foreign Institutional Investors PY",
+        "cell": "D14",
+        "type": "extracted",
+        "field": "nr_shares_fiis_py",
+        "default": 0
+      },
+      "NR_FIIs_FY": {
+        "row_label": "3. Foreign Institutional Investors FY",
+        "cell": "E14",
+        "type": "extracted",
+        "field": "nr_shares_fiis_fy",
+        "default": 0
+      },
+      "NR_FVCIs_PY": {
+        "row_label": "4. Foreign Venture Capital Investors PY",
+        "cell": "D15",
+        "type": "extracted",
+        "field": "nr_shares_fvcis_py",
+        "default": 0
+      },
+      "NR_FVCIs_FY": {
+        "row_label": "4. Foreign Venture Capital Investors FY",
+        "cell": "E15",
+        "type": "extracted",
+        "field": "nr_shares_fvcis_fy",
+        "default": 0
+      },
+      "NR_Trusts_PY": {
+        "row_label": "5. Foreign Trusts PY",
+        "cell": "D16",
+        "type": "extracted",
+        "field": "nr_shares_trusts_py",
+        "default": 0
+      },
+      "NR_Trusts_FY": {
+        "row_label": "5. Foreign Trusts FY",
+        "cell": "E16",
+        "type": "extracted",
+        "field": "nr_shares_trusts_fy",
+        "default": 0
+      },
+      "NR_PE_Funds_PY": {
+        "row_label": "6. Private Equity Funds PY",
+        "cell": "D17",
+        "type": "extracted",
+        "field": "nr_shares_pe_funds_py",
+        "default": 0
+      },
+      "NR_PE_Funds_FY": {
+        "row_label": "6. Private Equity Funds FY",
+        "cell": "E17",
+        "type": "extracted",
+        "field": "nr_shares_pe_funds_fy",
+        "default": 0
+      },
+      "NR_Pension_Funds_PY": {
+        "row_label": "7. Pension/Provident Funds PY",
+        "cell": "D18",
+        "type": "extracted",
+        "field": "nr_shares_pension_funds_py",
+        "default": 0
+      },
+      "NR_Pension_Funds_FY": {
+        "row_label": "7. Pension/Provident Funds FY",
+        "cell": "E18",
+        "type": "extracted",
+        "field": "nr_shares_pension_funds_fy",
+        "default": 0
+      },
+      "NR_Sovereign_Funds_PY": {
+        "row_label": "8. Sovereign Wealth Funds PY",
+        "cell": "D19",
+        "type": "extracted",
+        "field": "nr_shares_sovereign_funds_py",
+        "default": 0
+      },
+      "NR_Sovereign_Funds_FY": {
+        "row_label": "8. Sovereign Wealth Funds FY",
+        "cell": "E19",
+        "type": "extracted",
+        "field": "nr_shares_sovereign_funds_fy",
+        "default": 0
+      },
+      "NR_Partnerships_PY": {
+        "row_label": "9. Partnership/Proprietorship firms PY",
+        "cell": "D20",
+        "type": "extracted",
+        "field": "nr_shares_partnerships_py",
+        "default": 0
+      },
+      "NR_Partnerships_FY": {
+        "row_label": "9. Partnership/Proprietorship firms FY",
+        "cell": "E20",
+        "type": "extracted",
+        "field": "nr_shares_partnerships_fy",
+        "default": 0
+      },
+      "NR_Fin_Institutions_PY": {
+        "row_label": "10. Financial Institutions PY",
+        "cell": "D21",
+        "type": "extracted",
+        "field": "nr_shares_fin_inst_py",
+        "default": 0
+      },
+      "NR_Fin_Institutions_FY": {
+        "row_label": "10. Financial Institutions FY",
+        "cell": "E21",
+        "type": "extracted",
+        "field": "nr_shares_fin_inst_fy",
+        "default": 0
+      },
+      "NR_NRIs_PIO_PY": {
+        "row_label": "11. NRIs/PIO PY",
+        "cell": "D22",
+        "type": "extracted",
+        "field": "nr_shares_nris_py",
+        "default": 0
+      },
+      "NR_NRIs_PIO_FY": {
+        "row_label": "11. NRIs/PIO FY",
+        "cell": "E22",
+        "type": "extracted",
+        "field": "nr_shares_nris_fy",
+        "default": 0
+      },
+      "NR_Non_Part_Pref_Shares_PY": {
+        "row_label": "2.2 Non-Participating Preference Share (NR) PY",
+        "cell": "D23",
+        "type": "extracted",
+        "field": "nr_shares_non_part_pref_py",
+        "default": 0
+      },
+      "NR_Non_Part_Pref_Shares_FY": {
+        "row_label": "2.2 Non-Participating Preference Share (NR) FY",
+        "cell": "E23",
+        "type": "extracted",
+        "field": "nr_shares_non_part_pref_fy",
+        "default": 0
+      },
+      "NR_Equity_Pref_Percent_PY": {
+        "row_label": "3. Non Resident Equity & Participating Preference Share Capital% PY",
+        "cell": "F24",
+        "type": "calculated",
+        "formula": "percentage_of('Section II', 'F11', 'F6')"
+      },
+      "NR_Equity_Pref_Percent_FY": {
+        "row_label": "3. Non Resident Equity & Participating Preference Share Capital% FY",
+        "cell": "G24",
+        "type": "calculated",
+        "formula": "percentage_of('Section II', 'G11', 'G6')"
+      },
+      "PBT_PY": {
+        "row_label": "3.1 Profit(+)/Loss(-) before tax PY",
+        "cell": "F26",
+        "type": "extracted",
+        "field": "profit_before_tax_py",
+        "default": 0.0
+      },
+      "PBT_FY": {
+        "row_label": "3.1 Profit(+)/Loss(-) before tax FY",
+        "cell": "G26",
+        "type": "extracted",
+        "field": "profit_before_tax_fy",
+        "default": 0.0
+      },
+      "PAT_PY": {
+        "row_label": "3.2 Profit(+)/Loss(-) after tax PY",
+        "cell": "F27",
+        "type": "extracted",
+        "field": "profit_after_tax_py",
+        "default": 0.0
+      },
+      "PAT_FY": {
+        "row_label": "3.2 Profit(+)/Loss(-) after tax FY",
+        "cell": "G27",
+        "type": "extracted",
+        "field": "profit_after_tax_fy",
+        "default": 0.0
+      },
+      "Dividend_PY": {
+        "row_label": "3.3 Dividend PY",
+        "cell": "F28",
+        "type": "extracted",
+        "field": "dividend_paid_py",
+        "default": 0.0
+      },
+      "Dividend_FY": {
+        "row_label": "3.3 Dividend FY",
+        "cell": "G28",
+        "type": "extracted",
+        "field": "dividend_paid_fy",
+        "default": 0.0
+      },
+      "Tax_on_Dividend_PY": {
+        "row_label": "3.4 Tax on Dividend PY",
+        "cell": "F29",
+        "type": "extracted",
+        "field": "tax_on_dividend_py",
+        "default": 0.0
+      },
+      "Tax_on_Dividend_FY": {
+        "row_label": "3.4 Tax on Dividend FY",
+        "cell": "G29",
+        "type": "extracted",
+        "field": "tax_on_dividend_fy",
+        "default": 0.0
+      },
+      "Retained_Profit_PY": {
+        "row_label": "3.5 Retained Profit PY",
+        "cell": "F30",
+        "type": "calculated",
+        "formula": "subtract_cells('Section II', 'F27', 'F28', 'F29')"
+      },
+      "Retained_Profit_FY": {
+        "row_label": "3.5 Retained Profit FY",
+        "cell": "G30",
+        "type": "calculated",
+        "formula": "subtract_cells('Section II', 'G27', 'G28', 'G29')"
+      },
+      "Reserves_Surplus_PY": {
+        "row_label": "4.1 Reserves & Surplus PY",
+        "cell": "F32",
+        "type": "extracted",
+        "field": "reserves_and_surplus_py",
+        "default": 0.0
+      },
+      "Reserves_Surplus_FY": {
+        "row_label": "4.1 Reserves & Surplus FY",
+        "cell": "G32",
+        "type": "extracted",
+        "field": "reserves_and_surplus_fy",
+        "default": 0.0
+      },
+      "PL_Balance_PY": {
+        "row_label": "4.2 Of which, Profit (+) and Loss (-) balance PY",
+        "cell": "F33",
+        "type": "extracted",
+        "field": "pl_balance_py",
+        "default": 0.0
+      },
+      "PL_Balance_FY": {
+        "row_label": "4.2 Of which, Profit (+) and Loss (-) balance FY",
+        "cell": "G33",
+        "type": "extracted",
+        "field": "pl_balance_fy",
+        "default": 0.0
+      },
+      "Net_Worth_PY": {
+        "row_label": "4.3 Net worth of Company PY",
+        "cell": "F34",
+        "type": "calculated",
+        "formula": "sum_cells('Section II', ['F6', 'F32'])"
+      },
+      "Net_Worth_FY": {
+        "row_label": "4.3 Net worth of Company FY",
+        "cell": "G34",
+        "type": "calculated",
+        "formula": "sum_cells('Section II', ['G6', 'G32'])"
+      },
+      "Domestic_Sales_PY": {
+        "row_label": "5.1 Domestic Sales PY",
+        "cell": "F36",
+        "type": "extracted",
+        "field": "domestic_sales_py",
+        "default": 0.0
+      },
+      "Domestic_Sales_FY": {
+        "row_label": "5.1 Domestic Sales FY",
+        "cell": "G36",
+        "type": "extracted",
+        "field": "domestic_sales_fy",
+        "default": 0.0
+      },
+      "Export_Sales_PY": {
+        "row_label": "5.2 Exports PY",
+        "cell": "F37",
+        "type": "extracted",
+        "field": "export_sales_py",
+        "default": 0.0
+      },
+      "Export_Sales_FY": {
+        "row_label": "5.2 Exports FY",
+        "cell": "G37",
+        "type": "extracted",
+        "field": "export_sales_fy",
+        "default": 0.0
+      },
+      "Total_Sales_PY": {
+        "row_label": "5.3 Total Sales PY",
+        "cell": "F38",
+        "type": "calculated",
+        "formula": "sum_cells('Section II', ['F36', 'F37'])"
+      },
+      "Total_Sales_FY": {
+        "row_label": "5.3 Total Sales FY",
+        "cell": "G38",
+        "type": "calculated",
+        "formula": "sum_cells('Section II', ['G36', 'G37'])"
+      },
+      "Domestic_Purchases_PY": {
+        "row_label": "5.4 Domestic Purchase PY",
+        "cell": "F39",
+        "type": "extracted",
+        "field": "domestic_purchases_py",
+        "default": 0.0
+      },
+      "Domestic_Purchases_FY": {
+        "row_label": "5.4 Domestic Purchase FY",
+        "cell": "G39",
+        "type": "extracted",
+        "field": "domestic_purchases_fy",
+        "default": 0.0
+      },
+      "Import_Purchases_PY": {
+        "row_label": "5.5 Imports PY",
+        "cell": "F40",
+        "type": "extracted",
+        "field": "import_purchases_py",
+        "default": 0.0
+      },
+      "Import_Purchases_FY": {
+        "row_label": "5.5 Imports FY",
+        "cell": "G40",
+        "type": "extracted",
+        "field": "import_purchases_fy",
+        "default": 0.0
+      },
+      "Total_Purchases_PY": {
+        "row_label": "5.6 Total Purchase PY",
+        "cell": "F41",
+        "type": "calculated",
+        "formula": "sum_cells('Section II', ['F39', 'F40'])"
+      },
+      "Total_Purchases_FY": {
+        "row_label": "5.6 Total Purchase FY",
+        "cell": "G41",
+        "type": "calculated",
+        "formula": "sum_cells('Section II', ['G39', 'G40'])"
+      },
+      "Employees_Payroll_PY": {
+        "row_label": "6.1 No. of employees on payroll PY",
+        "cell": "D43",
+        "type": "extracted",
+        "field": "employee_payroll_count_py",
+        "default": 0
+      },
+      "Employees_Payroll_FY": {
+        "row_label": "6.1 No. of employees on payroll FY",
+        "cell": "E43",
+        "type": "extracted",
+        "field": "employee_payroll_count_fy",
+        "default": 0
+      }
+    },
+    "Section III": {
+      "FDI_Investors_Count": {
+        "row_label": "1.a No. of foreign direct investors",
+        "cell": "D6",
+        "type": "extracted",
+        "field": "fdi_investors_count",
+        "default": 1
+      },
+      "FDI_First_Time_Date": {
+        "row_label": "1.a.1 Month and Year of receiving FDI first time",
+        "cell": "D7",
+        "type": "extracted",
+        "field": "fdi_first_received_date",
+        "default": "N/A"
+      },
+      "FDI1_Name": {
+        "row_label": "FDI 1: Name of the Non-Resident Company",
+        "cell": "B17",
+        "type": "extracted",
+        "field": "fdi_investor_1_name",
+        "default": ""
+      },
+      "FDI1_Country": {
+        "row_label": "FDI 1: Country of Non-Resident Investor",
+        "cell": "C17",
+        "type": "extracted",
+        "field": "fdi_investor_1_country",
+        "default": ""
+      },
+      "FDI1_Equity_Percent_PY": {
+        "row_label": "FDI 1: Equity % PY",
+        "cell": "D17",
+        "type": "extracted",
+        "field": "fdi_investor_1_equity_percent_py",
+        "default": 0
+      },
+      "FDI1_Equity_Percent_FY": {
+        "row_label": "FDI 1: Equity % FY",
+        "cell": "E17",
+        "type": "extracted",
+        "field": "fdi_investor_1_equity_percent_fy",
+        "default": 0
+      },
+      "FDI1_Equity_Capital_PY": {
+        "row_label": "FDI 1: Equity Capital PY",
+        "cell": "D20",
+        "type": "calculated",
+        "formula": "calculate_fdi_equity('fdi_investor_1_equity_percent_py', 'Net_Worth_PY')"
+      },
+      "FDI1_Equity_Capital_FY": {
+        "row_label": "FDI 1: Equity Capital FY",
+        "cell": "E20",
+        "type": "calculated",
+        "formula": "calculate_fdi_equity('fdi_investor_1_equity_percent_fy', 'Net_Worth_FY')"
+      },
+      "FDI1_Liabilities_PY": {
+        "row_label": "1.1 Liabilities to Direct Investors PY",
+        "cell": "D21",
+        "type": "calculated",
+        "formula": "calculate_fdi_equity('fdi_investor_1_equity_percent_py', 'Net_Worth_PY')"
+      },
+      "FDI1_Liabilities_FY": {
+        "row_label": "1.1 Liabilities to Direct Investors FY",
+        "cell": "E21",
+        "type": "calculated",
+        "formula": "calculate_fdi_equity('fdi_investor_1_equity_percent_fy', 'Net_Worth_FY')"
+      },
+      "FDI1_Claims_PY": {
+        "row_label": "1.2 Claims on Direct Investors PY",
+        "cell": "D22",
+        "type": "extracted",
+        "field": "fdi_investor_1_claims_py",
+        "default": 0.0
+      },
+      "FDI1_Claims_FY": {
+        "row_label": "1.2 Claims on Direct Investors FY",
+        "cell": "E22",
+        "type": "extracted",
+        "field": "fdi_investor_1_claims_fy",
+        "default": 0.0
+      },
+      "FDI1_Other_Capital_PY": {
+        "row_label": "2 Other Capital PY",
+        "cell": "D23",
+        "type": "calculated",
+        "formula": "subtract_cells('Section III', 'D24', 'D25')"
+      },
+      "FDI1_Other_Capital_FY": {
+        "row_label": "2 Other Capital FY",
+        "cell": "E23",
+        "type": "calculated",
+        "formula": "subtract_cells('Section III', 'E24', 'E25')"
+      },
+      "FDI1_Other_Liabilities_PY": {
+        "row_label": "2.1 Liabilities to Direct Investor PY",
+        "cell": "D24",
+        "type": "extracted",
+        "field": "fdi_investor_1_other_liabilities_py",
+        "default": 0.0
+      },
+      "FDI1_Other_Liabilities_FY": {
+        "row_label": "2.1 Liabilities to Direct Investor FY",
+        "cell": "E24",
+        "type": "extracted",
+        "field": "fdi_investor_1_other_liabilities_fy",
+        "default": 0.0
+      },
+      "FDI1_Other_Claims_PY": {
+        "row_label": "2.2 Claims on Direct Investor PY",
+        "cell": "D25",
+        "type": "extracted",
+        "field": "fdi_investor_1_other_claims_py",
+        "default": 0.0
+      },
+      "FDI1_Other_Claims_FY": {
+        "row_label": "2.2 Claims on Direct Investor FY",
+        "cell": "E25",
+        "type": "extracted",
+        "field": "fdi_investor_1_other_claims_fy",
+        "default": 0.0
+      },
+      "FDI1_Disinvestment_PY": {
+        "row_label": "3 Disinvestments in India PY",
+        "cell": "D26",
+        "type": "extracted",
+        "field": "fdi_investor_1_disinvestment_py",
+        "default": 0.0
+      },
+      "FDI1_Disinvestment_FY": {
+        "row_label": "3 Disinvestments in India FY",
+        "cell": "E26",
+        "type": "extracted",
+        "field": "fdi_investor_1_disinvestment_fy",
+        "default": 0.0
+      },
+      "Block2_No_Countries": {
+        "row_label": "2.a Number of countries with <10%",
+        "cell": "D32",
+        "type": "extracted",
+        "field": "fdi_less_than_10_countries_count",
+        "default": 0
+      },
+      "Portfolio_Equity_Percent_PY": {
+        "row_label": "Block 3 Portfolio: Equity % PY",
+        "cell": "D56",
+        "type": "extracted",
+        "field": "portfolio_equity_percent_py",
+        "default": 0.0
+      },
+      "Portfolio_Equity_Percent_FY": {
+        "row_label": "Block 3 Portfolio: Equity % FY",
+        "cell": "E56",
+        "type": "extracted",
+        "field": "portfolio_equity_percent_fy",
+        "default": 0.0
+      },
+      "Portfolio_Equity_Market_Value_PY": {
+        "row_label": "Block 3 Portfolio: Equity at Market Value PY",
+        "cell": "D60",
+        "type": "extracted",
+        "field": "portfolio_equity_mv_py",
+        "default": 0.0
+      },
+      "Portfolio_Equity_Market_Value_FY": {
+        "row_label": "Block 3 Portfolio: Equity at Market Value FY",
+        "cell": "E60",
+        "type": "extracted",
+        "field": "portfolio_equity_mv_fy",
+        "default": 0.0
+      },
+      "Portfolio_Money_Market_PY": {
+        "row_label": "2.1 Money Market Instruments PY",
+        "cell": "D62",
+        "type": "extracted",
+        "field": "portfolio_money_market_py",
+        "default": 0.0
+      },
+      "Portfolio_Money_Market_FY": {
+        "row_label": "2.1 Money Market Instruments FY",
+        "cell": "E62",
+        "type": "extracted",
+        "field": "portfolio_money_market_fy",
+        "default": 0.0
+      },
+      "Portfolio_Bonds_PY": {
+        "row_label": "2.2 Bonds and Other instruments PY",
+        "cell": "D64",
+        "type": "extracted",
+        "field": "portfolio_bonds_py",
+        "default": 0.0
+      },
+      "Portfolio_Bonds_FY": {
+        "row_label": "2.2 Bonds and Other instruments FY",
+        "cell": "E64",
+        "type": "extracted",
+        "field": "portfolio_bonds_fy",
+        "default": 0.0
+      },
+      "Portfolio_Disinvestment_PY": {
+        "row_label": "3 Disinvestments in India during year PY",
+        "cell": "D66",
+        "type": "extracted",
+        "field": "portfolio_disinvestment_py",
+        "default": 0.0
+      },
+      "Portfolio_Disinvestment_FY": {
+        "row_label": "3 Disinvestments in India during year FY",
+        "cell": "E66",
+        "type": "extracted",
+        "field": "portfolio_disinvestment_fy",
+        "default": 0.0
+      },
+      "Unrelated_Trade_Credit_PY": {
+        "row_label": "Block 4: 1.1 Trade Credit PY",
+        "cell": "D70",
+        "type": "extracted",
+        "field": "unrelated_trade_credit_liab_py",
+        "default": 0.0
+      },
+      "Unrelated_Trade_Credit_FY": {
+        "row_label": "Block 4: 1.1 Trade Credit FY",
+        "cell": "E70",
+        "type": "extracted",
+        "field": "unrelated_trade_credit_liab_fy",
+        "default": 0.0
+      },
+      "Unrelated_Loans_PY": {
+        "row_label": "Block 4: 1.2 Loans PY",
+        "cell": "D71",
+        "type": "extracted",
+        "field": "unrelated_loans_liab_py",
+        "default": 0.0
+      },
+      "Unrelated_Loans_FY": {
+        "row_label": "Block 4: 1.2 Loans FY",
+        "cell": "E71",
+        "type": "extracted",
+        "field": "unrelated_loans_liab_fy",
+        "default": 0.0
+      },
+      "Unrelated_Deposits_PY": {
+        "row_label": "Block 4: 1.3 Currency & Deposits PY",
+        "cell": "D72",
+        "type": "extracted",
+        "field": "unrelated_deposits_liab_py",
+        "default": 0.0
+      },
+      "Unrelated_Deposits_FY": {
+        "row_label": "Block 4: 1.3 Currency & Deposits FY",
+        "cell": "E72",
+        "type": "extracted",
+        "field": "unrelated_deposits_liab_fy",
+        "default": 0.0
+      },
+      "Unrelated_Other_Payables_PY": {
+        "row_label": "Block 4: 1.4 Other receivable/payable PY",
+        "cell": "D73",
+        "type": "extracted",
+        "field": "unrelated_other_payables_liab_py",
+        "default": 0.0
+      },
+      "Unrelated_Other_Payables_FY": {
+        "row_label": "Block 4: 1.4 Other receivable/payable FY",
+        "cell": "E73",
+        "type": "extracted",
+        "field": "unrelated_other_payables_liab_fy",
+        "default": 0.0
+      },
+      "Unrelated_Total_PY": {
+        "row_label": "Block 4: Total Liabilities PY",
+        "cell": "D74",
+        "type": "calculated",
+        "formula": "sum_cells('Section III', ['D70', 'D71', 'D72', 'D73'])"
+      },
+      "Unrelated_Total_FY": {
+        "row_label": "Block 4: Total Liabilities FY",
+        "cell": "E74",
+        "type": "calculated",
+        "formula": "sum_cells('Section III', ['E70', 'E71', 'E72', 'E73'])"
+      },
+      "FDI2_Name": {
+        "row_label": "FDI 2: Name of the Non-Resident Company",
+        "cell": "Z29",
+        "type": "extracted",
+        "field": "fdi_investor_2_name",
+        "default": ""
+      },
+      "FDI2_Country": {
+        "row_label": "FDI 2: Country of Non-Resident Investor",
+        "cell": "Z30",
+        "type": "extracted",
+        "field": "fdi_investor_2_country",
+        "default": ""
+      },
+      "FDI2_Equity_Percent_PY": {
+        "row_label": "FDI 2: Equity % PY",
+        "cell": "Z31",
+        "type": "extracted",
+        "field": "fdi_investor_2_equity_percent_py",
+        "default": 0
+      },
+      "FDI2_Equity_Percent_FY": {
+        "row_label": "FDI 2: Equity % FY",
+        "cell": "Z32",
+        "type": "extracted",
+        "field": "fdi_investor_2_equity_percent_fy",
+        "default": 0
+      },
+      "FDI2_Equity_Capital_PY": {
+        "row_label": "FDI 2: Equity Capital PY",
+        "cell": "Z33",
+        "type": "calculated",
+        "formula": "calculate_fdi_equity('fdi_investor_2_equity_percent_py', 'Net_Worth_PY')"
+      },
+      "FDI2_Equity_Capital_FY": {
+        "row_label": "FDI 2: Equity Capital FY",
+        "cell": "Z34",
+        "type": "calculated",
+        "formula": "calculate_fdi_equity('fdi_investor_2_equity_percent_fy', 'Net_Worth_FY')"
+      },
+      "FDI2_Liabilities_PY": {
+        "row_label": "1.1 Liabilities to Direct Investors PY",
+        "cell": "Z35",
+        "type": "calculated",
+        "formula": "calculate_fdi_equity('fdi_investor_2_equity_percent_py', 'Net_Worth_PY')"
+      },
+      "FDI2_Liabilities_FY": {
+        "row_label": "1.1 Liabilities to Direct Investors FY",
+        "cell": "Z36",
+        "type": "calculated",
+        "formula": "calculate_fdi_equity('fdi_investor_2_equity_percent_fy', 'Net_Worth_FY')"
+      },
+      "FDI2_Claims_PY": {
+        "row_label": "1.2 Claims on Direct Investors PY",
+        "cell": "Z37",
+        "type": "extracted",
+        "field": "fdi_investor_2_claims_py",
+        "default": 0.0
+      },
+      "FDI2_Claims_FY": {
+        "row_label": "1.2 Claims on Direct Investors FY",
+        "cell": "Z38",
+        "type": "extracted",
+        "field": "fdi_investor_2_claims_fy",
+        "default": 0.0
+      },
+      "FDI2_Other_Capital_PY": {
+        "row_label": "2 Other Capital PY",
+        "cell": "Z39",
+        "type": "calculated",
+        "formula": "subtract_cells('Section III', 'D36', 'D37')"
+      },
+      "FDI2_Other_Capital_FY": {
+        "row_label": "2 Other Capital FY",
+        "cell": "Z40",
+        "type": "calculated",
+        "formula": "subtract_cells('Section III', 'E36', 'E37')"
+      },
+      "FDI2_Other_Liabilities_PY": {
+        "row_label": "2.1 Liabilities to Direct Investor PY",
+        "cell": "Z41",
+        "type": "extracted",
+        "field": "fdi_investor_2_other_liabilities_py",
+        "default": 0.0
+      },
+      "FDI2_Other_Liabilities_FY": {
+        "row_label": "2.1 Liabilities to Direct Investor FY",
+        "cell": "Z42",
+        "type": "extracted",
+        "field": "fdi_investor_2_other_liabilities_fy",
+        "default": 0.0
+      },
+      "FDI2_Other_Claims_PY": {
+        "row_label": "2.2 Claims on Direct Investor PY",
+        "cell": "Z43",
+        "type": "extracted",
+        "field": "fdi_investor_2_other_claims_py",
+        "default": 0.0
+      },
+      "FDI2_Other_Claims_FY": {
+        "row_label": "2.2 Claims on Direct Investor FY",
+        "cell": "Z44",
+        "type": "extracted",
+        "field": "fdi_investor_2_other_claims_fy",
+        "default": 0.0
+      },
+      "FDI2_Disinvestment_PY": {
+        "row_label": "3 Disinvestments in India PY",
+        "cell": "Z45",
+        "type": "extracted",
+        "field": "fdi_investor_2_disinvestment_py",
+        "default": 0.0
+      },
+      "FDI2_Disinvestment_FY": {
+        "row_label": "3 Disinvestments in India FY",
+        "cell": "Z46",
+        "type": "extracted",
+        "field": "fdi_investor_2_disinvestment_fy",
+        "default": 0.0
+      },
+      "FDI3_Name": {
+        "row_label": "Block 2 DI 1: Country of Non-Resident Investor",
+        "cell": "B41",
+        "type": "extracted",
+        "field": "fdi_investor_2_country",
+        "default": ""
+      },
+      "FDI3_Country": {
+        "row_label": "Block 2 DI 1: Equity & Participating Preference Share % PY",
+        "cell": "C41",
+        "type": "extracted",
+        "field": "fdi_investor_2_equity_percent_py",
+        "default": 0
+      },
+      "FDI3_Equity_Percent_PY": {
+        "row_label": "Block 2 DI 1: Equity & Participating Preference Share % FY",
+        "cell": "D41",
+        "type": "extracted",
+        "field": "fdi_investor_2_equity_percent_fy",
+        "default": 0
+      },
+      "FDI3_Equity_Percent_FY": {
+        "row_label": "Unused",
+        "cell": "Z47",
+        "type": "extracted",
+        "field": "fdi_investor_2_unused",
+        "default": 0
+      },
+      "FDI3_Equity_Capital_PY": {
+        "row_label": "Block 2 DI 1: Equity Capital PY",
+        "cell": "D44",
+        "type": "calculated"
+      },
+      "FDI3_Equity_Capital_FY": {
+        "row_label": "Block 2 DI 1: Equity Capital FY",
+        "cell": "E44",
+        "type": "calculated"
+      },
+      "FDI3_Liabilities_PY": {
+        "row_label": "1.1 Liabilities to Direct Investors PY",
+        "cell": "D45",
+        "type": "calculated"
+      },
+      "FDI3_Liabilities_FY": {
+        "row_label": "1.1 Liabilities to Direct Investors FY",
+        "cell": "E45",
+        "type": "calculated"
+      },
+      "FDI3_Claims_PY": {
+        "row_label": "1.2 Claims on Direct Investors PY",
+        "cell": "D46",
+        "type": "extracted",
+        "field": "fdi_investor_2_claims_py",
+        "default": 0.0
+      },
+      "FDI3_Claims_FY": {
+        "row_label": "1.2 Claims on Direct Investors FY",
+        "cell": "E46",
+        "type": "extracted",
+        "field": "fdi_investor_2_claims_fy",
+        "default": 0.0
+      },
+      "FDI3_Other_Capital_PY": {
+        "row_label": "2 Other Capital PY",
+        "cell": "D47",
+        "type": "calculated"
+      },
+      "FDI3_Other_Capital_FY": {
+        "row_label": "2 Other Capital FY",
+        "cell": "E47",
+        "type": "calculated"
+      },
+      "FDI3_Other_Liabilities_PY": {
+        "row_label": "2.1 Liabilities to Direct Investor PY",
+        "cell": "D48",
+        "type": "extracted",
+        "field": "fdi_investor_2_other_liabilities_py",
+        "default": 0.0
+      },
+      "FDI3_Other_Liabilities_FY": {
+        "row_label": "2.1 Liabilities to Direct Investor FY",
+        "cell": "E48",
+        "type": "extracted",
+        "field": "fdi_investor_2_other_liabilities_fy",
+        "default": 0.0
+      },
+      "FDI3_Other_Claims_PY": {
+        "row_label": "2.2 Claims on Direct Investor PY",
+        "cell": "D49",
+        "type": "extracted",
+        "field": "fdi_investor_2_other_claims_py",
+        "default": 0.0
+      },
+      "FDI3_Other_Claims_FY": {
+        "row_label": "2.2 Claims on Direct Investor FY",
+        "cell": "E49",
+        "type": "extracted",
+        "field": "fdi_investor_2_other_claims_fy",
+        "default": 0.0
+      },
+      "FDI3_Disinvestment_PY": {
+        "row_label": "3 Disinvestments in India PY",
+        "cell": "D50",
+        "type": "extracted",
+        "field": "fdi_investor_2_disinvestment_py",
+        "default": 0.0
+      },
+      "FDI3_Disinvestment_FY": {
+        "row_label": "3 Disinvestments in India FY",
+        "cell": "E50",
+        "type": "extracted",
+        "field": "fdi_investor_2_disinvestment_fy",
+        "default": 0.0
+      }
+    },
+    "Section IV": {
+      "ODI_DIE_Count": {
+        "row_label": "1.a No. of Direct Investment Enterprises (DIE)",
+        "cell": "D9",
+        "type": "extracted",
+        "field": "odi_die_count",
+        "default": 0
+      },
+      "ODI_First_Time_Date": {
+        "row_label": "1.a.1 Month and Year of ODI made first time",
+        "cell": "D10",
+        "type": "extracted",
+        "field": "odi_first_made_date",
+        "default": "N/A"
+      },
+      "DIE1_Name": {
+        "row_label": "DIE 1 Name",
+        "cell": "A19",
+        "type": "extracted",
+        "field": "die_1_name",
+        "default": ""
+      },
+      "DIE1_Country": {
+        "row_label": "DIE 1 Country",
+        "cell": "D19",
+        "type": "extracted",
+        "field": "die_1_country",
+        "default": ""
+      },
+      "DIE1_Equity_Percent_PY": {
+        "row_label": "DIE 1 Equity % PY",
+        "cell": "E19",
+        "type": "extracted",
+        "field": "die_1_equity_percent_py",
+        "default": 0.0
+      },
+      "DIE1_Equity_Percent_FY": {
+        "row_label": "DIE 1 Equity % FY",
+        "cell": "F19",
+        "type": "extracted",
+        "field": "die_1_equity_percent_fy",
+        "default": 0.0
+      },
+      "DIE1_Currency": {
+        "row_label": "DIE 1 Currency",
+        "cell": "D25",
+        "type": "extracted",
+        "field": "die_1_currency",
+        "default": ""
+      },
+      "DIE1_Total_Equity_PY": {
+        "row_label": "DIE 1 Total Equity PY (FC)",
+        "cell": "D26",
+        "type": "extracted",
+        "field": "die_1_total_equity_py",
+        "default": 0.0
+      },
+      "DIE1_Total_Equity_FY": {
+        "row_label": "DIE 1 Total Equity FY (FC)",
+        "cell": "E26",
+        "type": "extracted",
+        "field": "die_1_total_equity_fy",
+        "default": 0.0
+      },
+      "DIE1_Equity_Held_PY": {
+        "row_label": "DIE 1 Equity held by you PY (FC)",
+        "cell": "D27",
+        "type": "extracted",
+        "field": "die_1_equity_held_py",
+        "default": 0.0
+      },
+      "DIE1_Equity_Held_FY": {
+        "row_label": "DIE 1 Equity held by you FY (FC)",
+        "cell": "E27",
+        "type": "extracted",
+        "field": "die_1_equity_held_fy",
+        "default": 0.0
+      },
+      "DIE1_Reserves_PY": {
+        "row_label": "DIE 1 Reserves and Surplus PY (FC)",
+        "cell": "D28",
+        "type": "extracted",
+        "field": "die_1_reserves_py",
+        "default": 0.0
+      },
+      "DIE1_Reserves_FY": {
+        "row_label": "DIE 1 Reserves and Surplus FY (FC)",
+        "cell": "E28",
+        "type": "extracted",
+        "field": "die_1_reserves_fy",
+        "default": 0.0
+      },
+      "DIE1_PL_Balance_PY": {
+        "row_label": "DIE 1 Of which, P&L balance PY (FC)",
+        "cell": "D29",
+        "type": "extracted",
+        "field": "die_1_pl_balance_py",
+        "default": 0.0
+      },
+      "DIE1_PL_Balance_FY": {
+        "row_label": "DIE 1 Of which, P&L balance FY (FC)",
+        "cell": "E29",
+        "type": "extracted",
+        "field": "die_1_pl_balance_fy",
+        "default": 0.0
+      },
+      "DIE1_Net_Worth_PY": {
+        "row_label": "DIE 1 Net Worth PY (FC)",
+        "cell": "D30",
+        "type": "calculated",
+        "formula": "sum_cells('Section IV', ['D26', 'D28'])"
+      },
+      "DIE1_Net_Worth_FY": {
+        "row_label": "DIE 1 Net Worth FY (FC)",
+        "cell": "E30",
+        "type": "calculated",
+        "formula": "sum_cells('Section IV', ['E26', 'E28'])"
+      },
+      "DIE1_Exchange_Rate_PY": {
+        "row_label": "DIE 1 Exchange rate PY",
+        "cell": "D31",
+        "type": "extracted",
+        "field": "die_1_exchange_rate_py",
+        "default": 0
+      },
+      "DIE1_Exchange_Rate_FY": {
+        "row_label": "DIE 1 Exchange rate FY",
+        "cell": "E31",
+        "type": "extracted",
+        "field": "die_1_exchange_rate_fy",
+        "default": 0
+      },
+      "DIE1_Sales_PY": {
+        "row_label": "DIE 1 Total Sales PY (FC)",
+        "cell": "D32",
+        "type": "extracted",
+        "field": "die_1_sales_py",
+        "default": 0.0
+      },
+      "DIE1_Sales_FY": {
+        "row_label": "DIE 1 Total Sales FY (FC)",
+        "cell": "E32",
+        "type": "extracted",
+        "field": "die_1_sales_fy",
+        "default": 0.0
+      },
+      "DIE1_Exports_PY": {
+        "row_label": "DIE 1 of which Exports PY (FC)",
+        "cell": "D33",
+        "type": "extracted",
+        "field": "die_1_exports_py",
+        "default": 0.0
+      },
+      "DIE1_Exports_FY": {
+        "row_label": "DIE 1 of which Exports FY (FC)",
+        "cell": "E33",
+        "type": "extracted",
+        "field": "die_1_exports_fy",
+        "default": 0.0
+      },
+      "DIE1_Purchases_PY": {
+        "row_label": "DIE 1 Total Purchase PY (FC)",
+        "cell": "D34",
+        "type": "extracted",
+        "field": "die_1_purchases_py",
+        "default": 0.0
+      },
+      "DIE1_Purchases_FY": {
+        "row_label": "DIE 1 Total Purchase FY (FC)",
+        "cell": "E34",
+        "type": "extracted",
+        "field": "die_1_purchases_fy",
+        "default": 0.0
+      },
+      "DIE1_Imports_PY": {
+        "row_label": "DIE 1 of which Imports PY (FC)",
+        "cell": "D35",
+        "type": "extracted",
+        "field": "die_1_imports_py",
+        "default": 0.0
+      },
+      "DIE1_Imports_FY": {
+        "row_label": "DIE 1 of which Imports FY (FC)",
+        "cell": "E35",
+        "type": "extracted",
+        "field": "die_1_imports_fy",
+        "default": 0.0
+      },
+      "DIE1_Employees_PY": {
+        "row_label": "DIE 1 No. of Employees PY",
+        "cell": "D36",
+        "type": "extracted",
+        "field": "die_1_employees_py",
+        "default": 0
+      },
+      "DIE1_Employees_FY": {
+        "row_label": "DIE 1 No. of Employees FY",
+        "cell": "E36",
+        "type": "extracted",
+        "field": "die_1_employees_fy",
+        "default": 0
+      },
+      "DIE1_Equity_Capital_INR_PY": {
+        "row_label": "DIE 1 Equity Capital and PPS PY (INR Lakhs)",
+        "cell": "D39",
+        "type": "calculated",
+        "formula": "translate_die_equity('py')"
+      },
+      "DIE1_Equity_Capital_INR_FY": {
+        "row_label": "DIE 1 Equity Capital and PPS FY (INR Lakhs)",
+        "cell": "E39",
+        "type": "calculated",
+        "formula": "translate_die_equity('fy')"
+      },
+      "DIE1_Liabilities_PY": {
+        "row_label": "DIE 1 Liabilities to DIE PY (INR Lakhs)",
+        "cell": "D40",
+        "type": "extracted",
+        "field": "die_1_liabilities_py",
+        "default": 0.0
+      },
+      "DIE1_Liabilities_FY": {
+        "row_label": "DIE 1 Liabilities to DIE FY (INR Lakhs)",
+        "cell": "E40",
+        "type": "extracted",
+        "field": "die_1_liabilities_fy",
+        "default": 0.0
+      },
+      "DIE1_Claims_PY": {
+        "row_label": "DIE 1 Claims on DIE PY (INR Lakhs)",
+        "cell": "D41",
+        "type": "extracted",
+        "field": "die_1_claims_py",
+        "default": 0.0
+      },
+      "DIE1_Claims_FY": {
+        "row_label": "DIE 1 Claims on DIE FY (INR Lakhs)",
+        "cell": "E41",
+        "type": "extracted",
+        "field": "die_1_claims_fy",
+        "default": 0.0
+      },
+      "DIE1_Other_Capital_PY": {
+        "row_label": "DIE 1 Other Capital PY (INR Lakhs)",
+        "cell": "D42",
+        "type": "calculated",
+        "formula": "subtract_cells('Section IV', 'D43', 'D44')"
+      },
+      "DIE1_Other_Capital_FY": {
+        "row_label": "DIE 1 Other Capital FY (INR Lakhs)",
+        "cell": "E42",
+        "type": "calculated",
+        "formula": "subtract_cells('Section IV', 'E43', 'E44')"
+      },
+      "DIE1_Other_Liabilities_PY": {
+        "row_label": "DIE 1 Other Liabilities to DIE PY (INR Lakhs)",
+        "cell": "D43",
+        "type": "extracted",
+        "field": "die_1_other_liabilities_py",
+        "default": 0.0
+      },
+      "DIE1_Other_Liabilities_FY": {
+        "row_label": "DIE 1 Other Liabilities to DIE FY (INR Lakhs)",
+        "cell": "E43",
+        "type": "extracted",
+        "field": "die_1_other_liabilities_fy",
+        "default": 0.0
+      },
+      "DIE1_Other_Claims_PY": {
+        "row_label": "DIE 1 Other Claims on DIE PY (INR Lakhs)",
+        "cell": "D44",
+        "type": "extracted",
+        "field": "die_1_other_claims_py",
+        "default": 0.0
+      },
+      "DIE1_Other_Claims_FY": {
+        "row_label": "DIE 1 Other Claims on DIE FY (INR Lakhs)",
+        "cell": "E44",
+        "type": "extracted",
+        "field": "die_1_other_claims_fy",
+        "default": 0.0
+      },
+      "DIE1_Disinvestment_PY": {
+        "row_label": "DIE 1 Disinvestments abroad PY (INR Lakhs)",
+        "cell": "D45",
+        "type": "extracted",
+        "field": "die_1_disinvestment_py",
+        "default": 0.0
+      },
+      "DIE1_Disinvestment_FY": {
+        "row_label": "DIE 1 Disinvestments abroad FY (INR Lakhs)",
+        "cell": "E45",
+        "type": "extracted",
+        "field": "die_1_disinvestment_fy",
+        "default": 0.0
+      },
+      "Block2_No_Countries_Abroad": {
+        "row_label": "2.a No. of Countries with <10% equity abroad",
+        "cell": "D52",
+        "type": "extracted",
+        "field": "odi_less_than_10_countries_count",
+        "default": 0
+      },
+      "Portfolio_Abroad_No_Countries": {
+        "row_label": "3.a Country of Non-Resident Enterprise (Portfolio)",
+        "cell": "D75",
+        "type": "extracted",
+        "field": "portfolio_abroad_countries_count",
+        "default": 0
+      },
+      "Unrelated_Trade_Credit_Assets_PY": {
+        "row_label": "Block 4: 1.1 Trade Credit PY (Assets)",
+        "cell": "D96",
+        "type": "extracted",
+        "field": "unrelated_trade_credit_assets_py",
+        "default": 0.0
+      },
+      "Unrelated_Trade_Credit_Assets_FY": {
+        "row_label": "Block 4: 1.1 Trade Credit FY (Assets)",
+        "cell": "E96",
+        "type": "extracted",
+        "field": "unrelated_trade_credit_assets_fy",
+        "default": 0.0
+      },
+      "Unrelated_Loans_Assets_PY": {
+        "row_label": "Block 4: 1.2 Loans PY (Assets)",
+        "cell": "D97",
+        "type": "extracted",
+        "field": "unrelated_loans_assets_py",
+        "default": 0.0
+      },
+      "Unrelated_Loans_Assets_FY": {
+        "row_label": "Block 4: 1.2 Loans FY (Assets)",
+        "cell": "E97",
+        "type": "extracted",
+        "field": "unrelated_loans_assets_fy",
+        "default": 0.0
+      },
+      "Unrelated_Deposits_Assets_PY": {
+        "row_label": "Block 4: 1.3 Currency & Deposits PY (Assets)",
+        "cell": "D98",
+        "type": "extracted",
+        "field": "unrelated_deposits_assets_py",
+        "default": 0.0
+      },
+      "Unrelated_Deposits_Assets_FY": {
+        "row_label": "Block 4: 1.3 Currency & Deposits FY (Assets)",
+        "cell": "E98",
+        "type": "extracted",
+        "field": "unrelated_deposits_assets_fy",
+        "default": 0.0
+      },
+      "Unrelated_Other_Receivables_PY": {
+        "row_label": "Block 4: 1.4 Other receivable PY (Assets)",
+        "cell": "D99",
+        "type": "extracted",
+        "field": "unrelated_other_receivables_assets_py",
+        "default": 0.0
+      },
+      "Unrelated_Other_Receivables_FY": {
+        "row_label": "Block 4: 1.4 Other receivable FY (Assets)",
+        "cell": "E99",
+        "type": "extracted",
+        "field": "unrelated_other_receivables_assets_fy",
+        "default": 0.0
+      },
+      "Unrelated_Total_Assets_PY": {
+        "row_label": "Block 4: Total Claims PY",
+        "cell": "D100",
+        "type": "calculated",
+        "formula": "sum_cells('Section IV', ['D96', 'D97', 'D98', 'D99'])"
+      },
+      "Unrelated_Total_Assets_FY": {
+        "row_label": "Block 4: Total Claims FY",
+        "cell": "E100",
+        "type": "calculated",
+        "formula": "sum_cells('Section IV', ['E96', 'E97', 'E98', 'E99'])"
+      }
+    }
+  }
+}
