@@ -59,7 +59,7 @@ export default function TaskView() {
   };
 
   const handleDownload = () => {
-    window.location.href = `http://localhost:8000/api/download/${taskId}`;
+    window.location.href = `http://localhost:8000/api/download_package/${taskId}`;
   };
 
   if (error) return <div className="text-red-500 font-medium p-8">{error}</div>;
@@ -123,7 +123,7 @@ export default function TaskView() {
             className="relative z-10 inline-flex items-center gap-3 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white px-8 py-4 rounded-xl font-bold text-lg shadow-lg shadow-emerald-500/30 hover:shadow-xl hover:shadow-emerald-500/40 hover:-translate-y-1 transition-all duration-300"
           >
             <FileSpreadsheet className="w-6 h-6" />
-            Download Excel
+            Download Output Package
           </button>
         </div>
       )}

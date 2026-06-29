@@ -177,12 +177,64 @@ async def export_excel(task_id: str, reviewed_data: dict, db: Session = Depends(
         db.commit()
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/download/{task_id}")
-def download_excel(task_id: str, db: Session = Depends(get_db)):
+import zipfile
+import pandas as pd
+from io import BytesIO
+from fastapi.responses import StreamingResponse
+
+@app.get("/api/download_package/{task_id}")
+def download_package(task_id: str, db: Session = Depends(get_db)):
     task = db.query(models.ExtractionTask).filter(models.ExtractionTask.id == task_id).first()
-    if not task or not task.output_excel:
-        raise HTTPException(status_code=404, detail="Excel not found")
-    return FileResponse(path=task.output_excel, filename=f"FLA_{task.company_name}.xlsx")
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+        
+    zip_buffer = BytesIO()
+    
+    with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
+        # 1. Add the main Populated Excel Return (if it exists)
+        if task.output_excel and os.path.exists(task.output_excel):
+            zip_file.write(task.output_excel, arcname=f"{task.module_type.upper()}_{task.company_name}_Return.xlsx")
+            
+        # 2. Generate and Add the Flags Excel
+        flags_buffer = BytesIO()
+        with pd.ExcelWriter(flags_buffer, engine='openpyxl') as writer:
+            has_data = False
+            
+            # AOC4 Common Error Flags
+            flags = task.extracted_data.get("flags", []) if task.extracted_data else []
+            if flags:
+                pd.DataFrame(flags).to_excel(writer, index=False, sheet_name="Common Errors")
+                has_data = True
+                
+            # FLA Comparison Results
+            comparison = task.extracted_data.get("comparison_results", []) if task.extracted_data else []
+            if comparison:
+                pd.DataFrame(comparison).to_excel(writer, index=False, sheet_name="Previous Year Comparison")
+                has_data = True
+                
+            # FLA Validation logs
+            if task.output_excel:
+                out_dir = os.path.dirname(task.output_excel)
+                val_path = os.path.join(out_dir, "validation_report.json")
+                if os.path.exists(val_path):
+                    with open(val_path, "r") as f:
+                        val_data = json.load(f)
+                    if val_data:
+                        pd.DataFrame(val_data).to_excel(writer, index=False, sheet_name="Mathematical Consistency")
+                        has_data = True
+                        
+            if not has_data:
+                pd.DataFrame([{"Message": "No flags generated"}]).to_excel(writer, index=False, sheet_name="Flags")
+                
+        flags_buffer.seek(0)
+        zip_file.writestr(f"{task.module_type.upper()}_{task.company_name}_Flags.xlsx", flags_buffer.read())
+
+    zip_buffer.seek(0)
+    
+    headers = {
+        'Content-Disposition': f'attachment; filename="{task.module_type.upper()}_Output_Package_{task.company_name}.zip"'
+    }
+    return StreamingResponse(zip_buffer, headers=headers, media_type='application/zip')
 
 from pydantic import BaseModel
 from typing import List, Any

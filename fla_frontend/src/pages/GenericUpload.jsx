@@ -1,15 +1,27 @@
 import { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import axios from 'axios';
-import { UploadCloud, File, X, Loader2, Info, ArrowLeft } from 'lucide-react';
+import { UploadCloud, File, X, Loader2, Info, ArrowLeft, AlertCircle } from 'lucide-react';
+import { MODULES_SCHEMA } from '../config/modulesSchema';
 
-export default function Upload() {
+export default function GenericUpload() {
+  const { moduleId } = useParams();
+  const navigate = useNavigate();
   const [files, setFiles] = useState([]);
   const [previousFlaFile, setPreviousFlaFile] = useState(null);
   const [companyName, setCompanyName] = useState('');
-  const moduleType = 'fla';
   const [uploading, setUploading] = useState(false);
-  const navigate = useNavigate();
+
+  const moduleConfig = MODULES_SCHEMA[moduleId];
+
+  if (!moduleConfig) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[calc(100vh-140px)]">
+        <AlertCircle className="w-16 h-16 text-rose-500 mb-4" />
+        <h2 className="text-2xl font-bold text-white mb-2">Module Not Found</h2>
+      </div>
+    );
+  }
 
   const handleDrop = useCallback((e) => {
     e.preventDefault();
@@ -36,24 +48,18 @@ export default function Upload() {
       formData.append('files', file);
     });
 
-    if (previousFlaFile) {
-      // Append with a custom filename so the backend identifies it
+    if (previousFlaFile && moduleConfig.features.hasPreviousYearComparison) {
       formData.append('files', previousFlaFile, `previous_fla_${previousFlaFile.name}`);
     }
 
     try {
-      // POST upload
-      const res = await axios.post(`http://localhost:8000/api/upload?company_name=${encodeURIComponent(companyName)}&module_type=${moduleType}`, formData, {
+      const res = await axios.post(`http://localhost:8000/api/upload?company_name=${encodeURIComponent(companyName)}&module_type=${moduleConfig.apiType}`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
       const taskId = res.data.task_id;
-
-      // Trigger processing immediately after upload
       await axios.post(`http://localhost:8000/api/process/${taskId}`);
-
-      // Navigate to task view to watch progress
-      navigate(`/fla/task/${taskId}`);
+      navigate(`/m/${moduleId}/task/${taskId}`);
     } catch (error) {
       console.error("Upload failed:", error);
       alert("Failed to upload files. Check console.");
@@ -64,30 +70,28 @@ export default function Upload() {
   return (
     <div className="max-w-7xl mx-auto h-[calc(100vh-140px)] flex flex-col">
       <div className="flex items-center gap-4 mb-6 shrink-0">
-        <button onClick={() => navigate('/fla')} className="bg-white/5 hover:bg-white/10 p-2.5 rounded-xl transition-colors border border-white/10 text-slate-400 hover:text-white shadow-sm">
+        <button onClick={() => navigate(`/m/${moduleId}`)} className="bg-white/5 hover:bg-white/10 p-2.5 rounded-xl transition-colors border border-white/10 text-slate-400 hover:text-white shadow-sm">
           <ArrowLeft className="w-5 h-5" />
         </button>
-        <h1 className="text-4xl font-extrabold text-white tracking-tight drop-shadow-sm">New Extraction</h1>
+        <h1 className="text-4xl font-extrabold text-white tracking-tight drop-shadow-sm">New {moduleConfig.name} Extraction</h1>
       </div>
 
       <div className="bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-white/10 p-8 shadow-2xl shadow-purple-900/20 flex-1 flex gap-10 min-h-0">
 
         {/* Left Column */}
         <div className="w-[45%] flex flex-col min-h-0">
-
-          {/* Guidance Alert for Newcomers */}
-          <div className="mb-6 bg-blue-500/10 border border-blue-400/20 rounded-xl p-5 flex items-start gap-4 shadow-inner shadow-blue-500/5 shrink-0">
-            <Info className="w-6 h-6 text-blue-400 shrink-0 mt-0.5" />
+          <div className={`mb-6 bg-${moduleConfig.themeColor}-500/10 border border-${moduleConfig.themeColor}-400/20 rounded-xl p-5 flex items-start gap-4 shadow-inner shrink-0`}>
+            <Info className={`w-6 h-6 text-${moduleConfig.themeColor}-400 shrink-0 mt-0.5`} />
             <div>
-              <h3 className="text-blue-300 font-semibold text-sm tracking-wide uppercase mb-2">Required Documents</h3>
+              <h3 className={`text-${moduleConfig.themeColor}-300 font-semibold text-sm tracking-wide uppercase mb-2`}>Required Documents</h3>
               <p className="text-slate-300 text-sm mb-3 leading-relaxed">For a complete extraction, drop these files into the main dropzone:</p>
               <ul className="grid grid-cols-1 gap-y-2 text-sm text-slate-400">
-                <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div><span className="text-slate-200 font-medium">Financials</span> (PDF/MD)</li>
-                <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div><span className="text-slate-200 font-medium">Audit / Board Report</span> (PDF)</li>
-                <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div><span className="text-slate-200 font-medium">ODI Details</span> (PDF/MD)</li>
-                <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div><span className="text-slate-200 font-medium">Input data from Company Details</span> (Excel)</li>
-                <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div><span className="text-slate-200 font-medium">List of Shareholders</span> (Excel)</li>
-                <li className="flex items-center gap-2"><div className="w-1.5 h-1.5 rounded-full bg-blue-400"></div><span className="text-slate-200 font-medium">Financials of Overseas Entities (if applicable)</span> (/PDF/Excel)</li>
+                {moduleConfig.uploadRequirements.map((req, idx) => (
+                  <li key={idx} className="flex items-center gap-2">
+                    <div className={`w-1.5 h-1.5 rounded-full bg-${moduleConfig.themeColor}-400`}></div>
+                    <span className="text-slate-200 font-medium">{req.name} {req.mandatory ? '*' : ''}</span> ({req.type})
+                  </li>
+                ))}
               </ul>
             </div>
           </div>
@@ -113,7 +117,7 @@ export default function Upload() {
                   {files.map((file, i) => (
                     <li key={i} className="flex items-center justify-between p-3 bg-[#131B2C]/80 border border-white/10 rounded-lg">
                       <div className="flex items-center gap-3 overflow-hidden">
-                        <File className="w-5 h-5 text-indigo-400 shrink-0" />
+                        <File className={`w-5 h-5 text-${moduleConfig.themeColor}-400 shrink-0`} />
                         <span className="text-sm font-medium text-slate-300 truncate">{file.name}</span>
                         <span className="text-xs text-slate-400 shrink-0">({(file.size / 1024).toFixed(1)} KB)</span>
                       </div>
@@ -146,7 +150,7 @@ export default function Upload() {
             >
               <div className="absolute inset-0 bg-gradient-to-br from-primary-100/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" />
               <div className="bg-[#1A2235] p-4 border border-white/10 rounded-full shadow-md mb-5 group-hover:scale-110 group-hover:shadow-lg transition-all z-10">
-                <UploadCloud className="w-10 h-10 text-indigo-400" />
+                <UploadCloud className={`w-10 h-10 text-${moduleConfig.themeColor}-400`} />
               </div>
               <p className="text-slate-300 font-medium text-lg">Drag & drop files here</p>
               <p className="text-slate-500 text-sm mt-1">or click to browse</p>
@@ -160,55 +164,57 @@ export default function Upload() {
             </div>
           </div>
 
-          <div className="shrink-0">
-            <label className="block text-sm font-semibold text-slate-300 mb-2">Previous Year FLA (Optional - for auto comparison)</label>
-            {previousFlaFile ? (
-              <div className="flex items-center justify-between p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl">
-                <div className="flex items-center gap-3 truncate">
-                  <div className="bg-indigo-500/20 p-2 rounded-lg shrink-0">
-                    <File className="w-5 h-5 text-indigo-400" />
+          {moduleConfig.features.hasPreviousYearComparison && (
+            <div className="shrink-0">
+              <label className="block text-sm font-semibold text-slate-300 mb-2">Previous Year Data (Optional - for auto comparison)</label>
+              {previousFlaFile ? (
+                <div className={`flex items-center justify-between p-4 bg-${moduleConfig.themeColor}-500/10 border border-${moduleConfig.themeColor}-500/20 rounded-xl`}>
+                  <div className="flex items-center gap-3 truncate">
+                    <div className={`bg-${moduleConfig.themeColor}-500/20 p-2 rounded-lg shrink-0`}>
+                      <File className={`w-5 h-5 text-${moduleConfig.themeColor}-400`} />
+                    </div>
+                    <div className="truncate">
+                      <p className="text-sm font-semibold text-slate-200 truncate">{previousFlaFile.name}</p>
+                      <p className="text-xs text-slate-400">Used for automated mismatch detection</p>
+                    </div>
                   </div>
-                  <div className="truncate">
-                    <p className="text-sm font-semibold text-slate-200 truncate">{previousFlaFile.name}</p>
-                    <p className="text-xs text-slate-400">Used for automated mismatch detection</p>
-                  </div>
+                  <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPreviousFlaFile(null); }} className="text-slate-400 hover:text-red-500 transition-colors p-2 bg-white/5 rounded-lg hover:bg-white/10 shrink-0 ml-2 z-30 relative">
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-                <button onClick={() => setPreviousFlaFile(null)} className="text-slate-400 hover:text-red-500 transition-colors p-2 bg-white/5 rounded-lg hover:bg-white/10 shrink-0 ml-2">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <div
-                onDrop={(e) => { e.preventDefault(); setPreviousFlaFile(e.dataTransfer.files[0]); }}
-                onDragOver={(e) => e.preventDefault()}
-                className="group relative border-2 border-dashed border-white/10 rounded-xl p-5 flex flex-col items-center justify-center bg-[#131B2C]/30 hover:bg-[#1A2235] hover:border-indigo-400/50 transition-all cursor-pointer overflow-hidden"
-                onClick={() => document.getElementById('prev-file-upload').click()}
-              >
-                <div className="flex items-center gap-4">
-                  <div className="bg-[#1A2235] p-3 border border-white/10 rounded-full shadow-sm group-hover:scale-110 transition-transform">
-                    <File className="w-6 h-6 text-indigo-400/70" />
+              ) : (
+                <div
+                  onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files[0]) setPreviousFlaFile(e.dataTransfer.files[0]); }}
+                  onDragOver={(e) => e.preventDefault()}
+                  className={`group relative border-2 border-dashed border-white/10 rounded-xl p-5 flex flex-col items-center justify-center bg-[#131B2C]/30 hover:bg-[#1A2235] hover:border-${moduleConfig.themeColor}-400/50 transition-all cursor-pointer overflow-hidden`}
+                  onClick={() => document.getElementById('prev-file-upload').click()}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="bg-[#1A2235] p-3 border border-white/10 rounded-full shadow-sm group-hover:scale-110 transition-transform">
+                      <File className={`w-6 h-6 text-${moduleConfig.themeColor}-400/70`} />
+                    </div>
+                    <div className="text-left">
+                      <p className="text-slate-300 font-medium text-sm">Select Previous Year Document</p>
+                      <p className="text-slate-500 text-xs mt-0.5">.pdf, .xlsx, .md</p>
+                    </div>
                   </div>
-                  <div className="text-left">
-                    <p className="text-slate-300 font-medium text-sm">Select Previous Year PDF, Excel or MD</p>
-                    <p className="text-slate-500 text-xs mt-0.5">.pdf, .xlsx, .md</p>
-                  </div>
+                  <input
+                    id="prev-file-upload"
+                    type="file"
+                    accept=".pdf,.xlsx,.md"
+                    className="hidden"
+                    onChange={(e) => { if (e.target.files[0]) setPreviousFlaFile(e.target.files[0]); }}
+                  />
                 </div>
-                <input
-                  id="prev-file-upload"
-                  type="file"
-                  accept=".pdf,.xlsx,.md"
-                  className="hidden"
-                  onChange={(e) => { if (e.target.files[0]) setPreviousFlaFile(e.target.files[0]); }}
-                />
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           <div className="flex justify-end shrink-0 pt-2">
             <button
               onClick={handleUpload}
               disabled={uploading || !companyName || files.length === 0}
-              className="flex w-full justify-center items-center gap-2 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 disabled:from-slate-600 disabled:to-slate-700 disabled:text-slate-400 text-white px-8 py-4 rounded-xl font-bold text-lg shadow-lg shadow-primary-500/30 hover:shadow-xl hover:shadow-primary-500/40 hover:-translate-y-0.5 transition-all"
+              className={`flex w-full justify-center items-center gap-2 bg-gradient-to-r from-${moduleConfig.themeColor}-500 to-${moduleConfig.themeColor}-700 hover:from-${moduleConfig.themeColor}-400 hover:to-${moduleConfig.themeColor}-600 disabled:from-slate-600 disabled:to-slate-700 disabled:text-slate-400 text-white px-8 py-4 rounded-xl font-bold text-lg shadow-lg shadow-${moduleConfig.themeColor}-500/30 hover:shadow-xl hover:-translate-y-0.5 transition-all`}
             >
               {uploading ? <><Loader2 className="w-5 h-5 animate-spin" /> Uploading...</> : 'Upload & Process'}
             </button>

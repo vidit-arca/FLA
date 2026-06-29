@@ -1,8 +1,14 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import { LayoutDashboard, Package, Zap, Users, Settings, Activity, ArrowRight, ShieldCheck, FileText, Cpu, Database, Clock, Server, CheckCircle, AlertCircle, ClipboardCheck } from 'lucide-react';
+import { LayoutDashboard, Package, Zap, Users, Settings, Activity, ArrowRight, ShieldCheck, FileText, Cpu, Database, Clock, Server, CheckCircle, AlertCircle, ClipboardCheck, ShieldAlert } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { MODULES_SCHEMA } from '../config/modulesSchema';
+
+const ICON_MAP = {
+  FileText: FileText,
+  ShieldAlert: ShieldAlert,
+};
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -46,7 +52,7 @@ export default function Dashboard() {
             <span className="text-xs font-medium text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded-full">Live</span>
           </div>
           <p className="text-xs text-slate-400 font-semibold tracking-wide uppercase">Active Modules</p>
-          <p className="text-2xl font-extrabold text-white mt-1">2</p>
+          <p className="text-2xl font-extrabold text-white mt-1">{Object.keys(MODULES_SCHEMA).length}</p>
         </div>
         
         <div className="bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-white/10 p-5 shadow-xl hover:-translate-y-1 transition-transform">
@@ -188,39 +194,27 @@ export default function Dashboard() {
             </h2>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {/* FLA Module Card */}
-            <div 
-              onClick={() => navigate('/fla')}
-              className="bg-black/20 border border-indigo-500/30 hover:border-indigo-400/60 p-4 rounded-xl cursor-pointer transition-all hover:bg-indigo-500/10 group"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-indigo-500/20 rounded-lg group-hover:bg-indigo-500/30 transition-colors">
-                    <FileText className="w-5 h-5 text-indigo-400" />
+            {Object.values(MODULES_SCHEMA).map(mod => {
+              const Icon = ICON_MAP[mod.icon] || FileText;
+              return (
+                <div 
+                  key={mod.id}
+                  onClick={() => navigate(`/m/${mod.id}`)}
+                  className={`bg-black/20 border border-${mod.themeColor}-500/30 hover:border-${mod.themeColor}-400/60 p-4 rounded-xl cursor-pointer transition-all hover:bg-${mod.themeColor}-500/10 group`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-3">
+                      <div className={`p-2 bg-${mod.themeColor}-500/20 rounded-lg group-hover:bg-${mod.themeColor}-500/30 transition-colors`}>
+                        <Icon className={`w-5 h-5 text-${mod.themeColor}-400`} />
+                      </div>
+                      <h3 className="font-bold text-white">{mod.name}</h3>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
                   </div>
-                  <h3 className="font-bold text-white">FLA Module</h3>
+                  <p className="text-xs text-slate-400">{mod.description}</p>
                 </div>
-                <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
-              </div>
-              <p className="text-xs text-slate-400">Foreign Liabilities and Assets OCR & Comparison Platform.</p>
-            </div>
-
-            {/* AOC Module Card */}
-            <div 
-              onClick={() => navigate('/aoc')}
-              className="bg-black/20 border border-emerald-500/30 hover:border-emerald-400/60 p-4 rounded-xl cursor-pointer transition-all hover:bg-emerald-500/10 group"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-emerald-500/20 rounded-lg group-hover:bg-emerald-500/30 transition-colors">
-                    <FileText className="w-5 h-5 text-emerald-400" />
-                  </div>
-                  <h3 className="font-bold text-white">AOC Module</h3>
-                </div>
-                <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
-              </div>
-              <p className="text-xs text-slate-400">MCA Annual Return OCR & Extraction Platform.</p>
-            </div>
+              );
+            })}
           </div>
         </div>
       </div>
