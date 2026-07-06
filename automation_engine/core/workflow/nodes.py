@@ -17,7 +17,7 @@ def node_ingest(state: WorkflowState) -> WorkflowState:
     input_dir = state["input_dir"]
     
     # Use existing ingestion logic to correctly classify docs into a dict
-    ingestor = DocumentIngestion(input_dir)
+    ingestor = DocumentIngestion(input_dir, module_type=state.get("module_type", "fla"))
     docs = ingestor.find_documents()
     
     previous_fla_file = ""
@@ -96,11 +96,14 @@ def node_output(state: WorkflowState) -> WorkflowState:
     safe_company_name = "".join(c if c.isalnum() or c in " .-_" else "_" for c in state["company_name"])
     output_dir = os.path.join(BASE_OUTPUT_DIR, safe_company_name)
     os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, "FLA_Return_Populated.xlsx")
+    
+    module_type = state.get("module_type", "fla").upper()
+    output_path = os.path.join(output_dir, f"{module_type}_Return_Populated.xlsx")
 
     # Path logic: __file__ is inside core/workflow/nodes.py
     mod = ModuleFactory.get_module(state.get("module_type", "fla"))
-    skeletal_path = os.path.join(mod["excel_dir"], "FLA Return existing skeletal.xlsx")
+    skeletal_filename = mod.get("skeletal_file", "FLA Return existing skeletal.xlsx")
+    skeletal_path = os.path.join(mod["excel_dir"], skeletal_filename)
     
     writer = ExcelWriter(skeletal_path, output_path)
     writer.write_values(state["target_cells"])

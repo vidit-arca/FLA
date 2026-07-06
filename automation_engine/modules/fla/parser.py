@@ -508,11 +508,52 @@ class DocumentParser:
                     block4_info = self.extract_block4_from_text(other_text)
                     all_extracted.update(block4_info)
                 
-        # 2. Parse Financials from OCR outputs (Markdown / JSON) or Native PDF
+        # 2. Parse Financials from OCR outputs (Markdown / JSON), Native PDF, or Excel
         tables = []
         md_content = ""
         
-        if docs_paths.get("financials") and docs_paths["financials"].endswith(".md"):
+        if docs_paths.get("financials") and docs_paths["financials"].endswith((".xlsx", ".xls")):
+            fin_path = docs_paths["financials"]
+            print(f"[*] Ingesting Financials natively from Excel: {os.path.basename(fin_path)}")
+            import pandas as pd
+            try:
+                xl = pd.ExcelFile(fin_path)
+                
+                text_blocks = []
+                for sheet in xl.sheet_names:
+                    df = pd.read_excel(xl, sheet_name=sheet, header=None)
+                    
+                    # Dump everything to string for regex fallback matching (CIN, FCGPR, etc.)
+                    text_blocks.append(df.to_string(index=False, header=False, na_rep=''))
+                    
+                    # Find dynamic header row (look for Particulars or PY/FY)
+                    header_idx = -1
+                    for i in range(min(15, len(df))):
+                        row_vals = [str(x).lower() if pd.notna(x) else "" for x in df.iloc[i].values]
+                        has_partic = any('particular' in x for x in row_vals)
+                        has_py = any('previous' in x or 'py' in x for x in row_vals)
+                        has_fy = any('current' in x or 'fy' in x for x in row_vals)
+                        
+                        if has_partic or (has_py and has_fy):
+                            header_idx = i
+                            break
+                            
+                    if header_idx != -1:
+                        header = [str(c) if pd.notna(c) else "" for c in df.iloc[header_idx].values]
+                        data = []
+                        for i in range(header_idx + 1, len(df)):
+                            row = [str(x) if pd.notna(x) else "" for x in df.iloc[i].values]
+                            # Only add non-empty rows
+                            if any(str(r).strip() for r in row):
+                                data.append(row)
+                        tables.append([header] + data)
+                        
+                md_content = "\n".join(text_blocks)
+                print(f"[+] Found {len(tables)} tables in Financials Excel")
+            except Exception as e:
+                print(f"[!] Error parsing native Financials Excel: {e}")
+                
+        elif docs_paths.get("financials") and docs_paths["financials"].endswith(".md"):
             fin_md_path = docs_paths["financials"]
             print(f"[*] Ingesting Financials natively from Markdown: {os.path.basename(fin_md_path)}")
             with open(fin_md_path, "r") as f:

@@ -58,7 +58,7 @@ export default function ReviewGrid({ initialData, onExport }) {
       <div className="p-4 border-t border-slate-200 bg-white flex justify-end">
         <button 
           onClick={handleSaveAndExport}
-          className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-white px-6 py-2.5 rounded-lg font-medium transition-colors"
+          className="flex items-center gap-2 bg-primary-600 hover:bg-primary-700 text-slate-900 dark:text-white px-6 py-2.5 rounded-lg font-medium transition-colors"
         >
           <Save className="w-5 h-5" />
           Save & Generate Excel

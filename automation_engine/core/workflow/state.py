@@ -4,9 +4,10 @@ class WorkflowState(TypedDict):
     task_id: str
     input_dir: str
     company_name: str
+    module_type: str
     
     # Processed File Paths
-    financial_docs: List[str]
+    financial_docs: Dict[str, Any]
     previous_fla_file: str
     ocr_outputs: Dict[str, Any]
     

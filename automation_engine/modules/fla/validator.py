@@ -37,7 +37,7 @@ class ReturnValidator:
         
         passed_eq = abs(equity_amt - expected_equity_amt) < 0.01
         self.log_check(
-            "Equity Share Capital Math",
+            "(1.1) Equity Share Capital Math",
             passed_eq,
             f"Calculated: {equity_amt} Lakhs, Expected (Shares * Face Value / 100000): {expected_equity_amt:.2f} Lakhs"
         )
@@ -47,7 +47,7 @@ class ReturnValidator:
         sum_puc = get_sec_val("Section II", "F6") + get_sec_val("Section II", "F9")
         passed_puc = abs(total_puc - sum_puc) < 0.01
         self.log_check(
-            "Total Paid-Up Capital Consolidation",
+            "(1.3, 1.1, 1.2) Total Paid-Up Capital Consolidation",
             passed_puc,
             f"Total PUC: {total_puc} Lakhs, Sum of Equity & Preference: {sum_puc} Lakhs"
         )
@@ -59,7 +59,7 @@ class ReturnValidator:
         expected_nr_percent = (nr_cap / total_cap * 100.0) if total_cap > 0 else 0.0
         passed_nr = abs(nr_percent - expected_nr_percent) < 0.01
         self.log_check(
-            "Non-Resident Shareholding Percentage",
+            "(2.1, 1.3) Non-Resident Shareholding Percentage",
             passed_nr,
             f"Fitted Percent: {nr_percent:.2f}%, Expected: {expected_nr_percent:.2f}% (NR Capital: {nr_cap} / Total Capital: {total_cap})"
         )
@@ -72,7 +72,7 @@ class ReturnValidator:
         expected_ret = pat - div - tax_div
         passed_ret = abs(ret_profit - expected_ret) < 0.01
         self.log_check(
-            "Retained Profit formula",
+            "(3.5, 3.2, 3.3, 3.4) Retained Profit formula",
             passed_ret,
             f"Retained Profit: {ret_profit} Lakhs, Expected (PAT - Dividend - Tax on Div): {expected_ret} Lakhs"
         )
@@ -82,7 +82,7 @@ class ReturnValidator:
         expected_nw = total_cap + get_sec_val("Section II", "F32")
         passed_nw = abs(nw - expected_nw) < 0.01
         self.log_check(
-            "Company Net Worth formula",
+            "(4.2, 1.3, 4.1) Company Net Worth formula",
             passed_nw,
             f"Net Worth: {nw} Lakhs, Expected (Paid Up Capital + Reserves): {expected_nw} Lakhs"
         )
@@ -92,7 +92,7 @@ class ReturnValidator:
         expected_sales = get_sec_val("Section II", "F36") + get_sec_val("Section II", "F37")
         passed_sales = abs(tot_sales - expected_sales) < 0.01
         self.log_check(
-            "Total Sales Consolidation",
+            "(5.3, 5.1, 5.2) Total Sales Consolidation",
             passed_sales,
             f"Total Sales: {tot_sales} Lakhs, Sum of Domestic & Exports: {expected_sales} Lakhs"
         )
@@ -102,7 +102,7 @@ class ReturnValidator:
         expected_purch = get_sec_val("Section II", "F39") + get_sec_val("Section II", "F40")
         passed_purch = abs(tot_purch - expected_purch) < 0.01
         self.log_check(
-            "Total Purchase Consolidation",
+            "(5.6, 5.4, 5.5) Total Purchase Consolidation",
             passed_purch,
             f"Total Purchases: {tot_purch} Lakhs, Sum of Domestic & Imports: {expected_purch} Lakhs"
         )
@@ -111,7 +111,7 @@ class ReturnValidator:
         fdi_investors_count = cell_values["Section III"].get("D6", 1)
         passed_fdi = int(fdi_investors_count) >= 0
         self.log_check(
-            "FDI Investor Count validity",
+            "(Sec III) FDI Investor Count validity",
             passed_fdi,
             f"Number of direct foreign investors: {fdi_investors_count}"
         )
@@ -123,7 +123,7 @@ class ReturnValidator:
         expected_die_nw = die_puc + die_res
         passed_die_nw = abs(die_nw - expected_die_nw) < 0.01
         self.log_check(
-            "Overseas DIE 1 Net Worth formula",
+            "(Sec IV) Overseas DIE 1 Net Worth formula",
             passed_die_nw,
             f"DIE Net Worth: {die_nw} FC, Expected (DIE Equity + Reserves): {expected_die_nw} FC"
         )

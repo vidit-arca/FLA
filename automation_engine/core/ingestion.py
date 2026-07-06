@@ -3,8 +3,9 @@ import pypdf
 import json
 
 class DocumentIngestion:
-    def __init__(self, signed_dir):
+    def __init__(self, signed_dir, module_type="fla"):
         self.signed_dir = signed_dir
+        self.module_type = module_type
         
     def find_documents(self):
         """Scans the signed directory and returns identified document types and their roles."""
@@ -49,12 +50,16 @@ class DocumentIngestion:
             lower_name = f.lower()
             full_path = os.path.join(root, f)
             
-            # PDF and MD Heuristics
-            if f.endswith('.pdf') or f.endswith('.md'):
+            # File Extension Heuristics based on module
+            allowed_extensions = ['.pdf', '.md', '.docx', '.doc']
+            if self.module_type == "aoc4":
+                allowed_extensions.extend(['.xlsx', '.xls'])
+                
+            if any(f.endswith(ext) for ext in allowed_extensions):
                 if "board" in lower_name:
                     docs["board_report"] = full_path
-                elif "odi" not in lower_name and any(k in lower_name for k in ["financial", "merged", "auditor", "auditor financial", "balance sheet", "profit and loss", "p&l", "bspl", "standalone"]):
-                    if f.endswith('.md'):
+                elif "odi" not in lower_name and any(k in lower_name for k in ["financial", "merged", "auditor", "audit", "notes", "account", "balance sheet", "profit and loss", "p&l", "bspl", "standalone", "input sheet", "annual filing", "previous year"]):
+                    if f.endswith('.md') or f.endswith('.docx') or f.endswith('.doc') or f.endswith('.xlsx') or f.endswith('.xls'):
                         financial_mds.append(full_path)
                     elif "merged_financials_combined.pdf" not in lower_name:
                         financial_pdfs.append(full_path)
@@ -70,9 +75,9 @@ class DocumentIngestion:
 
         # Prioritize MD file if provided by user directly
         if financial_mds:
+            for idx, md_path in enumerate(financial_mds):
+                docs[f"financials_{idx}"] = md_path
             docs["financials"] = financial_mds[0]
-            if len(financial_mds) > 1:
-                print(f"    [!] Multiple MD files found for financials. Using {financial_mds[0]}")
         elif financial_pdfs:
             if len(financial_pdfs) == 1:
                 docs["financials"] = financial_pdfs[0]

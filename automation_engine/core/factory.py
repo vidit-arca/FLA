@@ -21,7 +21,8 @@ class ModuleFactory:
                 "rule_engine": RuleEngine,
                 "validator": ReturnValidator,
                 "config_path": os.path.join(base_dir, "modules", "fla", "rules_config.json"),
-                "excel_dir": os.path.join(base_dir, "modules", "fla", "excel")
+                "excel_dir": os.path.join(base_dir, "modules", "fla", "excel"),
+                "skeletal_file": "FLA Return existing skeletal.xlsx"
             }
         elif module_name == "aoc4":
             from automation_engine.modules.aoc4.parser import AOC4Parser
@@ -33,7 +34,8 @@ class ModuleFactory:
                 "rule_engine": AOC4RuleEngine,
                 "validator": AOC4Validator,
                 "config_path": os.path.join(base_dir, "modules", "aoc4", "rules_config.json"),
-                "excel_dir": os.path.join(base_dir, "modules", "aoc4", "excel")
+                "excel_dir": os.path.join(base_dir, "modules", "aoc4", "excel"),
+                "skeletal_file": "Annual Filing common error Output.xlsx"
             }
         else:
             raise ValueError(f"Unknown module type: {module_name}")

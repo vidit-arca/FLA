@@ -15,9 +15,9 @@ export default function GenericTaskView() {
     return (
       <div className="flex flex-col items-center justify-center h-[calc(100vh-140px)]">
         <AlertCircle className="w-16 h-16 text-rose-500 mb-4" />
-        <h2 className="text-2xl font-bold text-white mb-2">Module Not Found</h2>
-        <p className="text-slate-400">The module "{moduleId}" does not exist in the schema.</p>
-        <button onClick={() => navigate('/')} className="mt-6 px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl transition-colors font-semibold">
+        <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Module Not Found</h2>
+        <p className="text-slate-600 dark:text-slate-400">The module "{moduleId}" does not exist in the schema.</p>
+        <button onClick={() => navigate('/')} className="mt-6 px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-slate-900 dark:text-white rounded-xl transition-colors font-semibold">
           Go Home
         </button>
       </div>
@@ -36,8 +36,8 @@ export default function GenericTaskView() {
   return (
     <div className="flex flex-col items-center justify-center h-[calc(100vh-140px)]">
       <AlertCircle className="w-16 h-16 text-amber-500 mb-4" />
-      <h2 className="text-2xl font-bold text-white mb-2">Unknown UI Engine</h2>
-      <p className="text-slate-400">The engine "{moduleConfig.uiEngine}" is not supported.</p>
+      <h2 className="text-2xl font-bold text-slate-900 dark:text-white mb-2">Unknown UI Engine</h2>
+      <p className="text-slate-600 dark:text-slate-400">The engine "{moduleConfig.uiEngine}" is not supported.</p>
     </div>
   );
 }

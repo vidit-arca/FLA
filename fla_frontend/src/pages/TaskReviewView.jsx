@@ -48,20 +48,20 @@ const TaskReviewView = () => {
   };
 
   return (
-    <div className="h-screen flex flex-col bg-[#0B0F19] text-slate-200 overflow-hidden animate-fade-in">
+    <div className="h-screen flex flex-col bg-slate-50 dark:bg-[#0B0F19] text-slate-800 dark:text-slate-200 overflow-hidden animate-fade-in">
       
       {/* Top Navigation Bar */}
-      <div className="h-16 border-b border-white/10 flex items-center justify-between px-6 bg-[#0F1523]/90 backdrop-blur-md shrink-0">
+      <div className="h-16 border-b border-slate-200 dark:border-white/10 flex items-center justify-between px-6 bg-slate-100 dark:bg-[#0F1523]/90 backdrop-blur-md shrink-0">
         <div className="flex items-center gap-4">
           <button 
             onClick={() => window.location.href = '/review'}
-            className="p-2 rounded-lg hover:bg-white/5 text-slate-400 hover:text-white transition-colors"
+            className="p-2 rounded-lg hover:bg-slate-900/5 dark:bg-white/5 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:text-white transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div className="h-6 w-px bg-white/10"></div>
+          <div className="h-6 w-px bg-slate-900/10 dark:bg-white/10"></div>
           <div>
-            <h1 className="text-sm font-semibold text-white flex items-center gap-3">
+            <h1 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-3">
               Task Validation
               <span className="px-2 py-0.5 rounded text-xs font-mono bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                 {taskId || 'TSK-9901'}
@@ -81,35 +81,35 @@ const TaskReviewView = () => {
       <div className="flex-1 flex overflow-hidden">
         
         {/* Left Pane: Document Viewer */}
-        <div className="flex-1 border-r border-white/10 flex flex-col bg-black/20">
+        <div className="flex-1 border-r border-slate-200 dark:border-white/10 flex flex-col bg-black/20">
           {/* Viewer Toolbar */}
-          <div className="h-12 border-b border-white/5 flex items-center justify-between px-4 bg-[#1A2235]/40">
-            <div className="flex items-center gap-2 text-sm text-slate-400 font-medium">
+          <div className="h-12 border-b border-slate-200 dark:border-white/5 flex items-center justify-between px-4 bg-white dark:bg-[#1A2235]/40">
+            <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 font-medium">
               <FileText className="w-4 h-4" />
               source_document_v2.pdf
             </div>
-            <button className="p-1.5 hover:bg-white/10 rounded-md text-slate-400 transition-colors">
+            <button className="p-1.5 hover:bg-slate-900/10 dark:bg-white/10 rounded-md text-slate-600 dark:text-slate-400 transition-colors">
               <Maximize2 className="w-4 h-4" />
             </button>
           </div>
           
           {/* Viewer Content Placeholder */}
           <div className="flex-1 p-6 flex items-center justify-center overflow-auto">
-            <div className="w-full max-w-2xl h-[800px] bg-white rounded shadow-2xl flex flex-col items-center justify-center text-slate-400 border border-slate-200">
-              <FileText className="w-16 h-16 mb-4 text-slate-300" />
+            <div className="w-full max-w-2xl h-[800px] bg-white rounded shadow-2xl flex flex-col items-center justify-center text-slate-600 dark:text-slate-400 border border-slate-200">
+              <FileText className="w-16 h-16 mb-4 text-slate-700 dark:text-slate-300" />
               <p className="text-lg font-medium text-slate-500">Document Preview</p>
-              <p className="text-sm text-slate-400 mt-2">Original PDF renders here</p>
+              <p className="text-sm text-slate-600 dark:text-slate-400 mt-2">Original PDF renders here</p>
             </div>
           </div>
         </div>
 
         {/* Right Pane: Extracted Data */}
-        <div className="w-[450px] flex flex-col bg-[#0F1523]/50 shrink-0">
+        <div className="w-[450px] flex flex-col bg-slate-100 dark:bg-[#0F1523]/50 shrink-0">
           
           {/* Pane Header */}
-          <div className="p-5 border-b border-white/10">
-            <h2 className="text-lg font-semibold text-white">Extracted Data</h2>
-            <p className="text-sm text-slate-400 mt-1">Review AI predictions against the document.</p>
+          <div className="p-5 border-b border-slate-200 dark:border-white/10">
+            <h2 className="text-lg font-semibold text-slate-900 dark:text-white">Extracted Data</h2>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">Review AI predictions against the document.</p>
           </div>
 
           {/* Fields List */}
@@ -122,11 +122,11 @@ const TaskReviewView = () => {
                     ? 'bg-rose-500/5 border-rose-500/30 shadow-[0_0_15px_rgba(244,63,94,0.05)]' 
                     : field.status === 'approved'
                       ? 'bg-emerald-500/5 border-emerald-500/20'
-                      : 'bg-white/5 border-white/10 hover:border-indigo-500/30'
+                      : 'bg-slate-900/5 dark:bg-white/5 border-slate-200 dark:border-white/10 hover:border-indigo-500/30'
                 }`}
               >
                 <div className="flex justify-between items-start mb-2">
-                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{field.key}</span>
+                  <span className="text-xs font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-wider">{field.key}</span>
                   <div className="flex items-center gap-1.5">
                     <div className={`w-2 h-2 rounded-full ${field.confidence < 80 ? 'bg-rose-500' : field.confidence < 90 ? 'bg-amber-400' : 'bg-emerald-500'}`}></div>
                     <span className="text-xs font-mono text-slate-500">{field.confidence}%</span>
@@ -139,30 +139,30 @@ const TaskReviewView = () => {
                       type="text" 
                       value={editValue}
                       onChange={(e) => setEditValue(e.target.value)}
-                      className="flex-1 bg-black/40 border border-indigo-500/50 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      className="flex-1 bg-black/40 border border-indigo-500/50 rounded-lg px-3 py-1.5 text-sm text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
                     />
                     <button 
                       onClick={() => saveEdit(field.id)}
-                      className="p-1.5 bg-indigo-500 hover:bg-indigo-600 rounded-lg text-white transition-colors"
+                      className="p-1.5 bg-indigo-500 hover:bg-indigo-600 rounded-lg text-slate-900 dark:text-white transition-colors"
                     >
                       <Save className="w-4 h-4" />
                     </button>
                     <button 
                       onClick={() => setEditingFieldId(null)}
-                      className="p-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-white transition-colors"
+                      className="p-1.5 bg-slate-900/10 dark:bg-white/10 hover:bg-white/20 rounded-lg text-slate-900 dark:text-white transition-colors"
                     >
                       <X className="w-4 h-4" />
                     </button>
                   </div>
                 ) : (
                   <div className="flex justify-between items-end mt-1">
-                    <span className="text-base font-medium text-white">{field.value}</span>
+                    <span className="text-base font-medium text-slate-900 dark:text-white">{field.value}</span>
                     
                     <div className="flex gap-1">
                       {field.status !== 'approved' && (
                         <button 
                           onClick={() => handleApprove(field.id)}
-                          className="p-1.5 hover:bg-emerald-500/20 text-slate-400 hover:text-emerald-400 rounded-md transition-colors"
+                          className="p-1.5 hover:bg-emerald-500/20 text-slate-600 dark:text-slate-400 hover:text-emerald-400 rounded-md transition-colors"
                           title="Approve"
                         >
                           <Check className="w-4 h-4" />
@@ -170,7 +170,7 @@ const TaskReviewView = () => {
                       )}
                       <button 
                         onClick={() => startEditing(field)}
-                        className="p-1.5 hover:bg-indigo-500/20 text-slate-400 hover:text-indigo-400 rounded-md transition-colors"
+                        className="p-1.5 hover:bg-indigo-500/20 text-slate-600 dark:text-slate-400 hover:text-indigo-400 rounded-md transition-colors"
                         title="Edit Value"
                       >
                         <Edit2 className="w-4 h-4" />
@@ -189,8 +189,8 @@ const TaskReviewView = () => {
           </div>
 
           {/* Action Footer */}
-          <div className="p-5 border-t border-white/10 bg-[#0F1523]">
-            <button className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-medium shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2">
+          <div className="p-5 border-t border-slate-200 dark:border-white/10 bg-slate-100 dark:bg-[#0F1523]">
+            <button className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 text-slate-900 dark:text-white rounded-xl font-medium shadow-lg shadow-indigo-500/20 transition-all flex items-center justify-center gap-2">
               <CheckCircle2 className="w-5 h-5" /> Submit Validated Data
             </button>
           </div>

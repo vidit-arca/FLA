@@ -39,88 +39,88 @@ export default function Dashboard() {
     <div className="pb-10">
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">Platform Overview</h1>
-          <p className="text-slate-400 text-sm mt-1">Global statistics across all AI extraction modules.</p>
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-white tracking-tight">Platform Overview</h1>
+          <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">Global statistics across all AI extraction modules.</p>
         </div>
       </div>
       
       {/* Top Stats Row */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <div className="bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-white/10 p-5 shadow-xl hover:-translate-y-1 transition-transform">
+        <div className="bg-white dark:bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-white/10 p-5 shadow-xl hover:-translate-y-1 transition-transform">
           <div className="flex items-center justify-between mb-4">
             <div className="bg-indigo-500/20 p-2.5 rounded-lg"><Package className="text-indigo-400 w-5 h-5" /></div>
             <span className="text-xs font-medium text-emerald-400 bg-emerald-400/10 px-2 py-1 rounded-full">Live</span>
           </div>
-          <p className="text-xs text-slate-400 font-semibold tracking-wide uppercase">Active Modules</p>
-          <p className="text-2xl font-extrabold text-white mt-1">{Object.keys(MODULES_SCHEMA).length}</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400 font-semibold tracking-wide uppercase">Active Modules</p>
+          <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{Object.keys(MODULES_SCHEMA).length}</p>
         </div>
         
-        <div className="bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-white/10 p-5 shadow-xl hover:-translate-y-1 transition-transform">
+        <div className="bg-white dark:bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-white/10 p-5 shadow-xl hover:-translate-y-1 transition-transform">
           <div className="flex items-center justify-between mb-4">
             <div className="bg-primary-500/20 p-2.5 rounded-lg"><Zap className="text-primary-400 w-5 h-5" /></div>
           </div>
-          <p className="text-xs text-slate-400 font-semibold tracking-wide uppercase">Documents Processed (30d)</p>
-          <p className="text-2xl font-extrabold text-white mt-1">{totalDocs}</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400 font-semibold tracking-wide uppercase">Documents Processed (30d)</p>
+          <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{totalDocs}</p>
         </div>
 
         <div 
           onClick={() => navigate('/review')}
-          className="bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-amber-500/30 p-5 shadow-[0_0_20px_rgba(245,158,11,0.05)] hover:border-amber-500/50 hover:-translate-y-1 transition-all cursor-pointer group"
+          className="bg-white dark:bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-amber-500/30 p-5 shadow-[0_0_20px_rgba(245,158,11,0.05)] hover:border-amber-500/50 hover:-translate-y-1 transition-all cursor-pointer group"
         >
            <div className="flex items-center justify-between mb-4">
             <div className="bg-amber-500/20 p-2.5 rounded-lg group-hover:bg-amber-500/30 transition-colors"><ClipboardCheck className="text-amber-400 w-5 h-5" /></div>
             <span className="text-[10px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-2 py-1 rounded-full uppercase tracking-wider animate-pulse">Action Required</span>
           </div>
-          <p className="text-xs text-slate-400 font-semibold tracking-wide uppercase group-hover:text-amber-200/70 transition-colors">Tasks Awaiting Review</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400 font-semibold tracking-wide uppercase group-hover:text-amber-200/70 transition-colors">Tasks Awaiting Review</p>
           <p className="text-2xl font-extrabold text-amber-400 mt-1">5</p>
         </div>
 
-        <div className="bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-white/10 p-5 shadow-xl hover:-translate-y-1 transition-transform">
+        <div className="bg-white dark:bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-white/10 p-5 shadow-xl hover:-translate-y-1 transition-transform">
            <div className="flex items-center justify-between mb-4">
             <div className="bg-emerald-500/20 p-2.5 rounded-lg"><Users className="text-emerald-400 w-5 h-5" /></div>
           </div>
-          <p className="text-xs text-slate-400 font-semibold tracking-wide uppercase">Active Users</p>
-          <p className="text-2xl font-extrabold text-white mt-1">12</p>
+          <p className="text-xs text-slate-600 dark:text-slate-400 font-semibold tracking-wide uppercase">Active Users</p>
+          <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">12</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
         
         {/* System & Hardware Metrics */}
-        <div className="lg:col-span-2 bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-white/10 p-6 shadow-xl">
-          <h2 className="text-sm font-semibold text-slate-300 mb-6 flex items-center gap-2 uppercase tracking-wider">
+        <div className="lg:col-span-2 bg-white dark:bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-white/10 p-6 shadow-xl">
+          <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-6 flex items-center gap-2 uppercase tracking-wider">
             <Server className="w-4 h-4 text-indigo-400" /> System & Hardware Metrics
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-black/20 rounded-xl p-5 border border-white/5">
+            <div className="bg-black/20 rounded-xl p-5 border border-slate-200 dark:border-white/5">
               <div className="flex items-center gap-3 mb-2">
                 <Clock className="w-5 h-5 text-amber-400" />
-                <h3 className="text-sm font-medium text-slate-300">Avg Extraction Time</h3>
+                <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">Avg Extraction Time</h3>
               </div>
-              <p className="text-2xl font-bold text-white">45<span className="text-sm font-normal text-slate-500 ml-1">sec / doc</span></p>
-              <div className="w-full bg-white/5 rounded-full h-1.5 mt-3">
+              <p className="text-2xl font-bold text-slate-900 dark:text-white">45<span className="text-sm font-normal text-slate-500 ml-1">sec / doc</span></p>
+              <div className="w-full bg-slate-900/5 dark:bg-white/5 rounded-full h-1.5 mt-3">
                 <div className="bg-amber-400 h-1.5 rounded-full" style={{ width: '45%' }}></div>
               </div>
             </div>
 
-            <div className="bg-black/20 rounded-xl p-5 border border-white/5">
+            <div className="bg-black/20 rounded-xl p-5 border border-slate-200 dark:border-white/5">
               <div className="flex items-center gap-3 mb-2">
                 <Cpu className="w-5 h-5 text-emerald-400" />
-                <h3 className="text-sm font-medium text-slate-300">Global Confidence Score</h3>
+                <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">Global Confidence Score</h3>
               </div>
               <p className="text-2xl font-bold text-emerald-400">94.2%</p>
-              <div className="w-full bg-white/5 rounded-full h-1.5 mt-3">
+              <div className="w-full bg-slate-900/5 dark:bg-white/5 rounded-full h-1.5 mt-3">
                 <div className="bg-emerald-400 h-1.5 rounded-full shadow-[0_0_10px_rgba(52,211,153,0.5)]" style={{ width: '94.2%' }}></div>
               </div>
             </div>
 
-            <div className="bg-black/20 rounded-xl p-5 border border-white/5">
+            <div className="bg-black/20 rounded-xl p-5 border border-slate-200 dark:border-white/5">
               <div className="flex items-center gap-3 mb-2">
                 <Database className="w-5 h-5 text-primary-400" />
-                <h3 className="text-sm font-medium text-slate-300">GPU Storage Used</h3>
+                <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">GPU Storage Used</h3>
               </div>
-              <p className="text-2xl font-bold text-white">12<span className="text-sm font-normal text-slate-500 ml-1">GB / 100GB</span></p>
-              <div className="w-full bg-white/5 rounded-full h-1.5 mt-3">
+              <p className="text-2xl font-bold text-slate-900 dark:text-white">12<span className="text-sm font-normal text-slate-500 ml-1">GB / 100GB</span></p>
+              <div className="w-full bg-slate-900/5 dark:bg-white/5 rounded-full h-1.5 mt-3">
                 <div className="bg-primary-400 h-1.5 rounded-full" style={{ width: '12%' }}></div>
               </div>
             </div>
@@ -128,8 +128,8 @@ export default function Dashboard() {
         </div>
 
         {/* Module Distribution Donut */}
-        <div className="bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-white/10 p-6 shadow-xl flex flex-col">
-          <h2 className="text-sm font-semibold text-slate-300 mb-6 flex items-center gap-2 uppercase tracking-wider">
+        <div className="bg-white dark:bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-white/10 p-6 shadow-xl flex flex-col">
+          <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-6 flex items-center gap-2 uppercase tracking-wider">
              <Package className="w-4 h-4 text-emerald-400" /> Module Traffic
           </h2>
           <div className="flex-1 flex flex-col items-center justify-center">
@@ -147,12 +147,12 @@ export default function Dashboard() {
             </div>
             <div className="space-y-2 w-full px-4">
               {moduleDistribution.map((entry, index) => (
-                <div key={index} className="flex items-center justify-between text-xs text-slate-400 w-full">
+                <div key={index} className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-400 w-full">
                   <div className="flex items-center gap-2">
                     <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }}></span>
-                    <span className="font-medium text-slate-300">{entry.name}</span>
+                    <span className="font-medium text-slate-700 dark:text-slate-300">{entry.name}</span>
                   </div>
-                  <span className="font-bold text-white">{entry.value}%</span>
+                  <span className="font-bold text-slate-900 dark:text-white">{entry.value}%</span>
                 </div>
               ))}
             </div>
@@ -163,21 +163,21 @@ export default function Dashboard() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
         {/* Global Activity Feed (Audit Log) */}
-        <div className="lg:col-span-2 bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-xl overflow-hidden flex flex-col">
-          <div className="p-6 border-b border-white/10">
-            <h2 className="text-sm font-semibold text-slate-300 flex items-center gap-2 uppercase tracking-wider">
+        <div className="lg:col-span-2 bg-white dark:bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-white/10 shadow-xl overflow-hidden flex flex-col">
+          <div className="p-6 border-b border-slate-200 dark:border-white/10">
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2 uppercase tracking-wider">
               <Activity className="w-4 h-4 text-indigo-400" /> Global Activity Feed
             </h2>
           </div>
           <div className="p-4 flex-1">
             <div className="space-y-4">
               {activityFeed.map((activity) => (
-                <div key={activity.id} className="flex gap-4 p-3 rounded-xl hover:bg-white/[0.02] transition-colors group cursor-default">
+                <div key={activity.id} className="flex gap-4 p-3 rounded-xl hover:bg-slate-900/[0.02] dark:bg-white/[0.02] transition-colors group cursor-default">
                   <div className={`p-2.5 rounded-lg h-fit ${activity.bg}`}>
                     <activity.icon className={`w-4 h-4 ${activity.color}`} />
                   </div>
                   <div className="flex-1 flex flex-col justify-center">
-                    <p className="text-sm font-medium text-slate-200">{activity.text}</p>
+                    <p className="text-sm font-medium text-slate-800 dark:text-slate-200">{activity.text}</p>
                     <p className="text-xs text-slate-500 mt-0.5">{activity.time}</p>
                   </div>
                 </div>
@@ -187,9 +187,9 @@ export default function Dashboard() {
         </div>
 
         {/* Available Modules List */}
-        <div className="bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-xl flex flex-col overflow-hidden">
-          <div className="p-6 border-b border-white/10">
-            <h2 className="text-sm font-semibold text-slate-300 flex items-center gap-2 uppercase tracking-wider">
+        <div className="bg-white dark:bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-white/10 shadow-xl flex flex-col overflow-hidden">
+          <div className="p-6 border-b border-slate-200 dark:border-white/10">
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2 uppercase tracking-wider">
               <Package className="w-4 h-4 text-emerald-400" /> Installed Modules
             </h2>
           </div>
@@ -207,11 +207,11 @@ export default function Dashboard() {
                       <div className={`p-2 bg-${mod.themeColor}-500/20 rounded-lg group-hover:bg-${mod.themeColor}-500/30 transition-colors`}>
                         <Icon className={`w-5 h-5 text-${mod.themeColor}-400`} />
                       </div>
-                      <h3 className="font-bold text-white">{mod.name}</h3>
+                      <h3 className="font-bold text-slate-900 dark:text-white">{mod.name}</h3>
                     </div>
-                    <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-white transition-colors" />
+                    <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-slate-900 dark:text-white transition-colors" />
                   </div>
-                  <p className="text-xs text-slate-400">{mod.description}</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">{mod.description}</p>
                 </div>
               );
             })}

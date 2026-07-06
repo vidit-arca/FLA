@@ -64,14 +64,14 @@ const dummyTasks = [
 ];
 
 const StatCard = ({ title, value, icon: Icon, iconColor, iconBg }) => (
-  <div className="bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-white/10 p-5 shadow-xl hover:-translate-y-1 transition-transform">
+  <div className="bg-white dark:bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-white/10 p-5 shadow-xl hover:-translate-y-1 transition-transform">
     <div className="flex items-center justify-between mb-4">
       <div className={`${iconBg} p-2.5 rounded-lg`}>
         <Icon className={`${iconColor} w-5 h-5`} />
       </div>
     </div>
-    <p className="text-xs text-slate-400 font-semibold tracking-wide uppercase">{title}</p>
-    <p className="text-2xl font-extrabold text-white mt-1">{value}</p>
+    <p className="text-xs text-slate-600 dark:text-slate-400 font-semibold tracking-wide uppercase">{title}</p>
+    <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{value}</p>
   </div>
 );
 
@@ -93,8 +93,8 @@ const ReviewPage = () => {
       {/* Header Area */}
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-3xl font-bold text-white tracking-tight">Human Review Console</h1>
-          <p className="text-slate-400 text-sm mt-1">Review and validate data extracted by the AI engine.</p>
+          <h1 className="text-3xl font-bold text-slate-900 dark:text-white tracking-tight">Human Review Console</h1>
+          <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">Review and validate data extracted by the AI engine.</p>
         </div>
       </div>
 
@@ -124,18 +124,18 @@ const ReviewPage = () => {
       </div>
 
       {/* Main Table Container */}
-      <div className="bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-white/10 shadow-xl overflow-hidden flex flex-col">
+      <div className="bg-white dark:bg-[#1A2235]/60 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-white/10 shadow-xl overflow-hidden flex flex-col">
         
         {/* Table Header / Toolbar */}
-        <div className="p-5 border-b border-white/10 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-5">
+        <div className="p-5 border-b border-slate-200 dark:border-white/10 flex flex-col xl:flex-row items-start xl:items-center justify-between gap-5">
           
           {/* Left Side: Title & Tabs */}
           <div className="flex flex-col md:flex-row md:items-center gap-4 w-full xl:w-auto">
-            <h2 className="text-sm font-semibold text-slate-300 flex items-center gap-2 uppercase tracking-wider whitespace-nowrap">
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-2 uppercase tracking-wider whitespace-nowrap">
               <ClipboardCheck className="w-4 h-4 text-indigo-400" /> Pending Task Queue
             </h2>
             
-            <div className="hidden md:block w-px h-6 bg-white/10"></div> {/* Vertical Divider */}
+            <div className="hidden md:block w-px h-6 bg-slate-900/10 dark:bg-white/10"></div> {/* Vertical Divider */}
 
             {/* Minimalist Tabs */}
             <div className="flex items-center gap-2 self-start overflow-x-auto hide-scrollbar">
@@ -150,7 +150,7 @@ const ReviewPage = () => {
                       flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 whitespace-nowrap
                       ${isActive 
                         ? 'bg-indigo-500/20 text-indigo-300' 
-                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/[0.02]'}
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:text-slate-200 hover:bg-slate-900/[0.02] dark:bg-white/[0.02]'}
                     `}
                   >
                     <Icon className="w-4 h-4 opacity-70" />
@@ -171,13 +171,13 @@ const ReviewPage = () => {
               <input 
                 type="text" 
                 placeholder="Search tasks..." 
-                className="w-full bg-black/20 border border-white/10 rounded-lg py-2 pr-4 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500/50 transition-all"
+                className="w-full bg-black/20 border border-slate-200 dark:border-white/10 rounded-lg py-2 pr-4 text-sm text-slate-800 dark:text-slate-200 placeholder:text-slate-500 focus:outline-none focus:border-indigo-500/50 transition-all"
                 style={{ paddingLeft: '36px' }}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
             </div>
-            <button className="flex items-center justify-center gap-2 px-3 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm font-medium text-slate-300 transition-colors">
+            <button className="flex items-center justify-center gap-2 px-3 py-2 bg-slate-900/5 dark:bg-white/5 hover:bg-slate-900/10 dark:bg-white/10 border border-slate-200 dark:border-white/10 rounded-lg text-sm font-medium text-slate-700 dark:text-slate-300 transition-colors">
               <Filter className="w-4 h-4" />
               <span className="hidden sm:inline">Filter</span>
             </button>
@@ -188,7 +188,7 @@ const ReviewPage = () => {
         <div className="overflow-x-auto p-2">
           <table className="w-full text-left border-collapse">
             <thead>
-              <tr className="text-xs uppercase tracking-wider font-semibold text-slate-400 border-b border-white/5">
+              <tr className="text-xs uppercase tracking-wider font-semibold text-slate-600 dark:text-slate-400 border-b border-slate-200 dark:border-white/5">
                 <th className="px-6 py-4">Task ID</th>
                 <th className="px-6 py-4">Entity Name</th>
                 <th className="px-6 py-4">Module</th>
@@ -206,7 +206,7 @@ const ReviewPage = () => {
                 </tr>
               ) : (
                 filteredTasks.map((task) => (
-                <tr key={task.id} className="hover:bg-white/[0.02] transition-colors group cursor-default">
+                <tr key={task.id} className="hover:bg-slate-900/[0.02] dark:bg-white/[0.02] transition-colors group cursor-default">
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span className="text-sm font-medium text-indigo-400 font-mono">
                       {task.id}
@@ -218,19 +218,19 @@ const ReviewPage = () => {
                         <FileText className="w-4 h-4 text-indigo-400" />
                       </div>
                       <div className="flex flex-col">
-                        <span className="text-sm font-semibold text-slate-200">{task.company}</span>
+                        <span className="text-sm font-semibold text-slate-800 dark:text-slate-200">{task.company}</span>
                         <span className="text-xs text-slate-500 mt-0.5">{task.date}</span>
                       </div>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <span className="text-xs font-semibold text-slate-300 bg-black/30 px-2.5 py-1 rounded-md border border-white/5">
+                    <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 bg-black/30 px-2.5 py-1 rounded-md border border-slate-200 dark:border-white/5">
                       {task.module}
                     </span>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center gap-3">
-                      <div className="w-24 bg-white/5 rounded-full h-1.5 overflow-hidden">
+                      <div className="w-24 bg-slate-900/5 dark:bg-white/5 rounded-full h-1.5 overflow-hidden">
                         <div 
                           className={`h-1.5 rounded-full shadow-[0_0_8px_rgba(255,255,255,0.2)] ${task.confidence < 80 ? 'bg-rose-400' : task.confidence < 90 ? 'bg-amber-400' : 'bg-emerald-400'}`}
                           style={{ width: `${task.confidence}%` }}

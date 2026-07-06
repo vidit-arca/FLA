@@ -80,18 +80,18 @@ export default function ExcelViewer({ taskId }) {
   });
 
   return (
-    <div className="flex flex-col bg-[#1A2235] border border-slate-700 rounded-xl shadow-sm overflow-hidden font-sans h-full">
+    <div className="flex flex-col bg-white dark:bg-[#1A2235] border border-slate-300 dark:border-slate-700 rounded-xl shadow-sm overflow-hidden font-sans h-full">
       
       {/* Tabs */}
-      <div className="flex overflow-x-auto border-b border-slate-700 bg-[#131B2C] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+      <div className="flex overflow-x-auto border-b border-slate-300 dark:border-slate-700 bg-white dark:bg-[#131B2C] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
         {workbook.SheetNames.map((name, idx) => (
           <button
             key={name}
             onClick={() => setActiveSheet(idx)}
             className={`px-6 py-3 text-sm font-medium whitespace-nowrap transition-colors outline-none
               ${activeSheet === idx 
-                ? 'border-b-2 border-indigo-500 text-indigo-300 bg-[#1A2235]' 
-                : 'text-slate-400 hover:text-slate-300 hover:bg-[#1e293b]'}`}
+                ? 'border-b-2 border-indigo-500 text-indigo-300 bg-white dark:bg-[#1A2235]' 
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:text-slate-300 hover:bg-[#1e293b]'}`}
           >
             {name}
           </button>
@@ -99,8 +99,8 @@ export default function ExcelViewer({ taskId }) {
       </div>
 
       {/* Action Bar */}
-      <div className="p-3 bg-[#1A2235] border-b border-slate-700 flex justify-between items-center">
-        <div className="text-sm text-slate-400 px-3">
+      <div className="p-3 bg-white dark:bg-[#1A2235] border-b border-slate-300 dark:border-slate-700 flex justify-between items-center">
+        <div className="text-sm text-slate-600 dark:text-slate-400 px-3">
           {Object.keys(edits).length > 0 ? (
             <span className="text-amber-600 font-medium">{Object.keys(edits).length} unsaved changes</span>
           ) : (
@@ -110,7 +110,7 @@ export default function ExcelViewer({ taskId }) {
         <button 
           onClick={handleSave}
           disabled={saving || Object.keys(edits).length === 0}
-          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"
+          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 text-slate-900 dark:text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
           Sync to File
@@ -122,9 +122,9 @@ export default function ExcelViewer({ taskId }) {
         <table className="border-collapse w-full">
           <thead>
             <tr>
-              <th className="bg-[#1e293b] border border-slate-700 p-1 w-10 sticky top-0 left-0 z-20"></th>
+              <th className="bg-[#1e293b] border border-slate-300 dark:border-slate-700 p-1 w-10 sticky top-0 left-0 z-20"></th>
               {htmlRows[0] && htmlRows[0].map((_, colIdx) => (
-                <th key={colIdx} className="bg-[#1e293b] border border-slate-700 p-1 font-normal text-xs text-slate-400 sticky top-0 z-10 min-w-[120px]">
+                <th key={colIdx} className="bg-[#1e293b] border border-slate-300 dark:border-slate-700 p-1 font-normal text-xs text-slate-600 dark:text-slate-400 sticky top-0 z-10 min-w-[120px]">
                   {XLSX.utils.encode_col(colIdx)}
                 </th>
               ))}
@@ -133,7 +133,7 @@ export default function ExcelViewer({ taskId }) {
           <tbody>
             {htmlRows.map((row, rowIdx) => (
               <tr key={rowIdx}>
-                <td className="bg-[#1e293b] border border-slate-700 p-1 text-center text-xs text-slate-400 sticky left-0 z-10 w-10">
+                <td className="bg-[#1e293b] border border-slate-300 dark:border-slate-700 p-1 text-center text-xs text-slate-600 dark:text-slate-400 sticky left-0 z-10 w-10">
                   {rowIdx + 1}
                 </td>
                 {row.map((cellValue, colIdx) => {
@@ -143,14 +143,14 @@ export default function ExcelViewer({ taskId }) {
                   const displayValue = isEdited ? edits[editKey].value : cellValue;
 
                   return (
-                    <td key={colIdx} className="border border-slate-700 p-0 relative group">
+                    <td key={colIdx} className="border border-slate-300 dark:border-slate-700 p-0 relative group">
                       <input 
                         type="text"
                         value={displayValue}
                         onChange={(e) => handleCellEdit(currentSheetName, rowIdx, colIdx, e.target.value)}
                         className={`w-full h-full px-2 py-1.5 text-sm outline-none transition-colors
-                          ${isEdited ? 'bg-indigo-900/40 text-indigo-300' : 'bg-transparent text-slate-200'}
-                          focus:ring-2 focus:ring-primary-500 focus:bg-[#1A2235] focus:z-10 relative
+                          ${isEdited ? 'bg-indigo-900/40 text-indigo-300' : 'bg-transparent text-slate-800 dark:text-slate-200'}
+                          focus:ring-2 focus:ring-primary-500 focus:bg-white dark:bg-[#1A2235] focus:z-10 relative
                         `}
                       />
                     </td>

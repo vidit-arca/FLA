@@ -180,7 +180,19 @@ async def export_excel(task_id: str, reviewed_data: dict, db: Session = Depends(
 import zipfile
 import pandas as pd
 from io import BytesIO
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
+
+@app.get("/api/download/{task_id}")
+def download_excel(task_id: str, db: Session = Depends(get_db)):
+    task = db.query(models.ExtractionTask).filter(models.ExtractionTask.id == task_id).first()
+    if not task or not task.output_excel or not os.path.exists(task.output_excel):
+        raise HTTPException(status_code=404, detail="Excel file not found")
+        
+    return FileResponse(
+        task.output_excel, 
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        filename=os.path.basename(task.output_excel)
+    )
 
 @app.get("/api/download_package/{task_id}")
 def download_package(task_id: str, db: Session = Depends(get_db)):
