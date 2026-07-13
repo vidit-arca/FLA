@@ -81,7 +81,10 @@
       "keywords": [
         "profit after tax",
         "pat",
+        "profit /(loss) after tax",
+        "profit/(loss) after tax",
         "profit / (loss) for the year",
+        "profit /(loss) for the year",
         "profit/(loss) for the year",
         "net profit after tax",
         "profit for the period",
@@ -89,7 +92,8 @@
         "profit(+)/loss(-) after tax (during the year)",
         "profit(+)/loss(-) after tax",
         "profit (loss) for the period",
-        "profit after tax (v) - (vi)"
+        "profit after tax (v) - (vi)",
+        "profit for the year"
       ],
       "py_col_keywords": [
         "previous year",
@@ -154,11 +158,25 @@
         "2025"
       ]
     },
+    "revenue_from_operations": {
+      "keywords": [
+        "revenue from operations",
+        "total revenue",
+        "total income",
+        "total sales"
+      ],
+      "py_col_keywords": [
+        "previous year",
+        "2024"
+      ],
+      "fy_col_keywords": [
+        "current year",
+        "2025"
+      ]
+    },
     "domestic_sales": {
       "keywords": [
         "domestic revenue",
-        "total revenue",
-        "total income",
         "sales within india",
         "domestic sales"
       ],
@@ -210,6 +228,7 @@
         "import of raw materials",
         "cif value of imports",
         "imports",
+        "import",
         "foreign exchange outgo on imports"
       ],
       "py_col_keywords": [
@@ -244,7 +263,9 @@
         "total number of shares issued",
         "equity shares issued",
         "equity shares outstanding",
-        "equity shares issued and fully paid"
+        "equity shares issued and fully paid",
+        "outstanding at the end of the period",
+        "outstanding at the end of the year"
       ]
     },
     "part_pref_shares_count": {
@@ -425,7 +446,7 @@
         "field": "mobile_number",
         "default": ""
       },
-      "Email_Head": {
+      "Email_ID": {
         "row_label": "E-Mail ID (Head of the institution)*",
         "cell": "C10",
         "type": "extracted",
@@ -436,7 +457,7 @@
         "row_label": "E-Mail of Contact person*",
         "cell": "C11",
         "type": "extracted",
-        "field": "email_id",
+        "field": "email_contact",
         "default": ""
       },
       "Designation": {
@@ -484,42 +505,42 @@
         "row_label": "Ordinary/Share Equity Class count PY",
         "cell": "B21",
         "type": "extracted",
-        "field": "equity_shares_count_py",
+        "field": "equity_class_count_py",
         "default": ""
       },
       "Equity_Share_Count_FY": {
         "row_label": "Ordinary/Share Equity Class count FY",
         "cell": "C21",
         "type": "extracted",
-        "field": "equity_shares_count_fy",
+        "field": "equity_class_count_fy",
         "default": ""
       },
       "Part_Pref_Share_Count_PY": {
         "row_label": "Participating Preference Share Class count PY",
         "cell": "B22",
         "type": "extracted",
-        "field": "part_pref_shares_count_py",
+        "field": "part_pref_class_count_py",
         "default": ""
       },
       "Part_Pref_Share_Count_FY": {
         "row_label": "Participating Preference Share Class count FY",
         "cell": "C22",
         "type": "extracted",
-        "field": "part_pref_shares_count_fy",
+        "field": "part_pref_class_count_fy",
         "default": ""
       },
       "Non_Part_Pref_Share_Count_PY": {
         "row_label": "Non-participating preference Share Class count PY",
         "cell": "B23",
         "type": "extracted",
-        "field": "non_part_pref_shares_count_py",
+        "field": "non_part_pref_class_count_py",
         "default": 0
       },
       "Non_Part_Pref_Share_Count_FY": {
         "row_label": "Non-participating preference Share Class count FY",
         "cell": "C23",
         "type": "extracted",
-        "field": "non_part_pref_shares_count_fy",
+        "field": "non_part_pref_class_count_fy",
         "default": 0
       },
       "Equity_FV_PY": {
@@ -527,14 +548,14 @@
         "cell": "B26",
         "type": "extracted",
         "field": "equity_face_value_py",
-        "default": 1
+        "default": ""
       },
       "Equity_FV_FY": {
         "row_label": "Ordinary/Share Equity Face Value FY",
         "cell": "C26",
         "type": "extracted",
         "field": "equity_face_value_fy",
-        "default": 1
+        "default": ""
       },
       "Part_Pref_FV_PY": {
         "row_label": "Participating Preference Share Face Value PY",
@@ -581,14 +602,14 @@
         "cell": "C33",
         "type": "extracted",
         "field": "inward_fdi_status",
-        "default": "Yes"
+        "default": ""
       },
       "Type_of_Company": {
         "row_label": "Type of company*",
         "cell": "C34",
         "type": "extracted",
         "field": "company_type",
-        "default": "Private Limited"
+        "default": ""
       },
       "AMC_Status": {
         "row_label": "Whether the Company is Asset Management Company?*",
@@ -613,6 +634,30 @@
       }
     },
     "Section II": {
+      "Paid_Up_Capital_Shares_PY": {
+        "row_label": "Total Paid-up Capital PY Shares",
+        "cell": "D5",
+        "type": "calculated",
+        "formula": "sum_cells('Section II', ['D6', 'D9'])"
+      },
+      "Paid_Up_Capital_Shares_FY": {
+        "row_label": "Total Paid-up Capital FY Shares",
+        "cell": "E5",
+        "type": "calculated",
+        "formula": "sum_cells('Section II', ['E6', 'E9'])"
+      },
+      "Equity_Pref_Capital_Shares_PY": {
+        "row_label": "Total Equity & Participating Preference share Capital PY Shares",
+        "cell": "D6",
+        "type": "calculated",
+        "formula": "sum_cells('Section II', ['D7', 'D8'])"
+      },
+      "Equity_Pref_Capital_Shares_FY": {
+        "row_label": "Total Equity & Participating Preference share Capital FY Shares",
+        "cell": "E6",
+        "type": "calculated",
+        "formula": "sum_cells('Section II', ['E7', 'E8'])"
+      },
       "Paid_Up_Capital_PY": {
         "row_label": "Total Paid-up Capital PY",
         "cell": "F5",
@@ -652,14 +697,14 @@
       "Ordinary_Equity_Amount_PY": {
         "row_label": "Ordinary/Equity Share Amount PY",
         "cell": "F7",
-        "type": "calculated",
-        "formula": "shares_to_lakhs('equity_shares_count_py', 'equity_face_value_py')"
+        "type": "extracted",
+        "field": "equity_amount_lakhs_py"
       },
       "Ordinary_Equity_Amount_FY": {
         "row_label": "Ordinary/Equity Share Amount FY",
         "cell": "G7",
-        "type": "calculated",
-        "formula": "shares_to_lakhs('equity_shares_count_fy', 'equity_face_value_fy')"
+        "type": "extracted",
+        "field": "equity_amount_lakhs_fy"
       },
       "Part_Pref_Shares_PY": {
         "row_label": "Participating Preference Share Count PY",
@@ -676,14 +721,14 @@
       "Part_Pref_Amount_PY": {
         "row_label": "Participating Preference Share Amount PY",
         "cell": "F8",
-        "type": "calculated",
-        "formula": "shares_to_lakhs('part_pref_shares_count_py', 'part_pref_face_value_py')"
+        "type": "extracted",
+        "field": "part_pref_amount_lakhs_py"
       },
       "Part_Pref_Amount_FY": {
         "row_label": "Participating Preference Share Amount FY",
         "cell": "G8",
-        "type": "calculated",
-        "formula": "shares_to_lakhs('part_pref_shares_count_fy', 'part_pref_face_value_fy')"
+        "type": "extracted",
+        "field": "part_pref_amount_lakhs_fy"
       },
       "Non_Part_Pref_Shares_PY": {
         "row_label": "Non-Participating Preference share Count PY",
@@ -700,81 +745,81 @@
       "Non_Part_Pref_Amount_PY": {
         "row_label": "Non-Participating Preference share Amount PY",
         "cell": "F9",
-        "type": "calculated",
-        "formula": "shares_to_lakhs('non_part_pref_shares_count_py', 'non_part_pref_face_value_py')"
+        "type": "extracted",
+        "field": "non_part_pref_amount_lakhs_py"
       },
       "Non_Part_Pref_Amount_FY": {
         "row_label": "Non-Participating Preference share Amount FY",
         "cell": "G9",
-        "type": "calculated",
-        "formula": "shares_to_lakhs('non_part_pref_shares_count_fy', 'non_part_pref_face_value_fy')"
+        "type": "extracted",
+        "field": "non_part_pref_amount_lakhs_fy"
       },
       "NR_Equity_Pref_Capital_PY": {
-        "row_label": "Equity and Participating Preference Share Capital (NR) PY",
+        "row_label": "2.1 Equity and Participating Preference Share Capital PY",
         "cell": "F11",
         "type": "calculated",
         "formula": "sum_cells('Section II', ['F12', 'F13', 'F14', 'F15', 'F16', 'F17', 'F18', 'F19', 'F20', 'F21', 'F22'])"
       },
       "NR_Equity_Pref_Capital_FY": {
-        "row_label": "Equity and Participating Preference Share Capital (NR) FY",
+        "row_label": "2.1 Equity and Participating Preference Share Capital FY",
         "cell": "G11",
         "type": "calculated",
         "formula": "sum_cells('Section II', ['G12', 'G13', 'G14', 'G15', 'G16', 'G17', 'G18', 'G19', 'G20', 'G21', 'G22'])"
       },
       "NR_Individuals_PY": {
-        "row_label": "1. Individuals (NR) PY",
+        "row_label": "1. Individuals PY",
         "cell": "D12",
         "type": "extracted",
         "field": "nr_shares_individuals_py",
         "default": 0
       },
       "NR_Individuals_FY": {
-        "row_label": "1. Individuals (NR) FY",
+        "row_label": "1. Individuals FY",
         "cell": "E12",
         "type": "extracted",
         "field": "nr_shares_individuals_fy",
         "default": 0
       },
       "NR_Companies_PY": {
-        "row_label": "2. Companies (NR) PY",
+        "row_label": "2. Companies PY",
         "cell": "D13",
         "type": "extracted",
         "field": "nr_shares_companies_py",
         "default": 0
       },
       "NR_Companies_FY": {
-        "row_label": "2. Companies (NR) FY",
+        "row_label": "2. Companies FY",
         "cell": "E13",
         "type": "extracted",
         "field": "nr_shares_companies_fy",
         "default": 0
       },
       "NR_FIIs_PY": {
-        "row_label": "3. Foreign Institutional Investors PY",
+        "row_label": "3. Foreign Institutional Investors (FIIs) PY",
         "cell": "D14",
         "type": "extracted",
-        "field": "nr_shares_fiis_py",
+        "field": "nr_shares_fii_py",
         "default": 0
       },
       "NR_FIIs_FY": {
-        "row_label": "3. Foreign Institutional Investors FY",
+        "row_label": "3. Foreign Institutional Investors (FIIs) FY",
         "cell": "E14",
         "type": "extracted",
-        "field": "nr_shares_fiis_fy",
+        "field": "nr_shares_fii_fy",
         "default": 0
       },
       "NR_FVCIs_PY": {
-        "row_label": "4. Foreign Venture Capital Investors PY",
+        "row_label": "4. Foreign Venture Capital Investors (FVCIs) PY",
         "cell": "D15",
         "type": "extracted",
-        "field": "nr_shares_fvcis_py",
+        "field": "nr_shares_fvci_py",
         "default": 0
       },
       "NR_FVCIs_FY": {
-        "row_label": "4. Foreign Venture Capital Investors FY",
+        "row_label": "4. Foreign Venture Capital Investors (FVCIs) FY",
         "cell": "E15",
         "type": "extracted",
-        "field": "nr_shares_fvcis_fy",
+        "field": "nr_shares_fvci_fy",
         "default": 0
       },
       "NR_Trusts_PY": {
@@ -820,17 +865,17 @@
         "default": 0
       },
       "NR_Sovereign_Funds_PY": {
-        "row_label": "8. Sovereign Wealth Funds PY",
+        "row_label": "8. Sovereign Wealth Funds (SWF) PY",
         "cell": "D19",
         "type": "extracted",
-        "field": "nr_shares_sovereign_funds_py",
+        "field": "nr_shares_swf_py",
         "default": 0
       },
       "NR_Sovereign_Funds_FY": {
-        "row_label": "8. Sovereign Wealth Funds FY",
+        "row_label": "8. Sovereign Wealth Funds (SWF) FY",
         "cell": "E19",
         "type": "extracted",
-        "field": "nr_shares_sovereign_funds_fy",
+        "field": "nr_shares_swf_fy",
         "default": 0
       },
       "NR_Partnerships_PY": {
@@ -851,28 +896,28 @@
         "row_label": "10. Financial Institutions PY",
         "cell": "D21",
         "type": "extracted",
-        "field": "nr_shares_fin_inst_py",
+        "field": "nr_shares_fin_institutions_py",
         "default": 0
       },
       "NR_Fin_Institutions_FY": {
         "row_label": "10. Financial Institutions FY",
         "cell": "E21",
         "type": "extracted",
-        "field": "nr_shares_fin_inst_fy",
+        "field": "nr_shares_fin_institutions_fy",
         "default": 0
       },
       "NR_NRIs_PIO_PY": {
         "row_label": "11. NRIs/PIO PY",
         "cell": "D22",
         "type": "extracted",
-        "field": "nr_shares_nris_py",
+        "field": "nr_shares_nri_pio_py",
         "default": 0
       },
       "NR_NRIs_PIO_FY": {
         "row_label": "11. NRIs/PIO FY",
         "cell": "E22",
         "type": "extracted",
-        "field": "nr_shares_nris_fy",
+        "field": "nr_shares_nri_pio_fy",
         "default": 0
       },
       "NR_Non_Part_Pref_Shares_PY": {
@@ -1040,14 +1085,16 @@
       "Total_Sales_PY": {
         "row_label": "5.3 Total Sales PY",
         "cell": "F38",
-        "type": "calculated",
-        "formula": "sum_cells('Section II', ['F36', 'F37'])"
+        "type": "extracted",
+        "field": "revenue_from_operations_py",
+        "default": 0.0
       },
       "Total_Sales_FY": {
         "row_label": "5.3 Total Sales FY",
         "cell": "G38",
-        "type": "calculated",
-        "formula": "sum_cells('Section II', ['G36', 'G37'])"
+        "type": "extracted",
+        "field": "revenue_from_operations_fy",
+        "default": 0.0
       },
       "Domestic_Purchases_PY": {
         "row_label": "5.4 Domestic Purchase PY",
@@ -1101,6 +1148,174 @@
         "cell": "E43",
         "type": "extracted",
         "field": "employee_payroll_count_fy",
+        "default": 0
+      },
+      "NR_Individuals_Amount_PY": {
+        "row_label": "1. Individuals Amount PY",
+        "cell": "F12",
+        "type": "extracted",
+        "field": "nr_amount_individuals_lakhs_py",
+        "default": 0
+      },
+      "NR_Individuals_Amount_FY": {
+        "row_label": "1. Individuals Amount FY",
+        "cell": "G12",
+        "type": "extracted",
+        "field": "nr_amount_individuals_lakhs_fy",
+        "default": 0
+      },
+      "NR_Companies_Amount_PY": {
+        "row_label": "2. Companies Amount PY",
+        "cell": "F13",
+        "type": "extracted",
+        "field": "nr_amount_companies_lakhs_py",
+        "default": 0
+      },
+      "NR_Companies_Amount_FY": {
+        "row_label": "2. Companies Amount FY",
+        "cell": "G13",
+        "type": "extracted",
+        "field": "nr_amount_companies_lakhs_fy",
+        "default": 0
+      },
+      "NR_FIIs_Amount_PY": {
+        "row_label": "3. Foreign Institutional Investors (FIIs) Amount PY",
+        "cell": "F14",
+        "type": "extracted",
+        "field": "nr_amount_fii_lakhs_py",
+        "default": 0
+      },
+      "NR_FIIs_Amount_FY": {
+        "row_label": "3. Foreign Institutional Investors (FIIs) Amount FY",
+        "cell": "G14",
+        "type": "extracted",
+        "field": "nr_amount_fii_lakhs_fy",
+        "default": 0
+      },
+      "NR_FVCIs_Amount_PY": {
+        "row_label": "4. Foreign Venture Capital Investors (FVCIs) Amount PY",
+        "cell": "F15",
+        "type": "extracted",
+        "field": "nr_amount_fvci_lakhs_py",
+        "default": 0
+      },
+      "NR_FVCIs_Amount_FY": {
+        "row_label": "4. Foreign Venture Capital Investors (FVCIs) Amount FY",
+        "cell": "G15",
+        "type": "extracted",
+        "field": "nr_amount_fvci_lakhs_fy",
+        "default": 0
+      },
+      "NR_Trusts_Amount_PY": {
+        "row_label": "5. Foreign Trusts Amount PY",
+        "cell": "F16",
+        "type": "extracted",
+        "field": "nr_amount_trusts_lakhs_py",
+        "default": 0
+      },
+      "NR_Trusts_Amount_FY": {
+        "row_label": "5. Foreign Trusts Amount FY",
+        "cell": "G16",
+        "type": "extracted",
+        "field": "nr_amount_trusts_lakhs_fy",
+        "default": 0
+      },
+      "NR_PE_Funds_Amount_PY": {
+        "row_label": "6. Private Equity Funds Amount PY",
+        "cell": "F17",
+        "type": "extracted",
+        "field": "nr_amount_pe_funds_lakhs_py",
+        "default": 0
+      },
+      "NR_PE_Funds_Amount_FY": {
+        "row_label": "6. Private Equity Funds Amount FY",
+        "cell": "G17",
+        "type": "extracted",
+        "field": "nr_amount_pe_funds_lakhs_fy",
+        "default": 0
+      },
+      "NR_Pension_Funds_Amount_PY": {
+        "row_label": "7. Pension/Provident Funds Amount PY",
+        "cell": "F18",
+        "type": "extracted",
+        "field": "nr_amount_pension_funds_lakhs_py",
+        "default": 0
+      },
+      "NR_Pension_Funds_Amount_FY": {
+        "row_label": "7. Pension/Provident Funds Amount FY",
+        "cell": "G18",
+        "type": "extracted",
+        "field": "nr_amount_pension_funds_lakhs_fy",
+        "default": 0
+      },
+      "NR_Sovereign_Funds_Amount_PY": {
+        "row_label": "8. Sovereign Wealth Funds (SWF) Amount PY",
+        "cell": "F19",
+        "type": "extracted",
+        "field": "nr_amount_swf_lakhs_py",
+        "default": 0
+      },
+      "NR_Sovereign_Funds_Amount_FY": {
+        "row_label": "8. Sovereign Wealth Funds (SWF) Amount FY",
+        "cell": "G19",
+        "type": "extracted",
+        "field": "nr_amount_swf_lakhs_fy",
+        "default": 0
+      },
+      "NR_Partnerships_Amount_PY": {
+        "row_label": "9. Partnership/Proprietorship firms Amount PY",
+        "cell": "F20",
+        "type": "extracted",
+        "field": "nr_amount_partnerships_lakhs_py",
+        "default": 0
+      },
+      "NR_Partnerships_Amount_FY": {
+        "row_label": "9. Partnership/Proprietorship firms Amount FY",
+        "cell": "G20",
+        "type": "extracted",
+        "field": "nr_amount_partnerships_lakhs_fy",
+        "default": 0
+      },
+      "NR_Fin_Institutions_Amount_PY": {
+        "row_label": "10. Financial Institutions Amount PY",
+        "cell": "F21",
+        "type": "extracted",
+        "field": "nr_amount_fin_institutions_lakhs_py",
+        "default": 0
+      },
+      "NR_Fin_Institutions_Amount_FY": {
+        "row_label": "10. Financial Institutions Amount FY",
+        "cell": "G21",
+        "type": "extracted",
+        "field": "nr_amount_fin_institutions_lakhs_fy",
+        "default": 0
+      },
+      "NR_NRIs_PIO_Amount_PY": {
+        "row_label": "11. NRIs/PIO Amount PY",
+        "cell": "F22",
+        "type": "extracted",
+        "field": "nr_amount_nri_pio_lakhs_py",
+        "default": 0
+      },
+      "NR_NRIs_PIO_Amount_FY": {
+        "row_label": "11. NRIs/PIO Amount FY",
+        "cell": "G22",
+        "type": "extracted",
+        "field": "nr_amount_nri_pio_lakhs_fy",
+        "default": 0
+      },
+      "NR_Non_Part_Pref_Shares_Amount_PY": {
+        "row_label": "2.2 Non-Participating Preference Share (NR) Amount PY",
+        "cell": "F23",
+        "type": "extracted",
+        "field": "nr_amount_non_part_pref_lakhs_py",
+        "default": 0
+      },
+      "NR_Non_Part_Pref_Shares_Amount_FY": {
+        "row_label": "2.2 Non-Participating Preference Share (NR) Amount FY",
+        "cell": "G23",
+        "type": "extracted",
+        "field": "nr_amount_non_part_pref_lakhs_fy",
         "default": 0
       }
     },

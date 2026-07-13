@@ -309,6 +309,17 @@ export default function AOC4TaskView() {
                       </span>
                     </div>
                   </div>
+                  
+                  {activeFlag.reason && activeFlag.status === 'Failed' && (
+                    <div className="mt-3 pt-3 border-t border-slate-300 dark:border-slate-700/50">
+                      <label className="text-[10px] font-bold text-rose-500 dark:text-rose-400 uppercase tracking-widest mb-1.5 flex items-center gap-1.5">
+                        <AlertCircle className="w-3 h-3" /> Error Details
+                      </label>
+                      <p className="text-xs text-rose-600 dark:text-rose-400 font-medium leading-relaxed bg-rose-500/10 p-2.5 rounded border border-rose-500/20">
+                        {activeFlag.reason}
+                      </p>
+                    </div>
+                  )}
                 </div>
 
                 <div className="space-y-4">
@@ -435,9 +446,16 @@ export default function AOC4TaskView() {
                       <td className="py-2.5 px-4 text-xs text-slate-700 dark:text-slate-300 font-medium max-w-[200px] truncate" title={flag.particulars}>{trimmedPart}</td>
                       <td className="py-2.5 px-4 text-xs text-slate-600 dark:text-slate-400">{flag.source}</td>
                       <td className="py-2.5 px-4">
-                        <span className={`text-xs font-bold ${!flag.user_value || flag.user_value === 'No' || flag.user_value.includes('Missing') ? 'text-rose-400' : 'text-emerald-400'}`}>
-                          {flag.user_value || 'No'}
-                        </span>
+                        <div className="flex flex-col gap-1">
+                          <span className={`text-xs font-bold ${!flag.user_value || flag.user_value === 'No' || flag.user_value.includes('Missing') ? 'text-rose-400' : 'text-emerald-400'}`}>
+                            {flag.user_value || 'No'}
+                          </span>
+                          {flag.reason && isFailed && (
+                            <span className="text-[10px] text-rose-400/80 leading-tight block max-w-[180px] italic" title={flag.reason}>
+                              {flag.reason}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="py-2.5 px-4">
                         <div className="relative w-[110px]">

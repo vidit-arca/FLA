@@ -24,9 +24,9 @@ Inside these targeted sheets, the engine searches the **row headers** for specif
 
 | Extracted Variable                | Regex Keywords Searched For                                                                                                    | Output Type |
 | :-------------------------------- | :----------------------------------------------------------------------------------------------------------------------------- | :---------- |
-| `turnover`                      | `revenue from operation`, `total revenue`, `^turnover$`                                                                  | Float       |
+| `turnover`                      | `revenue from operations?`, `total turnover`, `sales turnover`, `gross turnover`                                                                  | Float       |
 | `prev_turnover`                 | `previous year turnover`, `turnover.*previous year`                                                                        | Float       |
-| `paid_up_capital`               | `paid-up share capital`, `paid up share capital`, `share capital`, `paid up capital`                                   | Float       |
+| `paid_up_capital`               | `paid.?up capital`, `paid.?up share capital`, `subscribed and paid.?up`, `equity share capital`                                         | Float       |
 | `net_worth`                     | `^net worth`, `total equity`, `capital + reserve & surplus`                                                              | Float       |
 | `prev_net_worth`                | `previous year net worth`, `net worth.*previous year`                                                                      | Float       |
 | `reserves_and_surplus`          | `reserves & surplus`, `reserves and surplus`, `other equity`                                                             | Float       |

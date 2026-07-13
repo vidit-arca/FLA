@@ -44,6 +44,41 @@ class DocumentParser:
         with open(config_path, "r") as f:
             self.config = json.load(f)
             
+    def _evaluate_excel_formulas(self, excel_path):
+        """Helper to evaluate simple math formulas in un-saved Excel files."""
+        import openpyxl
+        import re
+        import io
+        try:
+            wb = openpyxl.load_workbook(excel_path, data_only=False)
+            for sheet in wb.sheetnames:
+                ws = wb[sheet]
+                for row in ws.iter_rows():
+                    for cell in row:
+                        if isinstance(cell.value, str) and cell.value.startswith('='):
+                            expr = cell.value[1:].upper()
+                            cell_refs = set(re.findall(r'[A-Z]+\d+', expr))
+                            valid = True
+                            for ref in cell_refs:
+                                val = ws[ref].value
+                                if val is None or (isinstance(val, str) and val.startswith('=')):
+                                    valid = False
+                                    break
+                                expr = expr.replace(ref, str(val))
+                            if valid:
+                                try:
+                                    if re.match(r'^[\d\.\+\-\*\/\(\)\s]+$', expr):
+                                        cell.value = eval(expr)
+                                except:
+                                    pass
+            tmp = io.BytesIO()
+            wb.save(tmp)
+            tmp.seek(0)
+            return tmp
+        except Exception as e:
+            print(f"      [!] Formula eval failed: {e}")
+            return excel_path
+
     def parse_number(self, val_str):
         """Converts strings like '1,23,456.78' or '(45,000)' into floats/ints."""
         if not val_str:
@@ -104,21 +139,17 @@ class DocumentParser:
                 extracted["pan_number"] = match.group(0).upper().strip()
                 break
                 
-        # Extract Email
-        email_rule = rules.get("email", {})
-        for pattern in email_rule.get("regex", []):
-            match = re.search(pattern, text)
-            if match:
-                extracted["email_id"] = match.group(0).lower().strip()
-                break
+        # Email extraction removed — email_id is prefilled exclusively from Previous FLA
+        # (via nodes.py PREFILL_FIELD_MAP and legacy_parser.py)
+
                 
-        # Extract Mobile
-        mobile_rule = rules.get("mobile", {})
-        for pattern in mobile_rule.get("regex", []):
-            match = re.search(pattern, text)
-            if match:
-                extracted["mobile_number"] = match.group(0).strip()
-                break
+        # Extract Mobile (Removed per user request to fall back to Previous FLA)
+        # mobile_rule = rules.get("mobile", {})
+        # for pattern in mobile_rule.get("regex", []):
+        #     match = re.search(pattern, text)
+        #     if match:
+        #         extracted["mobile_number"] = match.group(0).strip()
+        #         break
                 
         # Extract Company Name
         name_rule = rules.get("company_name", {})
@@ -130,22 +161,10 @@ class DocumentParser:
                 extracted["company_name"] = name.upper().strip()
                 break
                 
-        # Extract Contact Name and Designation from signatory blocks (lines directly above DIN:)
-        lines = text.split("\n")
-        for idx, line in enumerate(lines):
-            if "DIN" in line and re.search(r"DIN\s*:\s*\d+", line, re.IGNORECASE):
-                # The name is usually 1 or 2 lines above the DIN
-                for offset in [1, 2, 3]:
-                    if idx - offset >= 0:
-                        candidate = lines[idx - offset].strip()
-                        # Keep only letters, spaces and select punctuation
-                        candidate = re.sub(r"[^A-Za-z \t\.\,\-\&]", "", candidate).strip()
-                        if len(candidate) > 3 and not any(k in candidate.lower() for k in ["private", "limited", "company", "director", "board", "behalf", "members"]):
-                            extracted["contact_name"] = candidate
-                            extracted["designation"] = "Director"
-                            break
-                if "contact_name" in extracted:
-                    break
+        # contact_name extraction removed — Name of Contact Person, Telephone,
+        # Email (Head of institution), Email of Contact Person, and Type of Company
+        # are all prefilled exclusively from the Previous FLA via nodes.py.
+
                     
         return extracted
 
@@ -250,20 +269,29 @@ class DocumentParser:
                     particulars_col_idx = idx
                     break
             
-            # Find year columns
+            # Find year columns dynamically
             py_col_idx = -1
             fy_col_idx = -1
             
-            # Search for column headers
+            # 1. Search for dynamic years (e.g., 2021, 2020) across all columns
+            year_cols = {}
             for idx, col in enumerate(headers):
-                if any(k in col for k in ["2024", "py", "previous"]):
-                    py_col_idx = idx
-                if any(k in col for k in ["2025", "fy", "current"]):
-                    fy_col_idx = idx
-                    
-            # Fallbacks: if columns aren't named but we have 3 columns (Particulars, Note, Current, Previous)
-            if py_col_idx == -1 or fy_col_idx == -1:
-                pass # We will dynamically parse per-row if we can't determine it here.
+                match = re.search(r'\b(19|20)\d{2}\b', str(col))
+                if match:
+                    year_cols[int(match.group(0))] = idx
+            
+            if len(year_cols) >= 2:
+                # Sort years descending (newest first)
+                sorted_years = sorted(year_cols.keys(), reverse=True)
+                fy_col_idx = year_cols[sorted_years[0]]  # Highest year is Current (FY)
+                py_col_idx = year_cols[sorted_years[1]]  # Second highest is Previous (PY)
+            else:
+                # 2. Fallback to hardcoded keywords if no years found
+                for idx, col in enumerate(headers):
+                    if any(k in col for k in ["py", "previous"]):
+                        py_col_idx = idx
+                    if any(k in col for k in ["fy", "current"]):
+                        fy_col_idx = idx
                 
             # Iterate through rows
             for row in table[1:]:
@@ -271,11 +299,14 @@ class DocumentParser:
                     continue
                     
                 particulars = " | ".join([str(c).lower().strip() for c in row if isinstance(c, str)]).strip()
+                particulars = re.sub(r'\(\s+', '(', particulars)
+                particulars = re.sub(r'\s+\)', ')', particulars)
                 
                 # Check each financial item config
                 for field_name, rule_cfg in rules.items():
                     keywords = rule_cfg.get("keywords", [])
-                    if any(k in particulars for k in keywords):
+                    # Use regex to ensure the keyword is a distinct word, not embedded in another word
+                    if any(re.search(r'(?<![a-z])' + re.escape(k) + r'(?![a-z])', particulars) for k in keywords):
                         # Found matching row!
                         if py_col_idx != -1 and fy_col_idx != -1 and len(row) > max(py_col_idx, fy_col_idx):
                             py_val = self.parse_number(row[py_col_idx])
@@ -299,8 +330,11 @@ class DocumentParser:
                                 fy_val = 0.0
                         
                         # Store extracted figures
-                        extracted[f"{field_name}_py"] = py_val
-                        extracted[f"{field_name}_fy"] = fy_val
+                        # Store extracted figures (preserve the first non-zero value found, do not overwrite)
+                        if extracted.get(f"{field_name}_py", 0.0) == 0.0 and py_val != 0.0:
+                            extracted[f"{field_name}_py"] = py_val
+                        if extracted.get(f"{field_name}_fy", 0.0) == 0.0 and fy_val != 0.0:
+                            extracted[f"{field_name}_fy"] = fy_val
                         
         return extracted
 
@@ -316,7 +350,7 @@ class DocumentParser:
             if "shareholders_fdi" in docs_paths:
                 fdi_path = docs_paths["shareholders_fdi"]
                 print(f"[*] Ingesting Shareholders List for Section 3 FDI: {os.path.basename(fdi_path)}")
-                if fdi_path.endswith('.xlsx') or fdi_path.endswith('.xls'):
+                if fdi_path.endswith('.xlsx') or fdi_path.endswith('.xls') or fdi_path.endswith('.xlsm'):
                     fdi_data = excel_ex.extract(fdi_path, "shareholders_fdi")
                     all_extracted.update(fdi_data)
                     print(f"    [+] Extracted {len(fdi_data)} FDI fields from Excel.")
@@ -329,16 +363,23 @@ class DocumentParser:
                 if extra_path.endswith(".xlsx") or extra_path.endswith(".xls"):
                     import pandas as pd
                     try:
-                        xl = pd.ExcelFile(extra_path)
+                        processed_file = self._evaluate_excel_formulas(extra_path)
+                        xl = pd.ExcelFile(processed_file)
                         extra_tables = []
                         for sheet in xl.sheet_names:
+                            if "detail" not in sheet.lower():
+                                print(f"    [-] Skipping extra details sheet: '{sheet}'")
+                                continue
+                                
                             df = pd.read_excel(xl, sheet_name=sheet, header=None)
                             
-                            # Find dynamic header row (look for PY/FY in first 10 rows)
+                            # Find dynamic header row (look for PY/FY or Years in first 10 rows)
                             header_idx = 0
                             for i in range(min(10, len(df))):
                                 row_vals = [str(x).lower() if pd.notna(x) else "" for x in df.iloc[i].values]
-                                if any('previous' in x or 'py' in x for x in row_vals) and any('current' in x or 'fy' in x for x in row_vals):
+                                has_keywords = any('previous' in x or 'py' in x for x in row_vals) and any('current' in x or 'fy' in x for x in row_vals)
+                                has_years = sum(1 for x in row_vals if re.search(r'\b(19|20)\d{2}\b', x)) >= 2
+                                if has_keywords or has_years:
                                     header_idx = i
                                     break
                                     
@@ -518,26 +559,59 @@ class DocumentParser:
             import pandas as pd
             try:
                 xl = pd.ExcelFile(fin_path)
-                
+
+                # Priority keywords for financial sheets (same approach as AOC4 extractor)
+                # Sheets matching these keywords are scanned first for table extraction.
+                # The full text dump (for regex fallback) still covers ALL sheets.
+                # Short keywords matched exactly (to avoid false positives like "PL" in "AP Aging")
+                exact_keywords = {"pl", "bs", "p&l"}
+                # Longer keywords matched as substrings
+                substr_keywords = [
+                    "pandl", "profit and loss", "statement of profit",
+                    "balance sheet", "financials", "income", "revenue",
+                    "nt", "note", "notes"
+                ]
+
+                # Step 1: Dump ALL sheets to text for regex fallback (CIN, FCGPR, dates etc.)
                 text_blocks = []
                 for sheet in xl.sheet_names:
+                    df_full = pd.read_excel(xl, sheet_name=sheet, header=None)
+                    # Prepend sheet name so regex can match sheet context
+                    text_blocks.append(f"{sheet}\n" + df_full.to_string(index=False, header=False, na_rep=''))
+                md_content = "\n".join(text_blocks)
+
+                # Step 2: Determine which sheets to scan for financial tables
+                priority_sheets = []
+                for sheet in xl.sheet_names:
+                    sheet_lower = sheet.lower().strip()
+                    is_exact = sheet_lower in exact_keywords
+                    is_substr = any(kw in sheet_lower for kw in substr_keywords)
+                    if is_exact or is_substr:
+                        priority_sheets.append(sheet)
+                        print(f"    [+] Priority financial sheet matched: '{sheet}'")
+
+                # Fallback: if no sheet name matched keywords, scan all sheets
+                sheets_to_scan = priority_sheets if priority_sheets else xl.sheet_names
+                if not priority_sheets:
+                    print(f"    [!] No priority sheet matched — scanning all {len(xl.sheet_names)} sheets")
+
+                # Step 3: Extract structured tables from priority (or all) sheets
+                for sheet in sheets_to_scan:
                     df = pd.read_excel(xl, sheet_name=sheet, header=None)
-                    
-                    # Dump everything to string for regex fallback matching (CIN, FCGPR, etc.)
-                    text_blocks.append(df.to_string(index=False, header=False, na_rep=''))
-                    
-                    # Find dynamic header row (look for Particulars or PY/FY)
+
+                    # Find dynamic header row (look for Particulars, PY/FY, or Year numbers)
                     header_idx = -1
                     for i in range(min(15, len(df))):
                         row_vals = [str(x).lower() if pd.notna(x) else "" for x in df.iloc[i].values]
                         has_partic = any('particular' in x for x in row_vals)
                         has_py = any('previous' in x or 'py' in x for x in row_vals)
                         has_fy = any('current' in x or 'fy' in x for x in row_vals)
-                        
-                        if has_partic or (has_py and has_fy):
+                        has_years = sum(1 for x in row_vals if re.search(r'\b(19|20)\d{2}\b', x)) >= 2
+
+                        if has_partic or (has_py and has_fy) or has_years:
                             header_idx = i
                             break
-                            
+
                     if header_idx != -1:
                         header = [str(c) if pd.notna(c) else "" for c in df.iloc[header_idx].values]
                         data = []
@@ -547,8 +621,8 @@ class DocumentParser:
                             if any(str(r).strip() for r in row):
                                 data.append(row)
                         tables.append([header] + data)
-                        
-                md_content = "\n".join(text_blocks)
+                        print(f"    [+] Extracted table from sheet '{sheet}' (header row {header_idx})")
+
                 print(f"[+] Found {len(tables)} tables in Financials Excel")
             except Exception as e:
                 print(f"[!] Error parsing native Financials Excel: {e}")
@@ -632,7 +706,7 @@ class DocumentParser:
         if tables:
             fin_details = self.extract_financials_from_tables(tables)
             for k, v in fin_details.items():
-                if k not in all_extracted:
+                if k not in all_extracted or not all_extracted[k]:
                     all_extracted[k] = v
             
         if md_content:
@@ -641,6 +715,34 @@ class DocumentParser:
             for k, v in text_info.items():
                 if k not in all_extracted:
                     all_extracted[k] = v
+                    
+            # Extract Filing Year and Closing Date from Financial Statement heading
+            month_map = {
+                'january': '01', 'jan': '01', 'february': '02', 'feb': '02',
+                'march': '03', 'mar': '03', 'april': '04', 'apr': '04',
+                'may': '05', 'june': '06', 'jun': '06', 'july': '07', 'jul': '07',
+                'august': '08', 'aug': '08', 'september': '09', 'sep': '09', 'sept': '09',
+                'october': '10', 'oct': '10', 'november': '11', 'nov': '11',
+                'december': '12', 'dec': '12'
+            }
+            date_regex = r'(?:BS|Balance\s*Sheet|Statement\s*of\s*Profit\s*and\s*Loss|Financial\s*Statements)[\s\S]{0,120}?(?:as\s*at|for\s*the\s*year\s*ended)\s*(?:([a-zA-Z]+)\s*(\d{1,2})(?:st|nd|rd|th)?|(\d{1,2})(?:st|nd|rd|th)?\s*([a-zA-Z]+))\s*,?\s*(20\d{2})'
+            date_match = re.search(date_regex, md_content, re.IGNORECASE)
+            
+            if not date_match:
+                # Fallback to the very first date found in the document
+                fallback_regex = r'(?:([a-zA-Z]+)\s*(\d{1,2})(?:st|nd|rd|th)?|(\d{1,2})(?:st|nd|rd|th)?\s*([a-zA-Z]+))\s*,?\s*(20\d{2})'
+                date_match = re.search(fallback_regex, md_content, re.IGNORECASE)
+            
+            if date_match:
+                month1, day1, day2, month2, year = date_match.groups()
+                month_str = month1 if month1 else month2
+                day_str = day1 if day1 else day2
+                
+                month_num = month_map.get(month_str.lower(), '03')
+                day_num = f'{int(day_str):02d}'
+                
+                all_extracted["filing_year"] = int(year)
+                all_extracted["closing_date"] = f"{day_num}/{month_num}/{year}"
             
             # Custom robust extraction for share counts and face values from Balance Sheet notes
             # 1. Equity Share Count
@@ -681,7 +783,7 @@ class DocumentParser:
                 all_extracted["part_pref_face_value_fy"] = val
             
             # 4. Profit & Loss Balance (Retained Earnings/Surplus in Statement of P&L)
-            pl_match = re.search(r'Surplus\s*/\s*\(Deficit\)\s*in\s*Statement\s*of\s*Profit\s*and\s*Loss[\s\S]*?Balance\s*at\s*the\s*end\s*of\s*the\s*year\s*\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', md_content, re.IGNORECASE)
+            pl_match = re.search(r'Surplus(?:\s*/\s*\(Deficit\))?\s*in\s*Statement\s*of\s*Profit\s*and\s*Loss[\s\S]{0,10000}?Balance\s*at\s*the\s*end\s*of\s*the\s*year(?:\||\s)*([-\d,.]+)(?:\||\s)*([-\d,.]+)', md_content, re.IGNORECASE)
             if pl_match:
                 all_extracted["pl_balance_fy"] = self.parse_number(pl_match.group(1))
                 all_extracted["pl_balance_py"] = self.parse_number(pl_match.group(2))
@@ -769,180 +871,65 @@ class DocumentParser:
             segment_match = re.search(r'segment,\s*viz\.\s*\"([^\"]+)\"', full_text)
             if segment_match:
                 segment_desc = segment_match.group(1).strip()
-                
-        # Try finding 'nature of business is ...'
-        if not segment_desc:
-            biz_match_2 = re.search(r'nature\s+of\s+business\s+is\s+([^,.\n]+)', full_text, re.IGNORECASE)
-            if biz_match_2:
-                segment_desc = biz_match_2.group(1).strip()
-                
-        # Try finding 'nature of operations ...'
-        if not segment_desc:
-            biz_match_3 = re.search(r'nature\s+of\s+operations\s+is\s+([^,.\n]+)', full_text, re.IGNORECASE)
-            if biz_match_3:
-                segment_desc = biz_match_3.group(1).strip()
+        all_extracted["nic_code"] = ""
 
-        # 6.b Load all 88 NIC division codes & descriptions (Dynamic Excel Loading + Hardcoded Fallback)
-        nic_list = []
-        try:
-            import openpyxl
-            engine_dir = os.path.dirname(os.path.abspath(__file__))
-            skeletal_path = os.path.abspath(os.path.join(engine_dir, "..", "excel", "FLA Return existing skeletal.xlsx"))
-            if os.path.exists(skeletal_path):
-                wb_sk = openpyxl.load_workbook(skeletal_path, data_only=True)
-                if "Annex 1" in wb_sk.sheetnames:
-                    ws_sk = wb_sk["Annex 1"]
-                    for row in range(2, ws_sk.max_row + 1):
-                        desc = ws_sk.cell(row=row, column=1).value
-                        code = ws_sk.cell(row=row, column=2).value
-                        if desc and code is not None:
-                            nic_list.append((str(code), str(desc).strip()))
-        except Exception as e:
-            print(f"[!] Error loading dynamic NIC codes from Annex 1: {e}")
-            
-        if not nic_list:
-            fallback_nic_codes = {
-                "1": "Crop and animal production, hunting and related service activities",
-                "2": "Forestry and logging",
-                "3": "Fishing and aquaculture",
-                "5": "Mining of coal and lignite",
-                "6": "Extraction of crude petroleum and natural gas",
-                "7": "Mining of metal ores",
-                "8": "Other mining and quarrying",
-                "9": "Mining support service activities",
-                "10": "Manufacture of food products",
-                "11": "Manufacture of beverages",
-                "12": "Manufacture of tobacco products",
-                "13": "Manufacture of textiles",
-                "14": "Manufacture of wearing apparel",
-                "15": "Manufacture of leather and related products",
-                "16": "Manufacture of wood and products of wood and cork, except furniture",
-                "17": "Manufacture of paper and paper products",
-                "18": "Printing and reproduction of recorded media",
-                "19": "Manufacture of coke and refined petroleum products",
-                "20": "Manufacture of chemicals and chemical products",
-                "21": "Manufacture of pharmaceuticals, medicinal chemical and botanical products",
-                "22": "Manufacture of rubber and plastics products",
-                "23": "Manufacture of other non-metallic mineral products",
-                "24": "Manufacture of basic metals",
-                "25": "Manufacture of fabricated metal products, except machinery and equipment",
-                "26": "Manufacture of computer, electronic and optical products",
-                "27": "Manufacture of electrical equipment",
-                "28": "Manufacture of machinery and equipment n.e.c.",
-                "29": "Manufacture of motor vehicles, trailers and semi-trailers",
-                "30": "Manufacture of other transport equipment",
-                "31": "Manufacture of furniture",
-                "32": "Other manufacturing",
-                "33": "Repair and installation of machinery and equipment",
-                "35": "Electricity, gas, steam and air conditioning supply",
-                "36": "Water collection, treatment and supply",
-                "37": "Sewerage",
-                "38": "Waste collection, treatment and disposal activities; materials recovery",
-                "39": "Remediation activities and other waste management services",
-                "41": "Construction of buildings",
-                "42": "Civil engineering",
-                "43": "Specialized construction activities",
-                "45": "Wholesale and retail trade and repair of motor vehicles and motorcycles",
-                "46": "Wholesale trade, except of motor vehicles and motorcycles",
-                "47": "Retail trade, except of motor vehicles and motorcycles",
-                "49": "Land transport and transport via pipelines",
-                "50": "Water transport",
-                "51": "Air transport",
-                "52": "Warehousing and support activities for transportation",
-                "53": "Postal and courier activities",
-                "55": "Accommodation",
-                "56": "Food and beverage service activities",
-                "58": "Publishing activities",
-                "59": "Motion picture, video and television programme production, sound recording and music publishing activities",
-                "60": "Broadcasting and programming activities",
-                "61": "Telecommunications",
-                "62": "Computer programming, consultancy and related activities",
-                "63": "Information service activities",
-                "64": "Financial service activities, except insurance and pension funding",
-                "65": "Insurance, reinsurance and pension funding, except compulsory social security",
-                "66": "Other financial activities",
-                "68": "Real estate activities",
-                "69": "Legal and accounting activities",
-                "70": "Activities of head offices; management consultancy activities",
-                "71": "Architecture and engineering activities; technical testing and analysis",
-                "72": "Scientific research and development",
-                "73": "Advertising and market research",
-                "74": "Other professional, scientific and technical activities",
-                "75": "Veterinary activities",
-                "77": "Rental and leasing activities",
-                "78": "Employment activities",
-                "79": "Travel agency, tour operator and other reservation service activities",
-                "80": "Security and investigation activities",
-                "81": "Services to buildings and landscape activities",
-                "82": "Office administrative, office support and other business support activities",
-                "84": "Public administration and defence; compulsory social security",
-                "85": "Education",
-                "86": "Human health activities",
-                "87": "Social work activities with accommodation",
-                "88": "Social work activities without accommodation",
-                "90": "Creative, arts and entertainment activities",
-                "91": "Libraries, archives, museums and other cultural activities",
-                "92": "Gambling and betting activities",
-                "93": "Sports activities and amusement and recreation activities",
-                "94": "Activities of membership organizations",
-                "95": "Repair of computers and personal and household goods",
-                "96": "Other personal service activities",
-                "97": "Activities of households as employers of domestic personnel",
-                "98": "Undifferentiated goods- and services-producing activities of private households for own use",
-                "99": "Activities of extraterritorial organizations and bodies",
-            }
-            nic_list = list(fallback_nic_codes.items())
+        # ── Previous FLA Prefill (Section I contact & identity fields) ──────────────
+        # These fields have NO extraction logic from board report / financials.
+        # They are ALWAYS sourced exclusively from the previous year FLA form.
+        prev_fla_path = docs_paths.get("previous_fla")
+        if not prev_fla_path:
+            # Also check sibling input dir for FLA_ONLINE_FORM or previous_fla_ files
+            input_dir = os.path.dirname(list(docs_paths.values())[0]) if docs_paths else ""
+            if input_dir and os.path.isdir(input_dir):
+                for fname in os.listdir(input_dir):
+                    if fname.startswith("previous_fla_") or "FLA_ONLINE_FORM" in fname:
+                        prev_fla_path = os.path.join(input_dir, fname)
+                        break
 
-        # 6.c Build tokens & helper sector keywords map for high-precision classification
-        stop_words = {"and", "of", "the", "to", "for", "in", "with", "on", "at", "by", "an", "a", "or", "activities", "products", "services", "related", "except", "other", "n.e.c."}
-        
-        def get_clean_tokens(val_str):
-            words = re.findall(r"[a-zA-Z]{3,}", val_str.lower())
-            return {w for w in words if w not in stop_words}
-            
-        seg_tokens = get_clean_tokens(segment_desc)
-        
-        sector_keywords = {
-            "62": ["software", "programming", "consultancy", "computer", "remote asset", "ai", "analytics", "it services", "information technology", "iot", "systems design", "devices", "platform"],
-            "61": ["telecommunications", "network", "telecom", "wireless", "broadband", "satellite"],
-            "63": ["information", "portal", "hosting", "data processing", "search engine", "database"],
-            "64": ["financial", "finance", "banking", "lending", "credit", "loan", "investment", "fintech"],
-            "65": ["insurance", "reinsurance", "pension"],
-            "70": ["management consulting", "head office", "consulting", "advisory", "advisor"],
-            "74": ["professional", "scientific", "technical", "design", "translation"],
-            "46": ["wholesale", "b2b", "distributor", "trading"],
-            "47": ["retail", "b2c", "e-commerce", "shop", "ecommerce", "merchant", "online sale"],
-            "10": ["food", "beverage", "bakery", "dairy", "meat", "fruit", "vegetable"],
-            "21": ["pharmaceutical", "medicinal", "pharma", "medicine", "drug", "clinical", "biotech"],
-            "26": ["manufacture of computer", "electronic products", "hardware manufacture", "semiconductor", "device", "sensor", "optical"],
-            "72": ["research", "r&d", "development", "laboratory", "scientific research"]
-        }
-        
-        # Calculate composite score for each division
-        best_desc = ""
-        best_score = -1
-        
-        for code, desc in nic_list:
-            desc_tokens = get_clean_tokens(desc)
-            # 1. Word overlap score with segment description
-            score = len(seg_tokens.intersection(desc_tokens))
-            
-            # 2. Sector keywords scoring
-            if code in sector_keywords:
-                for kw in sector_keywords[code]:
-                    if segment_desc and kw in segment_desc.lower():
-                        score += 3  # High relevance for segment match
-                    elif kw in full_text:
-                        score += 1  # Standard relevance for full text presence
-                        
-            if score > best_score:
-                best_score = score
-                best_desc = desc
-                
-        # Final absolute fallback if no scoring succeeded
-        if not best_desc or best_score <= 0:
-            best_desc = "Computer programming, consultancy and related activities"
-            
-        all_extracted["nic_code"] = best_desc
-                        
+        if prev_fla_path and os.path.exists(prev_fla_path):
+            try:
+                from automation_engine.modules.fla.comparison_platform.modules.legacy_parser import LegacyFLAParser
+                with open(prev_fla_path, "r", encoding="utf-8", errors="ignore") as f:
+                    prev_data = LegacyFLAParser().parse_md(f.read())
+
+                # Fields that must ONLY come from previous FLA — mapped to internal keys
+                SECTION_I_FROM_PREV_FLA = {
+                    "Name of the Contact Person":               "contact_name",
+                    "Telephone No. (with extension)":           "telephone",
+                    "Mobile Number":                            "mobile_number",
+                    "E-Mail ID (Head of the institution)":      "email_id",
+                    "E-Mail of Contact person":                 "email_contact",
+                    "Designation":                              "designation",
+                    "Website (if any)":                         "website",
+                    "Type of company":                          "company_type",
+                    "2. PAN number":                            "pan_number",
+                }
+                # Always overwrite these fields — previous FLA is the sole authoritative source
+                for prev_key, internal_key in SECTION_I_FROM_PREV_FLA.items():
+                    if prev_key in prev_data:
+                        val = prev_data[prev_key]
+                        all_extracted[internal_key] = val
+                        print(f"  [PrevFLA] '{internal_key}' = '{val}'")
+
+                # Special: Account closing date → increment year for current filing
+                for k, v in prev_data.items():
+                    ck = re.sub(r"[^a-z0-9]", "", str(k).lower())
+                    if "accountclosingdate" in ck:
+                        m = re.search(r'(\d{2})/(\d{2})/(\d{4})', str(v))
+                        if m:
+                            d, mo, yr = m.groups()
+                            next_yr = int(yr) + 1
+                            if "filing_year" not in all_extracted or not all_extracted.get("filing_year"):
+                                all_extracted["filing_year"] = next_yr
+                                print(f"  [PrevFLA] 'filing_year' = {next_yr}")
+                            if "closing_date" not in all_extracted or not all_extracted.get("closing_date"):
+                                all_extracted["closing_date"] = f"{d}/{mo}/{next_yr}"
+                                print(f"  [PrevFLA] 'closing_date' = {d}/{mo}/{next_yr}")
+                        break
+
+                print(f"  [+] Section I prefilled from Previous FLA: {os.path.basename(prev_fla_path)}")
+            except Exception as e:
+                print(f"  [!] Could not prefill from Previous FLA: {e}")
+
         return all_extracted
+

@@ -50,22 +50,20 @@ class DocumentIngestion:
             lower_name = f.lower()
             full_path = os.path.join(root, f)
             
-            # File Extension Heuristics based on module
-            allowed_extensions = ['.pdf', '.md', '.docx', '.doc']
-            if self.module_type == "aoc4":
-                allowed_extensions.extend(['.xlsx', '.xls'])
+            # File Extension Heuristics
+            allowed_extensions = ['.pdf', '.md', '.docx', '.doc', '.xlsx', '.xls', '.xlsm']
                 
             if any(f.endswith(ext) for ext in allowed_extensions):
                 if "board" in lower_name:
                     docs["board_report"] = full_path
-                elif "odi" not in lower_name and any(k in lower_name for k in ["financial", "merged", "auditor", "audit", "notes", "account", "balance sheet", "profit and loss", "p&l", "bspl", "standalone", "input sheet", "annual filing", "previous year"]):
-                    if f.endswith('.md') or f.endswith('.docx') or f.endswith('.doc') or f.endswith('.xlsx') or f.endswith('.xls'):
+                elif "odi" not in lower_name and any(k in lower_name for k in ["financial", "merged", "auditor", "audit", "notes", "account", "accounting", "accounting policies", "balance sheet", "profit and loss", "p&l", "bspl", "standalone", "input sheet", "annual filing", "previous year"]):
+                    if f.endswith('.md') or f.endswith('.docx') or f.endswith('.doc') or f.endswith('.xlsx') or f.endswith('.xls') or f.endswith('.xlsm'):
                         financial_mds.append(full_path)
                     elif "merged_financials_combined.pdf" not in lower_name:
                         financial_pdfs.append(full_path)
                     
             # Shareholder, ODI, & Extra Heuristics
-            if any(f.endswith(ext) for ext in ['.xlsx', '.xls', '.md', '.pdf']):
+            if any(f.endswith(ext) for ext in ['.xlsx', '.xls', '.xlsm', '.md', '.pdf']):
                 if "shareholder" in lower_name:
                     docs["shareholders_fdi"] = full_path
                 elif "odi" in lower_name:

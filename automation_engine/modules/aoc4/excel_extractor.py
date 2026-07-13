@@ -6,14 +6,16 @@ class AOC4ExcelExtractor:
     def __init__(self):
         # Maps metric names to regex keywords to match in the row headers
         self.numeric_keywords = {
-            "turnover": [r"revenue from operation", r"total revenue", r"^turnover$"],
+            "turnover": [r"revenue from operations?", r"total turnover", r"sales turnover", r"gross turnover"],
             "prev_turnover": [r"previous year turnover", r"turnover.*previous year"],
-            "paid_up_capital": [r"paid-up share capital", r"paid up share capital", r"share capital", r"paid up capital"],
-            "net_worth": [r"^net worth", r"total equity", r"capital \+ reserve & surplus"],
+            "paid_up_capital": [r"paid.?up capital", r"paid.?up share capital", r"subscribed and paid.?up", r"equity share capital"],
+            "net_worth": [r"net worth", r"total equity", r"capital.*reserve.*surplus"],
             "prev_net_worth": [r"previous year net worth", r"net worth.*previous year"],
             "reserves_and_surplus": [r"reserves\s*&\s*surplus", r"reserves and surplus", r"other equity"],
             "borrowings": [r"total borrowing", r"borrowing", r"loan from bank", r"loan from director", r"secured loan", r"unsecured loan"],
-            "net_profit_before_tax": [r"profit before tax", r"profit\s*/\s*loss before tax", r"pbt"],
+            "operating_profit": [r"operating profit", r"profit before interest", r"ebitda"],
+            "net_profit_before_tax": [r"profit before tax", r"profit before exceptional items", r"pbt", r"profit.*?before.*?tax"],
+            "net_profit_after_tax": [r"profit after tax", r"profit for the period", r"pat", r"profit.*?after.*?tax", r"profit/.*?\(loss\).*?for the year"],
             "total_loans_investments_given": [r"loans and advances given", r"investments made", r"total loans.*given", r"current investment", r"non current investment"],
             "rpt_sale_goods": [r"sale of goods.*related party", r"sale of goods"],
             "rpt_purchase_goods": [r"purchase of goods.*related party", r"purchase or supply of goods"],
@@ -24,7 +26,12 @@ class AOC4ExcelExtractor:
             "rpt_rendering_service": [r"rendering of service", r"rendering.*service"],
             "rpt_lease": [r"lease.*related party", r"^lease$", r"rent"],
             "rpt_monthly_remun": [r"monthly remuneration", r"appointment to any office", r"salary"],
-            "rpt_remuneration_underwriting": [r"remuneration for underwriting", r"underwriting.*subscription"]
+            "rpt_remuneration_underwriting": [r"remuneration for underwriting", r"underwriting.*subscription"],
+            "loan_to_directors_assets": [r"loangiven by company to directors", r"loan given by company to director", r"loan to directors"],
+            "secured_loan": [r"secured loan", r"secured borrowings"],
+            "loan_from_directors": [r"loan from directors", r"loan from shareholders"],
+            "advance_from_customers": [r"advance from customers", r"security deposits"],
+            "dues_to_msme": [r"dues to msme", r"micro and small enterprises"]
         }
         
         self.boolean_keywords = {
@@ -48,6 +55,7 @@ class AOC4ExcelExtractor:
         
         # Initialize defaults
         extracted["company_type"] = "private limited company"
+        extracted["has_corporate_shareholders"] = None
         
         for k in self.numeric_keywords.keys():
             extracted[k] = None
@@ -112,8 +120,8 @@ class AOC4ExcelExtractor:
         }
         
         target_sheet_keywords = [
-            "balance sheet", "p&l", "profit and loss", "statement of profit",
-            "notes", "related party", "rpt", "revenue", "share capital", "financials"
+            "balance sheet", "p&l","PandL", "profit and loss", "statement of profit",
+            "notes", "related party", "rpt", "revenue", "share capital", "financials", "bs"
         ]
         
         # Filter sheets to avoid false positives on summary or irrelevant sheets
@@ -129,8 +137,19 @@ class AOC4ExcelExtractor:
         
         for sheet_name in sheets_to_scan:
             try:
+                sheet_lower = sheet_name.lower()
                 df = pd.read_excel(xls, sheet_name=sheet_name, header=None)
                 
+                # Identify Note No column
+                note_col_idx = None
+                for index, row in df.head(20).iterrows():
+                    for c_idx, cell in enumerate(row.values):
+                        if isinstance(cell, str) and "note" in cell.lower():
+                            note_col_idx = c_idx
+                            break
+                    if note_col_idx is not None:
+                        break
+
                 for index, row in df.iterrows():
                     row_values = row.values
                     
@@ -144,6 +163,15 @@ class AOC4ExcelExtractor:
                                     req_no_punct = req.replace("'", "")
                                     if req in cell_lower or req_no_punct in cell_lower:
                                         schedule_iii_headers_found.add(req)
+                                        
+                            # Check for corporate shareholders in share capital sheets
+                            if "share capital" in sheet_lower or "shareholder" in sheet_lower or " sc" in sheet_lower or sheet_lower.endswith("sc"):
+                                if data["has_corporate_shareholders"] is None:
+                                    data["has_corporate_shareholders"] = "no"
+                                if index > 5: # Skip header rows to avoid company name
+                                    if re.search(r'\b(ltd|private limited|limited|inc)\b', cell_lower):
+                                        print(f"    -> Found corporate shareholder keyword in '{sheet_name}' row {index}")
+                                        data["has_corporate_shareholders"] = "yes"
                             
                             # Check numeric metrics
                             for metric, patterns in self.numeric_keywords.items():
@@ -152,6 +180,8 @@ class AOC4ExcelExtractor:
                                 for pattern in patterns:
                                     if re.search(pattern, cell_lower):
                                         for right_idx in range(col_idx + 1, len(row_values)):
+                                            if right_idx == note_col_idx:
+                                                continue # Skip the Note No column entirely
                                             val = self._clean_numeric(row_values[right_idx])
                                             if val is not None:
                                                 print(f"    -> Found '{metric}' = {val} in sheet '{sheet_name}'")

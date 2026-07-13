@@ -124,8 +124,25 @@ async def trigger_processing(task_id: str, background_tasks: BackgroundTasks, db
 
 @app.get("/api/tasks")
 def list_tasks(db: Session = Depends(get_db)):
-    tasks = db.query(models.ExtractionTask).order_by(models.ExtractionTask.created_at.desc()).all()
-    return tasks
+    tasks = db.query(
+        models.ExtractionTask.id,
+        models.ExtractionTask.company_name,
+        models.ExtractionTask.module_type,
+        models.ExtractionTask.status,
+        models.ExtractionTask.created_at,
+        models.ExtractionTask.completed_at
+    ).order_by(models.ExtractionTask.created_at.desc()).all()
+    
+    return [
+        {
+            "id": t.id,
+            "company_name": t.company_name,
+            "module_type": t.module_type,
+            "status": t.status,
+            "created_at": t.created_at,
+            "completed_at": t.completed_at
+        } for t in tasks
+    ]
 
 @app.get("/api/tasks/{task_id}")
 def get_task(task_id: str, db: Session = Depends(get_db)):

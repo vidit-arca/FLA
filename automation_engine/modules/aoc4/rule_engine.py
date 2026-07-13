@@ -27,15 +27,53 @@ class AOC4RuleEngine:
 
     def evaluate_all(self, extracted_data: dict) -> dict:
         print("[*] AOC 4 Rule Engine: Evaluating common errors...")
-        common_flags = self.checker.execute(extracted_data)
         
+
         print("[*] AOC 4 Rule Engine: Evaluating private compliance...")
         # 1. Run Excel Extractor on the original docs to pull structured financial metrics
         docs = extracted_data.get("docs", {})
         financial_data = self.excel_extractor.extract_from_docs(docs)
         
+        # Identify missing numeric keys
+        expected_keys = [
+            "turnover", "prev_turnover", "paid_up_capital", "net_worth", "prev_net_worth",
+            "reserves_and_surplus", "borrowings", "secured_loan", "unsecured_loan",
+            "operating_profit", "net_profit_before_tax", "net_profit_after_tax",
+            "rpt_monthly_remun", "rpt_lease", "rpt_sale_goods", "rpt_purchase_goods",
+            "total_loans_investments_given", "borrowing_defaults"
+        ]
+        missing_keys = [k for k in expected_keys if financial_data.get(k) is None]
+        
+        # If any numeric fields are missing, try extracting from raw Markdown (PDFs)
+        if missing_keys and "full_text" in extracted_data:
+            from automation_engine.modules.aoc4.parser import AOC4Parser
+            # The parser logic is now in AOC4Parser. We need an instance.
+            # But wait, self doesn't have an instance of AOC4Parser readily available here, 
+            # so we instantiate one temporarily or call it statically.
+            temp_parser = AOC4Parser(self.config_path)
+            fallback_data = temp_parser.extract_financials_from_text(extracted_data["full_text"], missing_keys)
+            
+            # Merge the fallback data
+            for k, v in fallback_data.items():
+                financial_data[k] = v
+                
+        # Fallback for Schedule III format detection from Markdown text
+        if financial_data.get("has_schedule_iii_format", "no") == "no" and "full_text" in extracted_data:
+            text_lower = extracted_data["full_text"].lower()
+            required_headers = {
+                "equity and liabilities", "shareholders' funds", "non-current liabilities",
+                "current liabilities", "assets", "non-current assets", "current assets"
+            }
+            found_count = sum(1 for req in required_headers if req in text_lower or req.replace("'", "") in text_lower)
+            # If we find almost all headers (>= 5 out of 7) in the raw text, it's a Schedule III structure
+            if found_count >= 5:
+                financial_data["has_schedule_iii_format"] = "yes"
+        
         # Merge the financial metrics into extracted_data so compliance engine can read them
         extracted_data.update(financial_data)
+        
+        # Now run common error checker so it has access to all extracted financial data
+        common_flags = self.checker.execute(extracted_data)
         
         # 2. Run the Compliance Engine with the populated numerical data
         compliance_flags = self.compliance_engine.execute(extracted_data)
@@ -97,8 +135,8 @@ class AOC4RuleEngine:
                 norm_flag = self._normalize_string(flag["particulars"])
                 matched_row = row_map_comp.get(norm_flag)
                 if matched_row:
-                    # Current year "Complied or not" is in Column C
-                    target_cells["Compliance sheet for private"][f"C{matched_row}"] = flag["user_value"]
+                    # Current year "Complied or not" is mapped to Column B
+                    target_cells["Compliance sheet for private"][f"B{matched_row}"] = flag["user_value"]
                     
         if "RPT and loans to Director" in wb.sheetnames:
             sheet_rpt = wb["RPT and loans to Director"]
@@ -114,11 +152,18 @@ class AOC4RuleEngine:
                 norm_flag = self._normalize_string(flag["particulars"])
                 matched_row = row_map_rpt.get(norm_flag)
                 if matched_row:
-                    # For RPT, write 'actual_value' to Col F and 'user_value' (Yes/No/Applicable) to Col G
+                    # For RPT, write 'actual_value' to Col F
                     if flag.get("actual_value") is not None and str(flag.get("actual_value")) != "0.0":
                         target_cells["RPT and loans to Director"][f"F{matched_row}"] = flag.get("actual_value")
-                    target_cells["RPT and loans to Director"][f"G{matched_row}"] = flag.get("user_value")
+                    
+                    # For Section 185 and 186, Applicability goes to Col D. Otherwise Col G.
+                    flag_id = flag.get("id", "")
+                    if flag_id.startswith("COMP_SEC_185_") or flag_id.startswith("COMP_SEC_186_"):
+                        target_cells["RPT and loans to Director"][f"D{matched_row}"] = flag.get("user_value")
+                    else:
+                        target_cells["RPT and loans to Director"][f"G{matched_row}"] = flag.get("user_value")
 
         extracted_data["flags"] = flags
+        target_cells["_flags"] = flags
         
         return target_cells

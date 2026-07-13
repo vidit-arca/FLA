@@ -16,26 +16,32 @@ class ExcelExtractor:
     def extract_fdi_data(self, excel_path):
         """Extract Foreign Direct Investment (FDI) data from Shareholders list."""
         try:
-            # Read without headers to find the actual header row
-            raw_df = pd.read_excel(excel_path, header=None)
+            # Check all sheets to find the one with the best header matches
+            xl = pd.ExcelFile(excel_path)
+            sheet_names = xl.sheet_names
+            best_sheet = sheet_names[0]
+            best_header_idx = 0
+            best_max_matches = 0
             
-            header_idx = 0
-            max_matches = 0
+            for sname in sheet_names:
+                try:
+                    raw_df = pd.read_excel(excel_path, sheet_name=sname, header=None)
+                    for idx, row in raw_df.head(20).iterrows():
+                        matches = 0
+                        row_str = " ".join([str(x).lower() for x in row if pd.notna(x)])
+                        if "name" in row_str and "shareholder" in row_str: matches += 1
+                        if "nationality" in row_str or "country" in row_str: matches += 1
+                        if "number of security" in row_str or "number of shares" in row_str or "no. of shares" in row_str or "number of securit" in row_str: matches += 1
+                        
+                        if matches > best_max_matches:
+                            best_max_matches = matches
+                            best_header_idx = idx
+                            best_sheet = sname
+                except Exception:
+                    continue
             
-            # Search first 20 rows for header keywords
-            for idx, row in raw_df.head(20).iterrows():
-                matches = 0
-                row_str = " ".join([str(x).lower() for x in row if pd.notna(x)])
-                if "name" in row_str and "shareholder" in row_str: matches += 1
-                if "nationality" in row_str or "country" in row_str: matches += 1
-                if "number of security" in row_str or "number of shares" in row_str or "no. of shares" in row_str or "number of securit" in row_str: matches += 1
-                
-                if matches > max_matches:
-                    max_matches = matches
-                    header_idx = idx
-            
-            if max_matches > 0:
-                df = pd.read_excel(excel_path, skiprows=header_idx)
+            if best_max_matches > 0:
+                df = pd.read_excel(excel_path, sheet_name=best_sheet, skiprows=best_header_idx)
             else:
                 df = pd.read_excel(excel_path)
             
@@ -70,12 +76,22 @@ class ExcelExtractor:
 
             # Filter out Debentures if Type/Class of security column exists (keep only Equity and Preference)
             security_type_col = None
+            class_col = None
             for col in df.columns:
                 lower_col = ' '.join(str(col).lower().strip().split())
-                if "type of security" in lower_col or "class of security" in lower_col:
+                if "type of security" in lower_col:
                     security_type_col = col
-                    break
+                if "class of security" in lower_col:
+                    class_col = col
             
+            # Find the Amount column
+            amount_col = None
+            for col in df.columns:
+                lower_col = ' '.join(str(col).lower().strip().split())
+                if "total amount of securities held" in lower_col or "amount of securities held" in lower_col:
+                    amount_col = col
+                    break
+
             if security_type_col:
                 # Use string contains to catch things like "Equity shares" or "Equity\nshares"
                 mask = df[security_type_col].astype(str).str.lower().str.replace('\n', ' ').str.contains("equity|preference", na=False, regex=True)
@@ -89,36 +105,239 @@ class ExcelExtractor:
                 print("[!] ExcelExtractor: Total securities is 0.")
                 return {}
 
+            # Calculate total shares and amounts for Section 1 & 2 (Overall Paid-Up Capital)
+            equity_count = 0.0
+            equity_amount = 0.0
+            part_pref_count = 0.0
+            part_pref_amount = 0.0
+            non_part_pref_count = 0.0
+            non_part_pref_amount = 0.0
+            
+            # Track distinct security Type Numbers
+            equity_types = set()
+            part_pref_types = set()
+            non_part_pref_types = set()
+            
+            excel_equity_fv = None
+            excel_part_pref_fv = None
+            excel_non_part_pref_fv = None
+
+            # Find the nominal value per security column
+            fv_col = None
+            for col in df.columns:
+                lower_col = ' '.join(str(col).lower().strip().split())
+                if "nominal value" in lower_col or "face value" in lower_col:
+                    fv_col = col
+                    break
+
+            def get_type_number(s_type, s_class):
+                s_type = str(s_type).lower().strip()
+                s_class = str(s_class).lower().replace('–', '-').replace('—', '-').strip()
+                s_class = ' '.join(s_class.split())
+                
+                if "equity" in s_type:
+                    if "class a" in s_class:
+                        return "Type 2"
+                    elif "class b" in s_class:
+                        return "Type 3"
+                    elif "equity" in s_class or s_class == "":
+                        return "Type 1"
+                    else:
+                        return "Unknown/Other"
+                elif "preference" in s_type or "ccps" in s_type or "ccps" in s_class or "preference" in s_class:
+                    pref_mappings = {
+                        "ccps series a": "Type 1",
+                        "compulsorily convertible preference shares - series a": "Type 1",
+                        "compulsorily convertible preference shares series a": "Type 1",
+                        
+                        "ccps series b": "Type 2",
+                        "compulsorily convertible preference shares - series b": "Type 2",
+                        "compulsorily convertible preference shares series b": "Type 2",
+                        
+                        "ccps series b1": "Type 3",
+                        "compulsorily convertible preference shares - series b1": "Type 3",
+                        "compulsorily convertible preference shares series b1": "Type 3",
+                        
+                        "ccps series b2": "Type 4",
+                        "compulsorily convertible preference shares - series b2": "Type 4",
+                        "compulsorily convertible preference shares series b2": "Type 4",
+                        
+                        "ccps series b3": "Type 5",
+                        "compulsorily convertible preference shares - series b3": "Type 5",
+                        "compulsorily convertible preference shares series b3": "Type 5",
+                        
+                        "ccps series d1": "Type 6",
+                        "compulsorily convertible preference shares - series d1": "Type 6",
+                        "compulsorily convertible preference shares series d1": "Type 6",
+                        
+                        "ccps series d2": "Type 7",
+                        "compulsorily convertible preference shares - series d2": "Type 7",
+                        "compulsorily convertible preference shares series d2": "Type 7",
+                        
+                        "ccps series d3": "Type 8",
+                        "compulsorily convertible preference shares - series d3": "Type 8",
+                        "compulsorily convertible preference shares series d3": "Type 8",
+                        
+                        "ccps series c1": "Type 9",
+                        "compulsorily convertible preference shares - series c1": "Type 9",
+                        "compulsorily convertible preference shares series c1": "Type 9",
+                        
+                        "ccps series c2": "Type 10",
+                        "compulsorily convertible preference shares - series c2": "Type 10",
+                        "compulsorily convertible preference shares series c2": "Type 10",
+                        
+                        "ccps series c3": "Type 11",
+                        "compulsorily convertible preference shares - series c3": "Type 11",
+                        "compulsorily convertible preference shares series c3": "Type 11",
+                    }
+                    for key, val in pref_mappings.items():
+                        if key in s_class or s_class in key:
+                            return val
+                    return "Unknown/Other"
+                return "Unknown/Other"
+            
+            if amount_col:
+                df[amount_col] = pd.to_numeric(df[amount_col], errors='coerce').fillna(0)
+                for _, row in df.iterrows():
+                    sec_type = str(row[security_type_col]).lower().strip() if security_type_col else ""
+                    sec_class = str(row[class_col]).lower().strip() if class_col else ""
+                    count = float(row[securities_col])
+                    amt = float(row[amount_col])
+                    
+                    t_num = get_type_number(sec_type, sec_class)
+                    fv = float(row[fv_col]) if fv_col and pd.notna(row[fv_col]) else 0.0
+                    
+                    if "equity" in sec_type or "equity" in sec_class:
+                        equity_count += count
+                        equity_amount += amt
+                        if count > 0:
+                            equity_types.add(t_num)
+                            if fv > 0 and excel_equity_fv is None:
+                                excel_equity_fv = fv
+                    elif "preference" in sec_type or "preference" in sec_class:
+                        if "non-participating" in sec_class or "non participating" in sec_class or "non-participating" in sec_type:
+                            non_part_pref_count += count
+                            non_part_pref_amount += amt
+                            if count > 0:
+                                non_part_pref_types.add(t_num)
+                                if fv > 0 and excel_non_part_pref_fv is None:
+                                    excel_non_part_pref_fv = fv
+                        else:
+                            part_pref_count += count
+                            part_pref_amount += amt
+                            if count > 0:
+                                part_pref_types.add(t_num)
+                                if fv > 0 and excel_part_pref_fv is None:
+                                    excel_part_pref_fv = fv
+                            
+            extracted = {
+                "excel_equity_shares_count": equity_count,
+                "excel_equity_amount": equity_amount,
+                "excel_part_pref_shares_count": part_pref_count,
+                "excel_part_pref_amount": part_pref_amount,
+                "excel_non_part_pref_shares_count": non_part_pref_count,
+                "excel_non_part_pref_amount": non_part_pref_amount,
+                "excel_equity_class_count": len(equity_types) if equity_types else 0,
+                "excel_part_pref_class_count": len(part_pref_types) if part_pref_types else 0,
+                "excel_non_part_pref_class_count": len(non_part_pref_types) if non_part_pref_types else 0,
+                "excel_equity_face_value": excel_equity_fv,
+                "excel_part_pref_face_value": excel_part_pref_fv,
+                "excel_non_part_pref_face_value": excel_non_part_pref_fv
+            }
+
             # Filter for Non-Resident (Foreign) Investors
             # Assume anything not 'India' or 'Indian' or 'IN' is foreign
             indian_terms = ['india', 'indian', 'in']
             foreign_df = df[~df[country_col].astype(str).str.lower().str.strip().isin(indian_terms)]
             
-            # Sum foreign shares by Type of Shareholder (COMPANY vs INDIVIDUAL) - do this before grouping/sorting
             sh_type_col = None
+            category_col = None
             for col in df.columns:
                 lower_col = ' '.join(str(col).lower().strip().split())
-                if "type of shareholder" in lower_col or "category of shareholder" in lower_col or "type of sharehold" in lower_col:
+                if "type of shareholder" in lower_col or "type of sharehold" in lower_col:
                     sh_type_col = col
-                    break
+                elif "category of shareholder" in lower_col:
+                    category_col = col
             
-            nr_companies_shares = 0
-            nr_individuals_shares = 0
+            # Buckets (Counts and Amounts)
+            buckets = {
+                "individuals": {"count": 0.0, "amount": 0.0},
+                "companies": {"count": 0.0, "amount": 0.0},
+                "fii": {"count": 0.0, "amount": 0.0},
+                "fvci": {"count": 0.0, "amount": 0.0},
+                "trusts": {"count": 0.0, "amount": 0.0},
+                "pe_funds": {"count": 0.0, "amount": 0.0},
+                "pension_funds": {"count": 0.0, "amount": 0.0},
+                "swf": {"count": 0.0, "amount": 0.0},
+                "partnerships": {"count": 0.0, "amount": 0.0},
+                "fin_institutions": {"count": 0.0, "amount": 0.0},
+                "nri_pio": {"count": 0.0, "amount": 0.0},
+                "non_part_pref": {"count": 0.0, "amount": 0.0}
+            }
             
-            if sh_type_col:
-                for _, row in foreign_df.iterrows():
-                    val = str(row[sh_type_col]).lower().strip()
-                    shares = float(row[securities_col])
-                    if "company" in val or "corporate" in val or "body" in val or "firm" in val:
-                        nr_companies_shares += shares
-                    elif "individual" in val or "person" in val:
-                        nr_individuals_shares += shares
-                    else:
-                        nr_companies_shares += shares
-            else:
-                for _, row in foreign_df.iterrows():
-                    shares = float(row[securities_col])
-                    nr_companies_shares += shares
+            for _, row in foreign_df.iterrows():
+                sec_type = str(row[security_type_col]).lower().strip() if security_type_col else ""
+                sec_class = str(row[class_col]).lower().strip() if class_col else ""
+                
+                count = float(row[securities_col])
+                amt = float(row[amount_col]) if amount_col else 0.0
+                
+                # Check for Non-Participating Preference Share (NR) first
+                if "preference" in sec_type or "preference" in sec_class:
+                    if "non-participating" in sec_class or "non participating" in sec_class or "non-participating" in sec_type:
+                        buckets["non_part_pref"]["count"] += count
+                        buckets["non_part_pref"]["amount"] += amt
+                        continue # Skip bucket 1-11 assignment if it's Non-Part Preference
+                
+                # It's Equity or Participating Preference, so categorize into 1-11
+                t_val = str(row[sh_type_col]).lower().strip() if sh_type_col else ""
+                c_val = str(row[category_col]).lower().strip() if category_col else ""
+                n_val = str(row[name_col]).lower().strip() if name_col else ""
+                
+                combined_desc = f"{t_val} {c_val} {n_val}"
+                
+                if "nri" in combined_desc or "pio" in combined_desc or "non resident indian" in combined_desc:
+                    buckets["nri_pio"]["count"] += count
+                    buckets["nri_pio"]["amount"] += amt
+                elif "individual" in combined_desc or "person" in combined_desc:
+                    buckets["individuals"]["count"] += count
+                    buckets["individuals"]["amount"] += amt
+                elif "fii" in combined_desc or "foreign institutional investor" in combined_desc:
+                    buckets["fii"]["count"] += count
+                    buckets["fii"]["amount"] += amt
+                elif "fvci" in combined_desc or "venture capital" in combined_desc:
+                    buckets["fvci"]["count"] += count
+                    buckets["fvci"]["amount"] += amt
+                elif "trust" in combined_desc:
+                    buckets["trusts"]["count"] += count
+                    buckets["trusts"]["amount"] += amt
+                elif "private equity" in combined_desc or "pe fund" in combined_desc:
+                    buckets["pe_funds"]["count"] += count
+                    buckets["pe_funds"]["amount"] += amt
+                elif "pension" in combined_desc or "provident" in combined_desc:
+                    buckets["pension_funds"]["count"] += count
+                    buckets["pension_funds"]["amount"] += amt
+                elif "sovereign" in combined_desc or "swf" in combined_desc or "wealth fund" in combined_desc:
+                    buckets["swf"]["count"] += count
+                    buckets["swf"]["amount"] += amt
+                elif "partnership" in combined_desc or "proprietorship" in combined_desc or "firm" in combined_desc:
+                    buckets["partnerships"]["count"] += count
+                    buckets["partnerships"]["amount"] += amt
+                elif "financial institution" in combined_desc or "fi" in combined_desc.split():
+                    buckets["fin_institutions"]["count"] += count
+                    buckets["fin_institutions"]["amount"] += amt
+                elif "company" in combined_desc or "corporate" in combined_desc or "body" in combined_desc or "ltd" in combined_desc or "limited" in combined_desc:
+                    buckets["companies"]["count"] += count
+                    buckets["companies"]["amount"] += amt
+                else:
+                    # Fallback default: Foreign Company
+                    buckets["companies"]["count"] += count
+                    buckets["companies"]["amount"] += amt
+                    
+            # Export all extracted NR buckets
+            for key, data in buckets.items():
+                extracted[f"excel_nr_{key}_shares_count"] = data["count"]
+                extracted[f"excel_nr_{key}_amount"] = data["amount"]
 
             # Group foreign shareholders by name and country to aggregate different security types (like Equity + Preference)
             # for the same investor!
@@ -147,7 +366,6 @@ class ExcelExtractor:
                 else:
                     di_rows.append((row, percent))
             
-            extracted = {}
             fdi_count = len(foreign_df_sorted)
             extracted["fdi_investors_count"] = fdi_count
             
@@ -227,10 +445,10 @@ class ExcelExtractor:
                 extracted["fdi_investor_2_equity_percent_py"] = 0.0
                 extracted["fdi_investor_2_equity_percent_fy"] = 0.0
 
-            extracted["nr_shares_companies_py"] = nr_companies_shares
-            extracted["nr_shares_companies_fy"] = nr_companies_shares
-            extracted["nr_shares_individuals_py"] = nr_individuals_shares
-            extracted["nr_shares_individuals_fy"] = nr_individuals_shares
+            
+            
+            
+            
 
             return extracted
             

@@ -113,3 +113,67 @@ class AOC4Parser:
                 extracted_data["is_listed"] = "no"
 
         return extracted_data
+
+    def extract_financials_from_text(self, text: str, missing_keys: list) -> dict:
+        """Fallback method to extract missing numeric financial data from raw OCR text/Markdown."""
+        print(f"[*] AOC 4 Parser: Attempting text fallback extraction for: {missing_keys}")
+        
+        numeric_keywords = {
+            "turnover": [r"revenue from operation", r"total revenue", r"turnover"],
+            "prev_turnover": [r"previous year turnover", r"turnover.*previous year"],
+            "paid_up_capital": [r"paid.?up.*capital", r"share capital"],
+            "net_worth": [r"net worth", r"total equity", r"capital.*reserve.*surplus"],
+            "prev_net_worth": [r"previous year net worth", r"net worth.*previous year"],
+            "reserves_and_surplus": [r"reserves\s*&\s*surplus", r"reserves and surplus", r"other equity"],
+            "borrowings": [r"total borrowing", r"borrowing", r"loan from bank", r"loan from director", r"secured loan", r"unsecured loan"],
+            "secured_loan": [r"secured loan", r"secured borrowings"],
+            "unsecured_loan": [r"unsecured loan", r"unsecured borrowings"],
+            "operating_profit": [r"operating profit", r"profit before interest", r"ebitda"],
+            "net_profit_before_tax": [r"profit before tax", r"profit before exceptional items", r"pbt", r"profit.*?before.*?tax"],
+            "net_profit_after_tax": [r"profit after tax", r"profit for the period", r"pat", r"profit.*?after.*?tax", r"profit/.*?\(loss\).*?for the year"],
+            "rpt_monthly_remun": [r"remuneration", r"salary", r"director remuneration", r"managerial remuneration"],
+            "rpt_lease": [r"lease", r"rent"],
+            "rpt_sale_goods": [r"sale of goods", r"sale of material"],
+            "rpt_purchase_goods": [r"purchase of goods", r"purchase of material"],
+            "total_loans_investments_given": [r"loan given", r"investment made", r"loans and advances given"],
+            "borrowing_defaults": [r"default in repayment", r"borrowing default"]
+        }
+        
+        found_data = {}
+        lines = text.lower().split("\n")
+        
+        for key in missing_keys:
+            if key not in numeric_keywords:
+                continue
+                
+            patterns = numeric_keywords[key]
+            for line in lines:
+                if any(re.search(p, line) for p in patterns):
+                    # Found a keyword match. Extract all numbers on this line.
+                    # e.g., "1,200.50", "14", "90,000"
+                    numbers = re.findall(r'(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?', line)
+                    if not numbers:
+                        continue
+                        
+                    valid_number = None
+                    for num_str in numbers:
+                        clean_num = num_str.replace(",", "")
+                        try:
+                            val = float(clean_num)
+                        except ValueError:
+                            continue
+                            
+                        # Filter out likely note numbers (e.g. 1, 14, 2)
+                        # Assume financial values are generally >= 50 or have decimals
+                        if val < 50 and "." not in clean_num:
+                            continue
+                            
+                        valid_number = val
+                        break # Take the first valid number (usually current year)
+                        
+                    if valid_number is not None:
+                        found_data[key] = valid_number
+                        print(f"    -> Found fallback '{key}' = {valid_number}")
+                        break # Move to next key
+                        
+        return found_data

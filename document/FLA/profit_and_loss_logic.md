@@ -1,0 +1,10 @@
+# FLA Extraction Logic: Profit & Loss (Section 3)
+
+The table below outlines the exact logic, keywords, and source documents used by the **FLA engine** to populate Section 3 (Profit and Loss account) of the return.
+
+| Column / Line Item | Source Document & Type | Implemented Logic | Keywords Scanned (Case Insensitive) |
+| :--- | :--- | :--- | :--- |
+| **3.1 Profit(+)/Loss(-) before tax** | **Financials** <br>*(Statement of Profit and Loss)* | Scans the P&L table rows for matching keywords. When found, it cross-references the columns for Current Year (e.g., "2025") and Previous Year (e.g., "2024") to extract the exact numbers. | `profit before tax`, `pbt`, `profit / (loss) before tax`, `profit/(loss) before tax`, `profit/ (loss) before tax`, `profit / (loss) before exceptional`, `profit/(loss) before exceptional items`, `profit/(loss) before exceptional and extraordinary`, `Profit before tax (III) - (IV)` |
+| **3.2 Profit(+)/Loss(-) after tax** | **Financials** <br>*(Statement of Profit and Loss)* | Uses the identical tabular coordinate extraction logic as above to find the final net profit row for the year. | `profit after tax`, `pat`, `profit / (loss) for the year`, `profit/(loss) for the year`, `net profit after tax`, `profit for the period`, `earning per share -profit after tax`, `profit(+)/loss(-) after tax (during the year)`, `profit(+)/loss(-) after tax`, `profit (loss) for the period`, `profit after tax (v) - (vi)`, `profit for the year` |
+| **3.3 Dividend (Interim and Final)** | **Financials** <br>*(SOCIE or P&L)* | Scans across the entire financial statements to detect dividend declarations or payouts, pulling the values for the respective years. | `dividend`, `dividend paid`, `interim dividend`, `proposed dividend`, `dividend declared` |
+| **3.4 Tax on Dividend (if any)** | **N/A** | Dividend Distribution Tax (DDT) was abolished for companies, so this line item is no longer reported in P&Ls. The engine bypasses extraction and **automatically defaults this value to `0.0`**. | *None (Hardcoded to 0)* |

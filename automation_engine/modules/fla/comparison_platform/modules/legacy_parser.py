@@ -28,8 +28,9 @@ class LegacyFLAParser:
 
         # ── 1. Key-value lines (bold key : value) ──
         # Matches lines like: **Name of the Contact Person** : VILVA NATARAJAN
+        # Uses (.*) instead of (.+) so that fields with empty values (e.g. Website) are also captured
         kv_pattern = re.compile(
-            r'\*\*(.+?)\*\*\s*:\s*(.+)', re.MULTILINE
+            r'\*\*(.+?)\*\*\s*:\s*(.*)', re.MULTILINE
         )
         for m in kv_pattern.finditer(md_text):
             key = m.group(1).replace('<br>', ' ').strip()
@@ -45,6 +46,14 @@ class LegacyFLAParser:
             key = f"{m.group(1).strip()} {m.group(2).replace('<br>', ' ').strip()}"
             val = m.group(3).replace('<br>', ' ').strip()
             data[key] = val
+
+        # ── 1.b Fallback explicit patterns for unbolded keys ──
+        # Some OCR'd markdown files lose bolding entirely (e.g. "Telephone no. : 12345").
+        # We can safely run the Excel dump parser against the markdown text to catch these!
+        fallback_data = self.parse_from_text(md_text)
+        for k, v in fallback_data.items():
+            if k not in data:
+                data[k] = v
 
         # ── 2. Markdown tables ──
         tables = self._parse_md_tables(md_text)
@@ -96,17 +105,100 @@ class LegacyFLAParser:
                     continue
 
                 # The FY of previous year = PY of current year
-                for ci in fy_col_indices:
+                for i, ci in enumerate(fy_col_indices):
                     if ci < len(row) and row[ci].strip():
-                        key = item_name
-                        data[key] = row[ci].strip()
+                        # If there are 2 columns, first is Shares, second is Amount.
+                        # For backwards compatibility, amount is the primary key.
+                        suffix = "__shares" if (len(fy_col_indices) == 2 and i == 0) else ""
+                        key = f"{item_name}{suffix}"
+                        if key not in data:
+                            data[key] = row[ci].strip()
 
                 # Also store with PY suffix for explicit lookups
-                for ci in py_col_indices:
+                for i, ci in enumerate(py_col_indices):
                     if ci < len(row) and row[ci].strip():
-                        data[f"{item_name}__PY"] = row[ci].strip()
+                        suffix = "__shares__PY" if (len(py_col_indices) == 2 and i == 0) else "__PY"
+                        key_py = f"{item_name}{suffix}"
+                        if key_py not in data:
+                            data[key_py] = row[ci].strip()
+
+        return self._normalize_aliases(data)
+
+    def _normalize_aliases(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Add canonical alias keys for field name variations found across
+        different formats of the RBI FLA online form.
+        This ensures nodes.py PREFILL_FIELD_MAP can reliably find these fields.
+        """
+        ALIAS_MAP = [
+            # Telephone
+            (["Telephone no. (with extension)", "Telephone No. (with extension)", "Telephone no.(with extension)"],
+             "Telephone No. (with extension)"),
+            # Mobile
+            (["Mobile No", "Mobile no", "Mobile Number"],
+             "Mobile Number"),
+            # Email head
+            (["Email (Head of institution)", "Email (Head of the institution)",
+              "E-Mail ID (Head of the institution)", "E-mail ID (Head of the institution)*"],
+             "E-Mail ID (Head of the institution)"),
+            # Email contact
+            (["Email of Contact Person", "Email of Contact person",
+              "E-Mail of Contact person", "E-mail of Contact Person", "E-Mail of Contact person*"],
+             "E-Mail of Contact person"),
+            # Contact name
+            (["Name of the Contact Person", "Name of Contact Person"],
+             "Name of the Contact Person"),
+            # Designation
+            (["Designation", "Designation*"],
+             "Designation"),
+            # Website
+            (["Website (if any)", "Website(if any)", "Website", "website", "Website (If any)", "Website (if Any)"],
+             "Website (if any)"),
+
+            # PAN
+            (["2. PAN Number", "2. PAN number", "PAN Number", "PAN number"],
+             "2. PAN number"),
+            # Type of company
+            (["(ii) Type of the company", "Type of the company", "Type of company"],
+             "Type of company"),
+            # Identification / inward FDI status
+            (["9 (i) Identification of the reporting Company (in terms of inward FDI)",
+              "9(i) Identification of the reporting Company", "Identification of reporting company"],
+             "Identification of reporting company"),
+            # Merged status
+            (["7. Whether your company is merged/amalgamated during year",
+              "Whether your company is merged / amalgamated during the year",
+              "Whether your company is merged/amalgamated during year"],
+             "Whether your company is merged/amalgamated during year"),
+            # Listed status
+            (["8. Whether the Company is listed?", "Whether the Company is listed?",
+              "Whether the company is listed?"],
+             "Whether the company is listed?"),
+            # AMC
+            (["10. Whether the Company is Asset Management Company?",
+              "Whether the Company is Asset Management Company?"],
+             "Whether the Company is Asset Management Company?"),
+            # Tech collab
+            (["11. Whether the Company has Technical Foreign collaboration?",
+              "Whether the Company has Technical Foreign collaboration?"],
+             "Whether the Company has Technical Foreign collaboration?"),
+            # Business activity
+            (["12. Whether the company has any business activity during latest financial year?",
+              "Whether the company has any business activity?"],
+             "Whether the company has any business activity?"),
+            # Account closing date
+            (["5. Account closing date", "Account closing date", "Account Closing date"],
+             "Account Closing date*"),
+        ]
+
+        for variants, canonical in ALIAS_MAP:
+            for variant in variants:
+                if variant in data and canonical not in data:
+                    data[canonical] = data[variant]
+                    break
 
         return data
+
 
     def _parse_md_tables(self, md_text: str) -> List[Dict[str, Any]]:
         """
@@ -161,19 +253,19 @@ class LegacyFLAParser:
         extracted_data = {}
 
         patterns = {
-            "1. Name of the Indian Company": r"1\.\s*Name of the Indian Company.*?:\s*(.*)",
-            "2. PAN number*": r"2\.\s*PAN Number.*?:\s*(.*)",
-            "3. CIN number*": r"3\.\s*CIN Number.*?:\s*(.*)",
-            "Name of the Contact Person": r"Name of the Contact Person.*?:\s*(.*)",
-            "Telephone No. (with extension)": r"Telephone no\..*?\n?\s{10,}(\d+)",
-            "Mobile Number*": r"Mobile No.*?\n?\s{10,}(\d+)",
-            "E-Mail ID (Head of the institution)": r"Email \(Head of institution\).*?:\s*(.*)",
-            "E-Mail of Contact person*": r"Email of Contact Person.*?:\s*(.*)",
-            "Designation*": r"Designation.*?:\s*(.*)",
-            "Website (if any)": r"Website \(if any\).*?:\s*(.*)",
-            "Account Closing date*": r"5\.\s*Account closing date.*?:\s*(.*)",
-            "Whether your company is merged / amalgamated during the year*": r"7\.\s*Whether your company is merged.*?:\s*(.*)",
-            "Whether the company is listed?*": r"8\.\s*Whether the Company is listed.*?:\s*(.*)",
+            "1. Name of the Indian Company": r"1\.\s*Name of the Indian Company.*?(?::|[ \t]{2,})[ \t]*(.*)",
+            "2. PAN number*": r"2\.\s*PAN Number.*?(?::|[ \t]{2,})[ \t]*(.*)",
+            "3. CIN number*": r"3\.\s*CIN Number.*?(?::|[ \t]{2,})[ \t]*(.*)",
+            "Name of the Contact Person": r"Name of the Contact Person.*?(?::|[ \t]{2,})[ \t]*(.*)",
+            "Telephone No. (with extension)": r"Telephone [Nn]o.*?(?::|[ \t]{2,})[ \t]*(.*)",
+            "Mobile Number*": r"Mobile (?:No|Number).*?(?::|[ \t]{2,})[ \t]*(.*)",
+            "E-Mail ID (Head of the institution)": r"E-?mail \(Head of institution\).*?(?::|[ \t]{2,})[ \t]*(.*)",
+            "E-Mail of Contact person*": r"E-?mail of Contact Person.*?(?::|[ \t]{2,})[ \t]*(.*)",
+            "Designation*": r"Designation.*?(?::|[ \t]{2,})[ \t]*(.*)",
+            "Website (if any)": r"Website \(if any\).*?(?::|[ \t]{2,})[ \t]*(.*)",
+            "Account Closing date*": r"5\.\s*Account closing date.*?(?::|[ \t]{2,})[ \t]*(.*)",
+            "Whether your company is merged / amalgamated during the year*": r"7\.\s*Whether your company is merged.*?(?::|[ \t]{2,})[ \t]*(.*)",
+            "Whether the company is listed?*": r"8\.\s*Whether the Company is listed.*?(?::|[ \t]{2,})[ \t]*(.*)",
             # Section III & IV
             "No. of foreign direct investors during the year (10% or more Equity participation)": r"1\.a\s*No\. of foreign direct investors.*?(\d+)",
             "Month and Year of receiving FDI first time (in your company)": r"1\.a\.1\s*Month and Year of receiving FDI first time.*?:\s*(.*)",
@@ -189,6 +281,8 @@ class LegacyFLAParser:
         for standardized_key, pattern in patterns.items():
             match = re.search(pattern, full_text_block, re.IGNORECASE | re.MULTILINE)
             if match:
-                extracted_data[standardized_key] = match.group(1).strip()
+                val = match.group(1).strip()
+                if val.lower() not in ['nan', 'none', 'null']:
+                    extracted_data[standardized_key] = val
 
         return extracted_data

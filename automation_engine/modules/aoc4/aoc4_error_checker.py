@@ -22,6 +22,12 @@ class AOC4CommonErrorEngine:
             if not particulars or particulars == 'nan':
                 continue
                 
+            if source == 'nan':
+                if "share capital notes" in particulars.lower():
+                    source = "financials - Balance sheet - Liabilities"
+                else:
+                    source = ""
+                
             self.rules.append({
                 "id": f"RULE_{idx}",
                 "particulars": particulars,
@@ -47,19 +53,38 @@ class AOC4CommonErrorEngine:
             
             # Custom rule implementations
             extracted_value = None
+            extracted_reason = None
             
             # Row 1: Check for all required headings
             if "whether audit report has the following fields" in particulars.lower() and "opinion" in particulars.lower():
-                # Allow either 'basis of opinion' or 'basis for opinion'
-                found_opinion = "opinion" in full_text_lower
-                found_basis = "basis of opinion" in full_text_lower or "basis for opinion" in full_text_lower
-                found_mgmt = "responsibilities of management" in full_text_lower or "management's responsibility" in full_text_lower
-                found_auditor = "auditor's responsibilities" in full_text_lower or "auditor's responsibility" in full_text_lower
+                missing = []
                 
-                if found_opinion and found_basis and found_mgmt and found_auditor:
+                # a) Opinion
+                if "opinion" not in full_text_lower: missing.append("Opinion")
+                # b) Basis of Opinion
+                if "basis of opinion" not in full_text_lower and "basis for opinion" not in full_text_lower: missing.append("Basis for Opinion")
+                # c) Emphasis of matter
+                if "emphasis of matter" not in full_text_lower: missing.append("Emphasis of matter")
+                # d) Key Audit Matters
+                if "key audit matters" not in full_text_lower and "key audit matter" not in full_text_lower: missing.append("Key Audit Matters")
+                # e) Other Information
+                if "other information" not in full_text_lower: missing.append("Other Information")
+                # f) Responsibility of Management
+                if "responsibilities of management" not in full_text_lower and "management's responsibility" not in full_text_lower: missing.append("Responsibility of Management")
+                # g) Auditor's responsibility
+                if "auditor's responsibilities" not in full_text_lower and "auditor's responsibility" not in full_text_lower: missing.append("Auditor's responsibility")
+                # h) Other matters
+                if "other matters" not in full_text_lower and "other matter" not in full_text_lower: missing.append("Other matters")
+                # i) report on other legal and regulatory requirements
+                if "report on other legal and regulatory requirements" not in full_text_lower and "other legal and regulatory requirements" not in full_text_lower: missing.append("Report on other legal and regulatory requirements")
+                # j) reporting on Internal finanical Controls
+                if "internal financial control" not in full_text_lower and "internal financial controls" not in full_text_lower: missing.append("Internal Financial Controls")
+                
+                if not missing:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    extracted_reason = f"Missing fields: {', '.join(missing)}"
                 
             # Row 2: Check for CARO
             elif "caro" in particulars.lower() or "companies auditor's report order" in particulars.lower():
@@ -72,6 +97,7 @@ class AOC4CommonErrorEngine:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    extracted_reason = "Missing keywords: 'CARO' or 'Companies Auditor's Report Order'"
                     
             # Row 3: Schedule III
             elif "schedule iii" in particulars.lower():
@@ -80,13 +106,20 @@ class AOC4CommonErrorEngine:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    extracted_reason = "Failed to detect Schedule III format based on table structure"
                     
             # Row 4: CIN, DIN, CEO, CFO
             elif "cin number" in particulars.lower() or "din of the director" in particulars.lower():
-                if ("cin" in full_text_lower or "corporate identity number" in full_text_lower) and "din" in full_text_lower:
+                found_cin = "cin" in full_text_lower or "corporate identity number" in full_text_lower
+                found_din = "din" in full_text_lower
+                if found_cin and found_din:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    missing = []
+                    if not found_cin: missing.append("CIN")
+                    if not found_din: missing.append("DIN")
+                    extracted_reason = f"Missing fields: {', '.join(missing)}"
                     
             # Row 5: Previous year figures
             elif "previous year figures" in particulars.lower():
@@ -95,6 +128,7 @@ class AOC4CommonErrorEngine:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    extracted_reason = "Missing keywords: 'previous year', 'prior year', or prior date"
                     
             # Row 6: Share capital notes
             elif "shareholding more than 5%" in particulars.lower():
@@ -102,6 +136,7 @@ class AOC4CommonErrorEngine:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    extracted_reason = "Missing keywords: '5%' combined with 'shareholder' or 'promoter'"
             
             elif "statutory register" in particulars.lower():
                 # Usually manual, default to No unless statutory register is explicitly mentioned
@@ -109,30 +144,40 @@ class AOC4CommonErrorEngine:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    extracted_reason = "Missing keyword: 'statutory register'"
                     
             elif "authorised capital is mentioned correctly" in particulars.lower():
                 if "authorised capital" in full_text_lower or "authorized capital" in full_text_lower or "authorised share capital" in full_text_lower:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    extracted_reason = "Missing keywords: 'authorised/authorized capital'"
                     
             elif "paid up capital  is mentioned correctly" in particulars.lower():
                 if "paid up capital" in full_text_lower or "paid-up capital" in full_text_lower or "paid up share capital" in full_text_lower:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    extracted_reason = "Missing keywords: 'paid up capital'"
                     
             elif "reconciliation  of shares" in particulars.lower():
-                if "reconciliation" in full_text_lower and ("shares outstanding" in full_text_lower or "number of shares" in full_text_lower or "beginning of the year" in full_text_lower):
+                found_recon = "reconciliation" in full_text_lower
+                found_shares = "shares outstanding" in full_text_lower or "number of shares" in full_text_lower or "beginning of the year" in full_text_lower
+                if found_recon and found_shares:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    missing = []
+                    if not found_recon: missing.append("'reconciliation' keyword")
+                    if not found_shares: missing.append("shares outstanding details")
+                    extracted_reason = f"Missing: {', '.join(missing)}"
                     
             elif "promoter holding is disclosed" in particulars.lower():
                 if "promoter holding" in full_text_lower or "promoter's holding" in full_text_lower or "shares held by promoters" in full_text_lower:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    extracted_reason = "Missing keywords: 'promoter holding' or similar"
                     
             # Row 7: Cash flow statement
             elif "cash flow statement is given" in particulars.lower():
@@ -140,6 +185,7 @@ class AOC4CommonErrorEngine:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    extracted_reason = "Missing keywords: 'cash flow statement'"
                     
             # Row 8: Significant Accounting Policies
             elif "significant accounting policies" in particulars.lower():
@@ -147,6 +193,7 @@ class AOC4CommonErrorEngine:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    extracted_reason = "Missing keywords: 'significant accounting policies'"
                     
             # Row 9: EPS
             elif "eps & diluted eps" in particulars.lower():
@@ -154,6 +201,7 @@ class AOC4CommonErrorEngine:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    extracted_reason = "Missing keywords: 'eps', 'earnings per share', or 'basic/diluted'"
                     
             # Row 10: Signed by directors and auditors
             elif "signed by both the directors and the auditors" in particulars.lower():
@@ -161,6 +209,7 @@ class AOC4CommonErrorEngine:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    extracted_reason = "Missing keywords: 'director' and 'auditor'/'partner' combinations"
             
             # Row 11: Check for UDIN
             elif "udin" in particulars.lower():
@@ -169,6 +218,7 @@ class AOC4CommonErrorEngine:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    extracted_reason = "Missing keywords: 'udin' or 18-digit number"
                     
             # Row 12: Seal of the auditor
             elif "seal of the auditor" in particulars.lower():
@@ -176,6 +226,7 @@ class AOC4CommonErrorEngine:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    extracted_reason = "Missing keywords: 'firm registration number', 'frn', 'seal', or 'membership no'"
                     
             # Row 13 & 14: RPT and Forex
             elif "rpt transaction" in particulars.lower() or "forex and rpt" in particulars.lower():
@@ -183,9 +234,20 @@ class AOC4CommonErrorEngine:
                 found_forex = "foreign exchange" in full_text_lower or "forex" in full_text_lower or "foreign currency" in full_text_lower
                 
                 if "forex" in particulars.lower():
-                    extracted_value = "Yes" if (found_rpt and found_forex) else "No"
+                    if found_rpt and found_forex:
+                        extracted_value = "Yes"
+                    else:
+                        extracted_value = "No"
+                        missing = []
+                        if not found_rpt: missing.append("'related party'")
+                        if not found_forex: missing.append("'foreign exchange/forex'")
+                        extracted_reason = f"Missing keywords: {', '.join(missing)}"
                 else:
-                    extracted_value = "Yes" if found_rpt else "No"
+                    if found_rpt:
+                        extracted_value = "Yes"
+                    else:
+                        extracted_value = "No"
+                        extracted_reason = "Missing keywords: 'related party' or 'rpt'"
                     
             # Audit Trail Rules
             elif "audit trail features" in particulars.lower() or "accounting software" in particulars.lower():
@@ -264,9 +326,13 @@ class AOC4CommonErrorEngine:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
+                    extracted_reason = f"Keyword not found in documents: '{search_key}'"
             
             if not extracted_value or extracted_value == 'No':
                 reason = "Value is missing in extraction." if not extracted_value else "Rule not found in document (No)."
+                
+                if extracted_reason:
+                    reason = f"Why it is No: {extracted_reason}"
                 
                 # Special message for Audit Trail rules
                 if "audit trail" in particulars.lower() or "edit log" in particulars.lower() or "accounting software" in particulars.lower() or "tampered with" in particulars.lower() or "operated throughout the year" in particulars.lower() or "if any of the above points is no" in particulars.lower():

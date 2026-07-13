@@ -6,7 +6,30 @@ class RuleEngine:
             self.config = json.load(f)
             
     def evaluate_all(self, extracted_data):
-        """Applies formulas and compiles the complete state (extracted + calculated)."""
+        """Evaluate rules and return mapped cell values."""
+        cell_values = {}
+        
+        # --- OVERRIDE LOGIC: Source from List of Shareholders for Section 1 ---
+        # If the Excel Extractor found Equity/CCPS data in the Shareholders file, it becomes the Absolute Truth
+        # Override the Regex-extracted numbers to prevent hallucination.
+        if "excel_equity_shares_count" in extracted_data and extracted_data["excel_equity_shares_count"] > 0:
+            extracted_data["equity_shares_count_fy"] = extracted_data["excel_equity_shares_count"]
+            extracted_data["equity_shares_count_py"] = extracted_data["excel_equity_shares_count"] # Default PY to FY
+            extracted_data["equity_shares_amount_fy"] = extracted_data["excel_equity_amount"] / 100000.0
+            extracted_data["equity_shares_amount_py"] = extracted_data["excel_equity_amount"] / 100000.0
+            
+        if "excel_part_pref_shares_count" in extracted_data and extracted_data["excel_part_pref_shares_count"] > 0:
+            extracted_data["part_pref_shares_count_fy"] = extracted_data["excel_part_pref_shares_count"]
+            extracted_data["part_pref_shares_count_py"] = extracted_data["excel_part_pref_shares_count"]
+            extracted_data["part_pref_shares_amount_fy"] = extracted_data["excel_part_pref_amount"] / 100000.0
+            extracted_data["part_pref_shares_amount_py"] = extracted_data["excel_part_pref_amount"] / 100000.0
+            
+        if "excel_non_part_pref_shares_count" in extracted_data and extracted_data["excel_non_part_pref_shares_count"] > 0:
+            extracted_data["non_part_pref_shares_count_fy"] = extracted_data["excel_non_part_pref_shares_count"]
+            extracted_data["non_part_pref_shares_count_py"] = extracted_data["excel_non_part_pref_shares_count"]
+            extracted_data["non_part_pref_shares_amount_fy"] = extracted_data["excel_non_part_pref_amount"] / 100000.0
+            extracted_data["non_part_pref_shares_amount_py"] = extracted_data["excel_non_part_pref_amount"] / 100000.0
+            
         # Start with a copy of extracted data populated with defaults from rules_config
         state = {}
         
@@ -29,12 +52,16 @@ class RuleEngine:
         # Extra explicit bindings for fields that might be calculated or extracted
         state["filing_year"] = extracted_data.get("filing_year", 2025)
         
-        # Ensure we have essential keys in state to avoid KeyError
-        # Standard unlisted defaults
-        if "listed_status" not in state or state["listed_status"] is None:
+        # Determine Listed Status dynamically from CIN
+        cin_number = str(state.get("cin_number", extracted_data.get("cin_number", ""))).strip().upper()
+        if cin_number.startswith("L"):
+            state["listed_status"] = "Yes"
+        elif cin_number.startswith("U"):
+            state["listed_status"] = "No"
+        elif "listed_status" not in state or state["listed_status"] is None:
             state["listed_status"] = "No"
         if "company_type" not in state or state["company_type"] is None:
-            state["company_type"] = "Private Limited"
+            pass # Removed default, wait for auto-fill from Previous FLA
             
         # Helper to convert share count to Lakhs
         def shares_to_lakhs(shares, face_value):
@@ -50,11 +77,113 @@ class RuleEngine:
 
         # Bind calculations
         # Section I calculated values
-        state["get_closing_date()"] = f"31/03/{state.get('filing_year', 2025)}"
+        state["get_closing_date()"] = extracted_data.get('closing_date') or f"31/03/{state.get('filing_year', 2025)}"
         state["get_listed_market_price('py')"] = "N/A" if state.get("listed_status") == "No" else 0.0
         state["get_listed_market_price('fy')"] = "N/A" if state.get("listed_status") == "No" else 0.0
         
+        # Override counts if extracted from Shareholders Excel directly
+        if extracted_data.get("excel_equity_shares_count", 0.0) > 0:
+            state["equity_shares_count_py"] = extracted_data["excel_equity_shares_count"]
+            state["equity_shares_count_fy"] = extracted_data["excel_equity_shares_count"]
+        if extracted_data.get("excel_part_pref_shares_count", 0.0) > 0:
+            state["part_pref_shares_count_py"] = extracted_data["excel_part_pref_shares_count"]
+            state["part_pref_shares_count_fy"] = extracted_data["excel_part_pref_shares_count"]
+        if extracted_data.get("excel_non_part_pref_shares_count", 0.0) > 0:
+            state["non_part_pref_shares_count_py"] = extracted_data["excel_non_part_pref_shares_count"]
+            state["non_part_pref_shares_count_fy"] = extracted_data["excel_non_part_pref_shares_count"]
+            
+        state["equity_class_count_py"] = extracted_data.get("excel_equity_class_count") if extracted_data.get("excel_equity_class_count") is not None else 1
+        state["equity_class_count_fy"] = extracted_data.get("excel_equity_class_count") if extracted_data.get("excel_equity_class_count") is not None else 1
+        state["part_pref_class_count_py"] = extracted_data.get("excel_part_pref_class_count") if extracted_data.get("excel_part_pref_class_count") is not None else 0
+        state["part_pref_class_count_fy"] = extracted_data.get("excel_part_pref_class_count") if extracted_data.get("excel_part_pref_class_count") is not None else 0
+        state["non_part_pref_class_count_py"] = extracted_data.get("excel_non_part_pref_class_count") if extracted_data.get("excel_non_part_pref_class_count") is not None else 0
+        state["non_part_pref_class_count_fy"] = extracted_data.get("excel_non_part_pref_class_count") if extracted_data.get("excel_non_part_pref_class_count") is not None else 0
+        
+        if extracted_data.get("excel_equity_face_value") is not None:
+            state["equity_face_value_py"] = extracted_data["excel_equity_face_value"]
+            state["equity_face_value_fy"] = extracted_data["excel_equity_face_value"]
+        if extracted_data.get("excel_part_pref_face_value") is not None:
+            state["part_pref_face_value_py"] = extracted_data["excel_part_pref_face_value"]
+            state["part_pref_face_value_fy"] = extracted_data["excel_part_pref_face_value"]
+        if extracted_data.get("excel_non_part_pref_face_value") is not None:
+            state["non_part_pref_face_value_py"] = extracted_data["excel_non_part_pref_face_value"]
+            state["non_part_pref_face_value_fy"] = extracted_data["excel_non_part_pref_face_value"]
+
         # Section II calculations (shares to lakhs)
+        # 1. Using New Strategy: Read Amounts straight from List of Shareholders
+        state["equity_amount_lakhs_py"] = extracted_data.get("excel_equity_amount", 0.0) / 100000.0
+        state["equity_amount_lakhs_fy"] = extracted_data.get("excel_equity_amount", 0.0) / 100000.0
+        
+        state["part_pref_amount_lakhs_py"] = extracted_data.get("excel_part_pref_amount", 0.0) / 100000.0
+        state["part_pref_amount_lakhs_fy"] = extracted_data.get("excel_part_pref_amount", 0.0) / 100000.0
+        
+        state["non_part_pref_amount_lakhs_py"] = extracted_data.get("excel_non_part_pref_amount", 0.0) / 100000.0
+        state["non_part_pref_amount_lakhs_fy"] = extracted_data.get("excel_non_part_pref_amount", 0.0) / 100000.0
+        
+
+        # NR Holdings extraction & Lakh conversion
+        if extracted_data.get("excel_nr_individuals_shares_count") is not None:
+            state["nr_shares_individuals_py"] = extracted_data["excel_nr_individuals_shares_count"]
+            state["nr_shares_individuals_fy"] = extracted_data["excel_nr_individuals_shares_count"]
+            state["nr_amount_individuals_lakhs_py"] = extracted_data.get("excel_nr_individuals_amount", 0.0) / 100000.0
+            state["nr_amount_individuals_lakhs_fy"] = extracted_data.get("excel_nr_individuals_amount", 0.0) / 100000.0
+        if extracted_data.get("excel_nr_companies_shares_count") is not None:
+            state["nr_shares_companies_py"] = extracted_data["excel_nr_companies_shares_count"]
+            state["nr_shares_companies_fy"] = extracted_data["excel_nr_companies_shares_count"]
+            state["nr_amount_companies_lakhs_py"] = extracted_data.get("excel_nr_companies_amount", 0.0) / 100000.0
+            state["nr_amount_companies_lakhs_fy"] = extracted_data.get("excel_nr_companies_amount", 0.0) / 100000.0
+        if extracted_data.get("excel_nr_fii_shares_count") is not None:
+            state["nr_shares_fii_py"] = extracted_data["excel_nr_fii_shares_count"]
+            state["nr_shares_fii_fy"] = extracted_data["excel_nr_fii_shares_count"]
+            state["nr_amount_fii_lakhs_py"] = extracted_data.get("excel_nr_fii_amount", 0.0) / 100000.0
+            state["nr_amount_fii_lakhs_fy"] = extracted_data.get("excel_nr_fii_amount", 0.0) / 100000.0
+        if extracted_data.get("excel_nr_fvci_shares_count") is not None:
+            state["nr_shares_fvci_py"] = extracted_data["excel_nr_fvci_shares_count"]
+            state["nr_shares_fvci_fy"] = extracted_data["excel_nr_fvci_shares_count"]
+            state["nr_amount_fvci_lakhs_py"] = extracted_data.get("excel_nr_fvci_amount", 0.0) / 100000.0
+            state["nr_amount_fvci_lakhs_fy"] = extracted_data.get("excel_nr_fvci_amount", 0.0) / 100000.0
+        if extracted_data.get("excel_nr_trusts_shares_count") is not None:
+            state["nr_shares_trusts_py"] = extracted_data["excel_nr_trusts_shares_count"]
+            state["nr_shares_trusts_fy"] = extracted_data["excel_nr_trusts_shares_count"]
+            state["nr_amount_trusts_lakhs_py"] = extracted_data.get("excel_nr_trusts_amount", 0.0) / 100000.0
+            state["nr_amount_trusts_lakhs_fy"] = extracted_data.get("excel_nr_trusts_amount", 0.0) / 100000.0
+        if extracted_data.get("excel_nr_pe_funds_shares_count") is not None:
+            state["nr_shares_pe_funds_py"] = extracted_data["excel_nr_pe_funds_shares_count"]
+            state["nr_shares_pe_funds_fy"] = extracted_data["excel_nr_pe_funds_shares_count"]
+            state["nr_amount_pe_funds_lakhs_py"] = extracted_data.get("excel_nr_pe_funds_amount", 0.0) / 100000.0
+            state["nr_amount_pe_funds_lakhs_fy"] = extracted_data.get("excel_nr_pe_funds_amount", 0.0) / 100000.0
+        if extracted_data.get("excel_nr_pension_funds_shares_count") is not None:
+            state["nr_shares_pension_funds_py"] = extracted_data["excel_nr_pension_funds_shares_count"]
+            state["nr_shares_pension_funds_fy"] = extracted_data["excel_nr_pension_funds_shares_count"]
+            state["nr_amount_pension_funds_lakhs_py"] = extracted_data.get("excel_nr_pension_funds_amount", 0.0) / 100000.0
+            state["nr_amount_pension_funds_lakhs_fy"] = extracted_data.get("excel_nr_pension_funds_amount", 0.0) / 100000.0
+        if extracted_data.get("excel_nr_swf_shares_count") is not None:
+            state["nr_shares_swf_py"] = extracted_data["excel_nr_swf_shares_count"]
+            state["nr_shares_swf_fy"] = extracted_data["excel_nr_swf_shares_count"]
+            state["nr_amount_swf_lakhs_py"] = extracted_data.get("excel_nr_swf_amount", 0.0) / 100000.0
+            state["nr_amount_swf_lakhs_fy"] = extracted_data.get("excel_nr_swf_amount", 0.0) / 100000.0
+        if extracted_data.get("excel_nr_partnerships_shares_count") is not None:
+            state["nr_shares_partnerships_py"] = extracted_data["excel_nr_partnerships_shares_count"]
+            state["nr_shares_partnerships_fy"] = extracted_data["excel_nr_partnerships_shares_count"]
+            state["nr_amount_partnerships_lakhs_py"] = extracted_data.get("excel_nr_partnerships_amount", 0.0) / 100000.0
+            state["nr_amount_partnerships_lakhs_fy"] = extracted_data.get("excel_nr_partnerships_amount", 0.0) / 100000.0
+        if extracted_data.get("excel_nr_fin_institutions_shares_count") is not None:
+            state["nr_shares_fin_institutions_py"] = extracted_data["excel_nr_fin_institutions_shares_count"]
+            state["nr_shares_fin_institutions_fy"] = extracted_data["excel_nr_fin_institutions_shares_count"]
+            state["nr_amount_fin_institutions_lakhs_py"] = extracted_data.get("excel_nr_fin_institutions_amount", 0.0) / 100000.0
+            state["nr_amount_fin_institutions_lakhs_fy"] = extracted_data.get("excel_nr_fin_institutions_amount", 0.0) / 100000.0
+        if extracted_data.get("excel_nr_nri_pio_shares_count") is not None:
+            state["nr_shares_nri_pio_py"] = extracted_data["excel_nr_nri_pio_shares_count"]
+            state["nr_shares_nri_pio_fy"] = extracted_data["excel_nr_nri_pio_shares_count"]
+            state["nr_amount_nri_pio_lakhs_py"] = extracted_data.get("excel_nr_nri_pio_amount", 0.0) / 100000.0
+            state["nr_amount_nri_pio_lakhs_fy"] = extracted_data.get("excel_nr_nri_pio_amount", 0.0) / 100000.0
+        if extracted_data.get("excel_nr_non_part_pref_shares_count") is not None:
+            state["nr_shares_non_part_pref_py"] = extracted_data["excel_nr_non_part_pref_shares_count"]
+            state["nr_shares_non_part_pref_fy"] = extracted_data["excel_nr_non_part_pref_shares_count"]
+            state["nr_amount_non_part_pref_lakhs_py"] = extracted_data.get("excel_nr_non_part_pref_amount", 0.0) / 100000.0
+            state["nr_amount_non_part_pref_lakhs_fy"] = extracted_data.get("excel_nr_non_part_pref_amount", 0.0) / 100000.0
+
+        # 2. Legacy fallback strategy (in case list of shareholders is missing)
         state["shares_to_lakhs('equity_shares_count_py', 'equity_face_value_py')"] = shares_to_lakhs('equity_shares_count_py', 'equity_face_value_py')
         state["shares_to_lakhs('equity_shares_count_fy', 'equity_face_value_fy')"] = shares_to_lakhs('equity_shares_count_fy', 'equity_face_value_fy')
         state["shares_to_lakhs('part_pref_shares_count_py', 'part_pref_face_value_py')"] = shares_to_lakhs('part_pref_shares_count_py', 'part_pref_face_value_py')
@@ -103,6 +232,11 @@ class RuleEngine:
         # G5 = G6 + G9 (Total Paid-up FY)
         # F6 = F7 + F8 (Total Equity & Part Pref PY)
         # G6 = G7 + G8 (Total Equity & Part Pref FY)
+        cell_values["Section II"]["D6"] = get_val("Section II", "D7") + get_val("Section II", "D8")
+        cell_values["Section II"]["E6"] = get_val("Section II", "E7") + get_val("Section II", "E8")
+        cell_values["Section II"]["D5"] = get_val("Section II", "D6") + get_val("Section II", "D9")
+        cell_values["Section II"]["E5"] = get_val("Section II", "E6") + get_val("Section II", "E9")
+
         cell_values["Section II"]["F6"] = get_val("Section II", "F7") + get_val("Section II", "F8")
         cell_values["Section II"]["G6"] = get_val("Section II", "G7") + get_val("Section II", "G8")
         cell_values["Section II"]["F5"] = get_val("Section II", "F6") + get_val("Section II", "F9")
@@ -140,10 +274,6 @@ class RuleEngine:
         # Net Worth (F34 = F6 + F32, G34 = G6 + G32)
         cell_values["Section II"]["F34"] = get_val("Section II", "F6") + get_val("Section II", "F32")
         cell_values["Section II"]["G34"] = get_val("Section II", "G6") + get_val("Section II", "G32")
-        
-        # Total Sales (F38 = F36 + F37, G38 = G36 + G37)
-        cell_values["Section II"]["F38"] = get_val("Section II", "F36") + get_val("Section II", "F37")
-        cell_values["Section II"]["G38"] = get_val("Section II", "G36") + get_val("Section II", "G37")
         
         # Total Purchases (F41 = F39 + F40, G41 = G39 + G40)
         cell_values["Section II"]["F41"] = get_val("Section II", "F39") + get_val("Section II", "F40")

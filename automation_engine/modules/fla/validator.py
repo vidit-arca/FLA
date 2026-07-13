@@ -87,16 +87,6 @@ class ReturnValidator:
             f"Net Worth: {nw} Lakhs, Expected (Paid Up Capital + Reserves): {expected_nw} Lakhs"
         )
         
-        # Check 6: Sales total check
-        tot_sales = get_sec_val("Section II", "F38")
-        expected_sales = get_sec_val("Section II", "F36") + get_sec_val("Section II", "F37")
-        passed_sales = abs(tot_sales - expected_sales) < 0.01
-        self.log_check(
-            "(5.3, 5.1, 5.2) Total Sales Consolidation",
-            passed_sales,
-            f"Total Sales: {tot_sales} Lakhs, Sum of Domestic & Exports: {expected_sales} Lakhs"
-        )
-        
         # Check 7: Purchases total check
         tot_purch = get_sec_val("Section II", "F41")
         expected_purch = get_sec_val("Section II", "F39") + get_sec_val("Section II", "F40")

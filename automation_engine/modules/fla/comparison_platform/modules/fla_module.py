@@ -10,13 +10,22 @@ class FLAComparisonModule(BaseComparisonPlatformModule):
         self.template_path = template_path
 
     def _safe_write(self, ws, row, col, value):
-        """Write a value to a cell, safely skipping merged cells."""
+        """Write a value to a cell, safely skipping merged cells or writing to their root."""
         try:
             cell = ws.cell(row=row, column=col)
-            cell.value = value
-            return True
-        except AttributeError:
-            # MergedCell — skip it
+            if type(cell).__name__ == 'MergedCell':
+                # Find the top-left cell of the merged range
+                for merged_range in ws.merged_cells.ranges:
+                    if merged_range.min_col <= col <= merged_range.max_col and merged_range.min_row <= row <= merged_range.max_row:
+                        top_left_cell = ws.cell(row=merged_range.min_row, column=merged_range.min_col)
+                        top_left_cell.value = value
+                        return True
+                return False
+            else:
+                cell.value = value
+                return True
+        except Exception as e:
+            print(f"[DEBUG] _safe_write failed at row={row}, col={col} with error: {e}")
             return False
 
     def _normalize_val(self, val: Any) -> str:
@@ -47,10 +56,38 @@ class FLAComparisonModule(BaseComparisonPlatformModule):
             if self._clean_key(k) == clean:
                 return v
 
-        if len(clean) >= 10 and len(clean) <= 100:
+        # --- Manual Overrides for Section II Row 5 and 6 ---
+        if clean == "total paidup capital":
+            for pk, pv in parsed.items():
+                if ("__shares" in pk) != ("__shares" in field_name): continue
+                if ("__PY" in pk) != ("__PY" in field_name): continue
+                cpk = self._clean_key(pk)
+                if "total paidup capital" in cpk:
+                    return pv
+        elif clean == "total equity participating preference share capital":
+            for pk, pv in parsed.items():
+                if ("__shares" in pk) != ("__shares" in field_name): continue
+                if ("__PY" in pk) != ("__PY" in field_name): continue
+                cpk = self._clean_key(pk)
+                if "total equity and participating" in cpk or "total equity participating" in cpk:
+                    return pv
+
+        if len(clean) >= 5:
             for k, v in parsed.items():
+                # Enforce exact suffix matching for Shares and PY
+                if ("__shares" in k) != ("__shares" in field_name):
+                    continue
+                if ("__PY" in k) != ("__PY" in field_name):
+                    continue
+                    
                 ck = self._clean_key(k)
-                if clean in ck:
+                # Avoid matching generic keys like "total"
+                if ck in ["total", "name", "value", "shares", "class"]:
+                    continue
+                # Check bidirectional substring or specific mobile no edge case
+                if clean in ck or ck in clean:
+                    return v
+                if "mobile" in clean and "mobile" in ck:
                     return v
 
         return None
@@ -101,14 +138,17 @@ class FLAComparisonModule(BaseComparisonPlatformModule):
             head_idx = 0
 
             for hi in range(min(10, len(template_df))):
+                found_header = False
                 for c_idx, val in template_df.iloc[hi].items():
                     s = str(val).strip().lower()
                     if s == "field name":
                         field_name_col = c_idx
-                    elif s == "particulars":
+                    elif s in ["particulars", "value"]:
                         particulars_col = c_idx
-                    elif s == "source of information":
+                    elif s in ["source of information", "source"]:
                         rule_col = c_idx
+                        head_idx = hi
+                        found_header = True
                     elif "end march py" in s:
                         if py_share_col == -1:
                             py_share_col = c_idx
@@ -119,6 +159,8 @@ class FLAComparisonModule(BaseComparisonPlatformModule):
                             fy_share_col = c_idx
                         else:
                             fy_amount_col = c_idx
+                if found_header:
+                    break
 
                 if field_name_col != -1:
                     head_idx = hi
@@ -129,6 +171,8 @@ class FLAComparisonModule(BaseComparisonPlatformModule):
                 field_name_col = 1
                 head_idx = 0  # No header row found, start from row 0
 
+            print(f"[DEBUG-INIT] sheet={sheet_name}, head_idx={head_idx}, field_name_col={field_name_col}, rule_col={rule_col}")
+
             # ── Route A: Sheets with explicit "Source of Information" column ──
             if field_name_col != -1 and rule_col != -1:
                 for idx, row in template_df.iterrows():
@@ -138,18 +182,42 @@ class FLAComparisonModule(BaseComparisonPlatformModule):
                     field_name = self._normalize_val(row.iloc[field_name_col])
                     if not field_name:
                         continue
+                    
+                    if sheet_name == 'Section I':
+                        print(f"[DEBUG-LOOP] idx={idx}, field_name='{field_name}', rule='{self._normalize_val(row.iloc[rule_col])}'")
 
-                    # Strict Scope Filter: Only Section II (blocks 3, 4, 5, 6) and Section III
-                    if sheet_name not in ['Section II', 'Section III']:
+                    # Strict Scope Filter: Section I, Section II (blocks 3, 4, 5, 6), and Section III
+                    if sheet_name not in ['Section I', 'Section II', 'Section III']:
                         continue
                     if sheet_name == 'Section II' and idx < 24:
                         continue
 
-                    rule_text = self._normalize_val(row.iloc[rule_col]).upper()
+                    # Dynamically find the target write column in tgt_df
+                    target_write_col = 2  # default to Column C
+                    for row_idx_tgt in range(min(10, len(tgt_df))):
+                        for c_idx, val in tgt_df.iloc[row_idx_tgt].items():
+                            s = str(val).strip().lower()
+                            if s in ["particulars", "value"]:
+                                target_write_col = c_idx
+                                break
 
-                    if "PREVIOUS FLA" in rule_text:
+                    rule_text = self._normalize_val(row.iloc[rule_col]).upper()
+                    
+                    # -------------------------------------------------------------
+                    # OVERRIDES FOR MISSING RULE TEXT (Based on User Instruction)
+                    # -------------------------------------------------------------
+                    if "NAME OF THE INDIAN COMPANY" in field_name.upper():
+                        rule_text = "PREFILL FROM PREVIOUS FLA"
+                    elif "PAN NUMBER" in field_name.upper():
+                        rule_text = "PREFILL FROM PREVIOUS FLA"
+                    elif "CIN NUMBER" in field_name.upper():
+                        rule_text = "PREFILL FROM PREVIOUS FLA"
+                    elif "E-MAIL ID (HEAD OF THE INSTITUTION)" in field_name.upper():
+                        rule_text = "PREFILL FROM PREVIOUS FLA"
+
+                    if "PREVIOUS FLA" in rule_text or "PREFILL" in rule_text:
                         target_val_raw = None
-                        write_col = particulars_col if particulars_col != -1 else 3
+                        write_col = target_write_col
 
                         if idx < len(tgt_df) and write_col < len(tgt_df.columns):
                             target_val_raw = tgt_df.iloc[idx, write_col]
@@ -159,13 +227,30 @@ class FLAComparisonModule(BaseComparisonPlatformModule):
                         prev_val = self._normalize_val(source_val_raw)
                         curr_val = self._normalize_val(target_val_raw)
 
+                        # Ignore placeholder instructional text or default '0's from the skeletal template
+                        curr_lower = curr_val.lower()
+                        if curr_val == "0" or "enter " in curr_lower or "mention " in curr_lower or "provide " in curr_lower or "dropdown" in curr_lower:
+                            curr_val = ""
+
                         final_val, reason = self._apply_rule(rule_text, prev_val, curr_val)
 
+                        # Write to FY Column (Column C)
                         if final_val != curr_val and final_val != "":
                             row_idx = idx + 1
                             col_idx = write_col + 1
+                            print(f"[DEBUG] Writing '{final_val}' to Row {row_idx}, Col {col_idx} (prev='{prev_val}', curr='{curr_val}', target_val_raw='{target_val_raw}')")
                             if self._safe_write(target_ws, row_idx, col_idx, final_val):
+                                print(f"[DEBUG] _safe_write returned True for {final_val}")
                                 has_modifications = True
+                            else:
+                                print(f"[DEBUG] _safe_write returned False for {final_val}")
+
+                        # Write to PY Column (Column B) for rows 20-27 (Classes/Type and Face Value)
+                        if sheet_name == 'Section I' and 20 <= idx <= 27:
+                            py_col_idx = write_col  # write_col is 2, so write_col is index 2, +1 is col C, so write_col is col B. Wait, write_col is 2, +1 is 3 (C). py_col_idx = 2 (B)
+                            if prev_val != "":
+                                if self._safe_write(target_ws, idx + 1, py_col_idx, prev_val):
+                                    has_modifications = True
 
                         results.append({
                             "fieldName": f"{sheet_name} | {field_name}",
@@ -175,6 +260,7 @@ class FLAComparisonModule(BaseComparisonPlatformModule):
                             "finalSelectedValue": final_val,
                             "reason": reason
                         })
+                        print(f"[DEBUG] Result added: {results[-1]}")
 
             # ── Route B: Sheets with PY/FY columns (Section II, III, IV) ──
             # Fill BOTH PY and FY columns from the previous FLA data.
@@ -219,17 +305,31 @@ class FLAComparisonModule(BaseComparisonPlatformModule):
                         continue
 
                     # Filter out purely structural rows
-                    fn_lower = field_name.lower()
-                    if 'auto-calculated' in fn_lower or 'total' in fn_lower:
+                    fn_lower = field_name.lower().strip()
+                    if 'auto-calculated' in fn_lower:
+                        continue
+                    if fn_lower == 'total' or fn_lower.startswith('total:') or fn_lower == 'total (in inr)':
                         continue
 
                     # FY value = the main key (previous FLA's "End March 2025" data)
-                    fy_val = self._normalize_val(self._lookup(parsed_previous_fla, field_name))
+                    fy_amount_val = self._normalize_val(self._lookup(parsed_previous_fla, field_name))
+                    fy_share_val = self._normalize_val(self._lookup(parsed_previous_fla, f"{field_name}__shares"))
+                    
                     # PY value = the __PY key (previous FLA's "End March 2024" data)
-                    py_val = self._normalize_val(parsed_previous_fla.get(f"{field_name}__PY", None))
+                    py_amount_val = self._normalize_val(parsed_previous_fla.get(f"{field_name}__PY", None))
+                    py_share_val = self._normalize_val(parsed_previous_fla.get(f"{field_name}__shares__PY", None))
+                    
+                    # If no shares found, use amount as fallback
+                    if not fy_share_val:
+                        fy_share_val = fy_amount_val
+                    if not py_share_val:
+                        py_share_val = py_amount_val
+                        
                     # If no separate PY, use FY as fallback
-                    if not py_val:
-                        py_val = fy_val
+                    if not py_amount_val:
+                        py_amount_val = fy_amount_val
+                    if not py_share_val:
+                        py_share_val = fy_share_val
 
                     # Disable share columns and FY Amount column for Financial rows (Row 26+) in Section II
                     # These rows only take the PY Amount from the legacy data.
@@ -243,11 +343,49 @@ class FLAComparisonModule(BaseComparisonPlatformModule):
 
                     # Fill all 4 column slots: PY Shares, PY Amount, FY Shares, FY Amount
                     col_map = [
-                        (tmp_py_share, py_val, "PY Shares/Col1", True),
-                        (curr_py_amount, py_val, "PY Amount/Col2", False),
-                        (tmp_fy_share, fy_val, "FY Shares/Col1", True),
-                        (tmp_fy_amount, fy_val, "FY Amount/Col2", False),
+                        (tmp_py_share, py_share_val, "PY Shares/Col1", True),
+                        (curr_py_amount, py_amount_val, "PY Amount/Col2", False),
+                        (tmp_fy_share, fy_share_val, "FY Shares/Col1", True),
+                        (tmp_fy_amount, fy_amount_val, "FY Amount/Col2", False),
                     ]
+
+                    # --- NEW LOGIC: Section II, Rows 4 to 23 (D&E counts, F&G amounts) ---
+                    if sheet_name == 'Section II' and 4 <= idx <= 23:
+                        for col_idx, fill_val, label, is_share in col_map:
+                            if col_idx == -1 or idx >= len(tgt_df):
+                                continue
+                                
+                            curr = self._normalize_val(
+                                tgt_df.iloc[idx, col_idx] if col_idx < len(tgt_df.columns) else None
+                            )
+                            # Clean up placeholder defaults
+                            curr_lower = curr.lower()
+                            if curr == "0" or "enter " in curr_lower or "mention " in curr_lower or "provide " in curr_lower or "dropdown" in curr_lower:
+                                curr = ""
+                            
+                            if "PY" in label:
+                                final_val = fill_val
+                                reason = "PY Column -> STRICTLY Used Previous FLA"
+                            else:
+                                final_val, reason = self._apply_rule("PREVIOUS FLA UNLESS THERE IS A CHANGE", fill_val, curr)
+                            
+                            # If we made a change, write it to target workbook and flag modifications
+                            if final_val != curr and final_val != "":
+                                row_idx = idx + 1
+                                col_idx_excel = col_idx + 1
+                                print(f"[DEBUG COMPARE] Section II Row {row_idx} Col {col_idx_excel} - writing '{final_val}' (prev='{fill_val}', curr='{curr}')")
+                                if self._safe_write(target_ws, row_idx, col_idx_excel, final_val):
+                                    has_modifications = True
+                                    
+                            results.append({
+                                "fieldName": f"{sheet_name} | {field_name} ({label})",
+                                "mappingType": "STRICT PY" if "PY" in label else "PREVIOUS FLA UNLESS THERE IS A CHANGE",
+                                "previousValue": fill_val,
+                                "currentValue": curr,
+                                "finalSelectedValue": final_val,
+                                "reason": reason
+                            })
+                        continue
 
                     # Scope Filter: Only validate Section II (blocks 3+) and Section III
                     if sheet_name not in ['Section II', 'Section III']:
@@ -260,11 +398,26 @@ class FLAComparisonModule(BaseComparisonPlatformModule):
                         if col_idx == -1 or idx >= len(tgt_df):
                             continue
                             
+                        # NEW REQUIREMENT: Force PY columns in Section II to strictly use Previous FLA
+                        if sheet_name == 'Section II' and "PY" in label:
+                            if fill_val != "":
+                                row_idx_excel = idx + 1
+                                col_idx_excel = col_idx + 1
+                                if self._safe_write(target_ws, row_idx_excel, col_idx_excel, fill_val):
+                                    has_modifications = True
+                                    results.append({
+                                        "fieldName": f"{sheet_name} | {field_name} ({label})",
+                                        "mappingType": "STRICT PY",
+                                        "previousValue": fill_val,
+                                        "currentValue": "Ignored",
+                                        "finalSelectedValue": fill_val,
+                                        "reason": "PY Column -> STRICTLY Used Previous FLA"
+                                    })
+                            continue
+
                         # Exclude Shareholding data from validation
                         if is_share:
                             continue
-
-
                         curr = self._normalize_val(
                             tgt_df.iloc[idx, col_idx] if col_idx < len(tgt_df.columns) else None
                         )
