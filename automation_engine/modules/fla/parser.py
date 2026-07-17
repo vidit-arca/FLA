@@ -43,7 +43,27 @@ class DocumentParser:
     def __init__(self, config_path="rules_config.json"):
         with open(config_path, "r") as f:
             self.config = json.load(f)
+
+    def detect_financials_scale(self, full_text: str) -> str:
+        """Detects if the financial numbers are in Actuals, Thousands, or Lakhs."""
+        if not full_text:
+            return "Actuals"
+        text_lower = full_text.lower()
+        
+        # 1. Lakhs
+        if re.search(r'(?i)(amount(s)? in lakhs?|in lakhs? indian rupees)', text_lower):
+            return "Lakhs"
             
+        # 2. Thousands
+        if re.search(r'(?i)(amount(s)? in thou?nsands?|in thousands? indian rupees|\(in thousands?\))', text_lower):
+            return "Thousands"
+            
+        # 3. Actuals
+        if re.search(r'(?i)(amount(s)? in rs\.?|amount(s)? in rupees)', text_lower):
+            return "Actuals"
+            
+        return "Actuals" # Default fallback
+
     def _evaluate_excel_formulas(self, excel_path):
         """Helper to evaluate simple math formulas in un-saved Excel files."""
         import openpyxl
@@ -298,7 +318,14 @@ class DocumentParser:
                 if not row or len(row) <= particulars_col_idx:
                     continue
                     
-                particulars = " | ".join([str(c).lower().strip() for c in row if isinstance(c, str)]).strip()
+                if particulars_col_idx != -1 and len(row) > particulars_col_idx:
+                    # Include the particulars column and the one immediately adjacent to catch spilled text
+                    start_idx = max(0, particulars_col_idx - 1)
+                    end_idx = min(len(row), particulars_col_idx + 2)
+                    particulars = " | ".join([str(c).lower().strip() for c in row[start_idx:end_idx] if isinstance(c, str)]).strip()
+                else:
+                    particulars = " | ".join([str(c).lower().strip() for c in row if isinstance(c, str)]).strip()
+                    
                 particulars = re.sub(r'\(\s+', '(', particulars)
                 particulars = re.sub(r'\s+\)', ')', particulars)
                 
@@ -390,7 +417,7 @@ class DocumentParser:
                                 row = [str(x) if pd.notna(x) else "" for x in df.iloc[i].values]
                                 data.append(row)
                                 
-                            extra_tables.append([header] + data)
+                            print(f"Table header: {header}"); print(f"Table data length: {len(data)}"); extra_tables.append([header] + data)
                         extra_data = self.extract_financials_from_tables(extra_tables)
                         all_extracted.update(extra_data)
                         print(f"    [+] Extracted {len(extra_data)} dynamic fields from extra Excel.")
@@ -706,9 +733,31 @@ class DocumentParser:
         if tables:
             fin_details = self.extract_financials_from_tables(tables)
             for k, v in fin_details.items():
+                if k in ["import_purchases_fy", "import_purchases_py"]:
+                    continue
                 if k not in all_extracted or not all_extracted[k]:
                     all_extracted[k] = v
             
+        # Detect financials scale from document text
+        financials_text = ""
+        try:
+            if docs_paths.get("financials") and os.path.exists(docs_paths["financials"]):
+                fin_path = docs_paths["financials"]
+                if fin_path.endswith((".xlsx", ".xls")):
+                    import pandas as pd
+                    xls = pd.ExcelFile(fin_path)
+                    for sheet in xls.sheet_names:
+                        df = pd.read_excel(xls, sheet_name=sheet)
+                        financials_text += " " + " ".join(df.astype(str).values.flatten().tolist())
+                elif md_content:
+                    financials_text = md_content
+        except Exception as e:
+            print(f"[!] Error reading Financials text for scale detection: {e}")
+            
+        detected_scale = self.detect_financials_scale(financials_text)
+        all_extracted["financials_scale"] = detected_scale
+        print(f"[*] Detected Financials Scale: {detected_scale}")
+
         if md_content:
             # Try to extract PAN/CIN from financials text too if not found in Board Report
             text_info = self.extract_company_details(md_content)
@@ -800,11 +849,6 @@ class DocumentParser:
             if indig_match:
                 all_extracted["domestic_purchases_fy"] = self.parse_number(indig_match.group(1))
                 all_extracted["domestic_purchases_py"] = self.parse_number(indig_match.group(2))
-            
-            imp_match = re.search(r'Imported\s*\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', md_content, re.IGNORECASE)
-            if imp_match:
-                all_extracted["import_purchases_fy"] = self.parse_number(imp_match.group(1))
-                all_extracted["import_purchases_py"] = self.parse_number(imp_match.group(2))
 
         # 6. Related Party Transactions (Liabilities & Claims for FDI Block 1, 2, 3 and DI Block 1, 2, 3)
         for prefix in ["fdi_investor", "di_investor"]:

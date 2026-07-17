@@ -93,7 +93,11 @@
         "profit(+)/loss(-) after tax",
         "profit (loss) for the period",
         "profit after tax (v) - (vi)",
-        "profit for the year"
+        "profit for the year",
+        "profit/ (loss) for the period",
+        "profit/ (loss) for the year",
+        "profit / (loss) for the period",
+        "profit/(loss) for the period"
       ],
       "py_col_keywords": [
         "previous year",

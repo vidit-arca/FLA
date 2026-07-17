@@ -208,7 +208,35 @@ class RuleEngine:
                 
                 if ftype == "extracted":
                     field_name = field_cfg.get("field")
-                    cell_values[section][cell] = state.get(field_name, field_cfg.get("default", 0.0))
+                    val = state.get(field_name, field_cfg.get("default", 0.0))
+                    
+                    # Apply financial scale if applicable
+                    financial_fields = [
+                        "profit_before_tax_py", "profit_before_tax_fy",
+                        "profit_after_tax_py", "profit_after_tax_fy",
+                        "dividend_paid_py", "dividend_paid_fy",
+                        "tax_on_dividend_py", "tax_on_dividend_fy",
+                        "reserves_and_surplus_py", "reserves_and_surplus_fy",
+                        "pl_balance_py", "pl_balance_fy",
+                        "domestic_sales_py", "domestic_sales_fy",
+                        "export_sales_py", "export_sales_fy",
+                        "revenue_from_operations_py", "revenue_from_operations_fy",
+                        "domestic_purchases_py", "domestic_purchases_fy",
+                        "import_purchases_py", "import_purchases_fy",
+                        "total_purchases_py", "total_purchases_fy"
+                    ]
+                    if field_name in financial_fields:
+                        scale = state.get("financials_scale", "Actuals")
+                        try:
+                            f_val = float(val)
+                            if scale == "Actuals":
+                                val = f_val / 100000.0
+                            elif scale == "Thousands":
+                                val = f_val / 100.0
+                        except Exception:
+                            pass
+                            
+                    cell_values[section][cell] = val
                 elif ftype == "calculated":
                     formula = field_cfg.get("formula")
                     if formula in state:

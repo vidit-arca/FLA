@@ -56,7 +56,7 @@ class DocumentIngestion:
             if any(f.endswith(ext) for ext in allowed_extensions):
                 if "board" in lower_name:
                     docs["board_report"] = full_path
-                elif "odi" not in lower_name and any(k in lower_name for k in ["financial", "merged", "auditor", "audit", "notes", "account", "accounting", "accounting policies", "balance sheet", "profit and loss", "p&l", "bspl", "standalone", "input sheet", "annual filing", "previous year"]):
+                elif "odi" not in lower_name and any(k in lower_name for k in ["financial", "merged", "auditor", "audit", "notes", "account", "accounting", "accounting policies", "balance sheet", "profit and loss", "p&l", "bspl", "standalone", "input sheet", "annual filing", "previous year", "accs", "prov"]):
                     if f.endswith('.md') or f.endswith('.docx') or f.endswith('.doc') or f.endswith('.xlsx') or f.endswith('.xls') or f.endswith('.xlsm'):
                         financial_mds.append(full_path)
                     elif "merged_financials_combined.pdf" not in lower_name:

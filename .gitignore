@@ -38,7 +38,6 @@ output/
 # Miscellaneous Project Files
 Screenrecoding/
 *.zip
-*.png
 *.jpg
 *.jpeg
 comparsion_dump.json
