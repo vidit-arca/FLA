@@ -394,16 +394,22 @@ class ExcelWriter:
             if match:
                 col_part, row_part = match.groups()
                 row_num = int(row_part)
+                
                 if row_num > 50:
                     new_coord = f"{col_part}{row_num + fdi_shift + di_shift}"
-                    new_cells[new_coord] = val
                 elif row_num > 27:
                     new_coord = f"{col_part}{row_num + fdi_shift}"
-                    new_cells[new_coord] = val
                 else:
-                    new_cells[coord] = val
+                    new_coord = coord
+                    
+                # Do not let empty static defaults overwrite our dynamically populated FDI/DI values
+                if new_coord in new_cells and val in ["", 0, "0", 0.0, None, "nan"]:
+                    continue
+                    
+                new_cells[new_coord] = val
             else:
-                new_cells[coord] = val
+                if coord not in new_cells or val not in ["", 0, "0", 0.0, None, "nan"]:
+                    new_cells[coord] = val
                 
         return new_cells
 
