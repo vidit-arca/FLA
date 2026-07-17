@@ -17,7 +17,7 @@ export default function ExcelViewer({ taskId }) {
   const fetchExcel = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`http://localhost:8000/api/download/${taskId}`, {
+      const res = await axios.get(`http://localhost:8000/api/download/${taskId}?t=${Date.now()}`, {
         responseType: 'arraybuffer'
       });
       const data = new Uint8Array(res.data);

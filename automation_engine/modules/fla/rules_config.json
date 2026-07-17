@@ -129,6 +129,21 @@
         "2025"
       ]
     },
+    "share_capital": {
+      "keywords": [
+        "share capital",
+        "equity share capital",
+        "paid up capital"
+      ],
+      "py_col_keywords": [
+        "previous year",
+        "2024"
+      ],
+      "fy_col_keywords": [
+        "current year",
+        "2025"
+      ]
+    },
     "reserves_and_surplus": {
       "keywords": [
         "reserves and surplus",
@@ -168,6 +183,21 @@
         "total revenue",
         "total income",
         "total sales"
+      ],
+      "py_col_keywords": [
+        "previous year",
+        "2024"
+      ],
+      "fy_col_keywords": [
+        "current year",
+        "2025"
+      ]
+    },
+    "net_worth": {
+      "keywords": [
+        "net worth",
+        "networth",
+        "total net worth"
       ],
       "py_col_keywords": [
         "previous year",
@@ -1338,126 +1368,6 @@
         "field": "fdi_first_received_date",
         "default": "N/A"
       },
-      "FDI1_Name": {
-        "row_label": "FDI 1: Name of the Non-Resident Company",
-        "cell": "B17",
-        "type": "extracted",
-        "field": "fdi_investor_1_name",
-        "default": ""
-      },
-      "FDI1_Country": {
-        "row_label": "FDI 1: Country of Non-Resident Investor",
-        "cell": "C17",
-        "type": "extracted",
-        "field": "fdi_investor_1_country",
-        "default": ""
-      },
-      "FDI1_Equity_Percent_PY": {
-        "row_label": "FDI 1: Equity % PY",
-        "cell": "D17",
-        "type": "extracted",
-        "field": "fdi_investor_1_equity_percent_py",
-        "default": 0
-      },
-      "FDI1_Equity_Percent_FY": {
-        "row_label": "FDI 1: Equity % FY",
-        "cell": "E17",
-        "type": "extracted",
-        "field": "fdi_investor_1_equity_percent_fy",
-        "default": 0
-      },
-      "FDI1_Equity_Capital_PY": {
-        "row_label": "FDI 1: Equity Capital PY",
-        "cell": "D20",
-        "type": "calculated",
-        "formula": "calculate_fdi_equity('fdi_investor_1_equity_percent_py', 'Net_Worth_PY')"
-      },
-      "FDI1_Equity_Capital_FY": {
-        "row_label": "FDI 1: Equity Capital FY",
-        "cell": "E20",
-        "type": "calculated",
-        "formula": "calculate_fdi_equity('fdi_investor_1_equity_percent_fy', 'Net_Worth_FY')"
-      },
-      "FDI1_Liabilities_PY": {
-        "row_label": "1.1 Liabilities to Direct Investors PY",
-        "cell": "D21",
-        "type": "calculated",
-        "formula": "calculate_fdi_equity('fdi_investor_1_equity_percent_py', 'Net_Worth_PY')"
-      },
-      "FDI1_Liabilities_FY": {
-        "row_label": "1.1 Liabilities to Direct Investors FY",
-        "cell": "E21",
-        "type": "calculated",
-        "formula": "calculate_fdi_equity('fdi_investor_1_equity_percent_fy', 'Net_Worth_FY')"
-      },
-      "FDI1_Claims_PY": {
-        "row_label": "1.2 Claims on Direct Investors PY",
-        "cell": "D22",
-        "type": "extracted",
-        "field": "fdi_investor_1_claims_py",
-        "default": 0.0
-      },
-      "FDI1_Claims_FY": {
-        "row_label": "1.2 Claims on Direct Investors FY",
-        "cell": "E22",
-        "type": "extracted",
-        "field": "fdi_investor_1_claims_fy",
-        "default": 0.0
-      },
-      "FDI1_Other_Capital_PY": {
-        "row_label": "2 Other Capital PY",
-        "cell": "D23",
-        "type": "calculated",
-        "formula": "subtract_cells('Section III', 'D24', 'D25')"
-      },
-      "FDI1_Other_Capital_FY": {
-        "row_label": "2 Other Capital FY",
-        "cell": "E23",
-        "type": "calculated",
-        "formula": "subtract_cells('Section III', 'E24', 'E25')"
-      },
-      "FDI1_Other_Liabilities_PY": {
-        "row_label": "2.1 Liabilities to Direct Investor PY",
-        "cell": "D24",
-        "type": "extracted",
-        "field": "fdi_investor_1_other_liabilities_py",
-        "default": 0.0
-      },
-      "FDI1_Other_Liabilities_FY": {
-        "row_label": "2.1 Liabilities to Direct Investor FY",
-        "cell": "E24",
-        "type": "extracted",
-        "field": "fdi_investor_1_other_liabilities_fy",
-        "default": 0.0
-      },
-      "FDI1_Other_Claims_PY": {
-        "row_label": "2.2 Claims on Direct Investor PY",
-        "cell": "D25",
-        "type": "extracted",
-        "field": "fdi_investor_1_other_claims_py",
-        "default": 0.0
-      },
-      "FDI1_Other_Claims_FY": {
-        "row_label": "2.2 Claims on Direct Investor FY",
-        "cell": "E25",
-        "type": "extracted",
-        "field": "fdi_investor_1_other_claims_fy",
-        "default": 0.0
-      },
-      "FDI1_Disinvestment_PY": {
-        "row_label": "3 Disinvestments in India PY",
-        "cell": "D26",
-        "type": "extracted",
-        "field": "fdi_investor_1_disinvestment_py",
-        "default": 0.0
-      },
-      "FDI1_Disinvestment_FY": {
-        "row_label": "3 Disinvestments in India FY",
-        "cell": "E26",
-        "type": "extracted",
-        "field": "fdi_investor_1_disinvestment_fy",
-        "default": 0.0
-      },
       "Block2_No_Countries": {
         "row_label": "2.a Number of countries with <10%",
         "cell": "D32",
@@ -1602,126 +1512,6 @@
         "cell": "E74",
         "type": "calculated",
         "formula": "sum_cells('Section III', ['E70', 'E71', 'E72', 'E73'])"
-      },
-      "FDI2_Name": {
-        "row_label": "FDI 2: Name of the Non-Resident Company",
-        "cell": "Z29",
-        "type": "extracted",
-        "field": "fdi_investor_2_name",
-        "default": ""
-      },
-      "FDI2_Country": {
-        "row_label": "FDI 2: Country of Non-Resident Investor",
-        "cell": "Z30",
-        "type": "extracted",
-        "field": "fdi_investor_2_country",
-        "default": ""
-      },
-      "FDI2_Equity_Percent_PY": {
-        "row_label": "FDI 2: Equity % PY",
-        "cell": "Z31",
-        "type": "extracted",
-        "field": "fdi_investor_2_equity_percent_py",
-        "default": 0
-      },
-      "FDI2_Equity_Percent_FY": {
-        "row_label": "FDI 2: Equity % FY",
-        "cell": "Z32",
-        "type": "extracted",
-        "field": "fdi_investor_2_equity_percent_fy",
-        "default": 0
-      },
-      "FDI2_Equity_Capital_PY": {
-        "row_label": "FDI 2: Equity Capital PY",
-        "cell": "Z33",
-        "type": "calculated",
-        "formula": "calculate_fdi_equity('fdi_investor_2_equity_percent_py', 'Net_Worth_PY')"
-      },
-      "FDI2_Equity_Capital_FY": {
-        "row_label": "FDI 2: Equity Capital FY",
-        "cell": "Z34",
-        "type": "calculated",
-        "formula": "calculate_fdi_equity('fdi_investor_2_equity_percent_fy', 'Net_Worth_FY')"
-      },
-      "FDI2_Liabilities_PY": {
-        "row_label": "1.1 Liabilities to Direct Investors PY",
-        "cell": "Z35",
-        "type": "calculated",
-        "formula": "calculate_fdi_equity('fdi_investor_2_equity_percent_py', 'Net_Worth_PY')"
-      },
-      "FDI2_Liabilities_FY": {
-        "row_label": "1.1 Liabilities to Direct Investors FY",
-        "cell": "Z36",
-        "type": "calculated",
-        "formula": "calculate_fdi_equity('fdi_investor_2_equity_percent_fy', 'Net_Worth_FY')"
-      },
-      "FDI2_Claims_PY": {
-        "row_label": "1.2 Claims on Direct Investors PY",
-        "cell": "Z37",
-        "type": "extracted",
-        "field": "fdi_investor_2_claims_py",
-        "default": 0.0
-      },
-      "FDI2_Claims_FY": {
-        "row_label": "1.2 Claims on Direct Investors FY",
-        "cell": "Z38",
-        "type": "extracted",
-        "field": "fdi_investor_2_claims_fy",
-        "default": 0.0
-      },
-      "FDI2_Other_Capital_PY": {
-        "row_label": "2 Other Capital PY",
-        "cell": "Z39",
-        "type": "calculated",
-        "formula": "subtract_cells('Section III', 'D36', 'D37')"
-      },
-      "FDI2_Other_Capital_FY": {
-        "row_label": "2 Other Capital FY",
-        "cell": "Z40",
-        "type": "calculated",
-        "formula": "subtract_cells('Section III', 'E36', 'E37')"
-      },
-      "FDI2_Other_Liabilities_PY": {
-        "row_label": "2.1 Liabilities to Direct Investor PY",
-        "cell": "Z41",
-        "type": "extracted",
-        "field": "fdi_investor_2_other_liabilities_py",
-        "default": 0.0
-      },
-      "FDI2_Other_Liabilities_FY": {
-        "row_label": "2.1 Liabilities to Direct Investor FY",
-        "cell": "Z42",
-        "type": "extracted",
-        "field": "fdi_investor_2_other_liabilities_fy",
-        "default": 0.0
-      },
-      "FDI2_Other_Claims_PY": {
-        "row_label": "2.2 Claims on Direct Investor PY",
-        "cell": "Z43",
-        "type": "extracted",
-        "field": "fdi_investor_2_other_claims_py",
-        "default": 0.0
-      },
-      "FDI2_Other_Claims_FY": {
-        "row_label": "2.2 Claims on Direct Investor FY",
-        "cell": "Z44",
-        "type": "extracted",
-        "field": "fdi_investor_2_other_claims_fy",
-        "default": 0.0
-      },
-      "FDI2_Disinvestment_PY": {
-        "row_label": "3 Disinvestments in India PY",
-        "cell": "Z45",
-        "type": "extracted",
-        "field": "fdi_investor_2_disinvestment_py",
-        "default": 0.0
-      },
-      "FDI2_Disinvestment_FY": {
-        "row_label": "3 Disinvestments in India FY",
-        "cell": "Z46",
-        "type": "extracted",
-        "field": "fdi_investor_2_disinvestment_fy",
-        "default": 0.0
       },
       "FDI3_Name": {
         "row_label": "Block 2 DI 1: Country of Non-Resident Investor",

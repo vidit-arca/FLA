@@ -329,41 +329,163 @@ class DocumentParser:
                 particulars = re.sub(r'\(\s+', '(', particulars)
                 particulars = re.sub(r'\s+\)', ')', particulars)
                 
-                # Check each financial item config
+                # Check each financial item config and find where they occur in the text
+                matched_rules = []
                 for field_name, rule_cfg in rules.items():
                     keywords = rule_cfg.get("keywords", [])
-                    # Use regex to ensure the keyword is a distinct word, not embedded in another word
-                    if any(re.search(r'(?<![a-z])' + re.escape(k) + r'(?![a-z])', particulars) for k in keywords):
-                        # Found matching row!
-                        if py_col_idx != -1 and fy_col_idx != -1 and len(row) > max(py_col_idx, fy_col_idx):
-                            py_val = self.parse_number(row[py_col_idx])
-                            fy_val = self.parse_number(row[fy_col_idx])
+                    match_idx = -1
+                    for k in keywords:
+                        match = re.search(r'(?<![a-z])' + re.escape(k) + r'(?![a-z])', particulars)
+                        if match:
+                            match_idx = match.start()
+                            break
+                    if match_idx != -1:
+                        matched_rules.append((match_idx, field_name))
+                
+                if not matched_rules:
+                    continue
+                    
+                # Sort rules by the order they appear in the particulars text (vital for merged cells)
+                matched_rules.sort(key=lambda x: x[0])
+                
+                for line_idx, (m_idx, field_name) in enumerate(matched_rules):
+                    def get_val_from_cell(cell, l_idx):
+                        if not cell: return 0.0
+                        lines = re.split(r'<br\s*/?>|\n', str(cell), flags=re.IGNORECASE)
+                        lines = [l for l in lines if l.strip()]
+                        if not lines: return 0.0
+                        if l_idx < len(lines):
+                            return self.parse_number(lines[l_idx])
+                        # Fallback to the last available line if not enough lines
+                        return self.parse_number(lines[-1])
+
+                    if py_col_idx != -1 and fy_col_idx != -1 and len(row) > max(py_col_idx, fy_col_idx):
+                        py_val = get_val_from_cell(row[py_col_idx], line_idx)
+                        fy_val = get_val_from_cell(row[fy_col_idx], line_idx)
+                    else:
+                        # Dynamic parsing from right
+                        vals = []
+                        for cell in reversed(row):
+                            cleaned = str(cell).strip()
+                            if cleaned:
+                                val = get_val_from_cell(cleaned, line_idx)
+                                vals.append(val)
+                        if len(vals) >= 2:
+                            py_val = vals[0]
+                            fy_val = vals[1]
+                        elif len(vals) == 1:
+                            py_val = vals[0]
+                            fy_val = 0.0
                         else:
-                            # Dynamic parsing from right
-                            vals = []
-                            for cell in reversed(row):
-                                cleaned = str(cell).strip()
-                                if cleaned:
-                                    val = self.parse_number(cleaned)
-                                    vals.append(val)
-                            if len(vals) >= 2:
-                                py_val = vals[0]
-                                fy_val = vals[1]
-                            elif len(vals) == 1:
-                                py_val = vals[0]
-                                fy_val = 0.0
-                            else:
-                                py_val = 0.0
-                                fy_val = 0.0
-                        
-                        # Store extracted figures
-                        # Store extracted figures (preserve the first non-zero value found, do not overwrite)
-                        if extracted.get(f"{field_name}_py", 0.0) == 0.0 and py_val != 0.0:
-                            extracted[f"{field_name}_py"] = py_val
-                        if extracted.get(f"{field_name}_fy", 0.0) == 0.0 and fy_val != 0.0:
-                            extracted[f"{field_name}_fy"] = fy_val
+                            py_val = 0.0
+                            fy_val = 0.0
+                    
+                    # Store extracted figures (preserve the first non-zero value found, do not overwrite)
+                    if extracted.get(f"{field_name}_py", 0.0) == 0.0 and py_val != 0.0:
+                        extracted[f"{field_name}_py"] = py_val
+                    if extracted.get(f"{field_name}_fy", 0.0) == 0.0 and fy_val != 0.0:
+                        extracted[f"{field_name}_fy"] = fy_val
                         
         return extracted
+
+    def detect_financials_columns(self, table):
+        py_idx = None
+        fy_idx = None
+        header_row_idx = 0
+        for idx, row in enumerate(table[:10]):
+            row_str = " ".join(str(x).lower() for x in row)
+            has_keywords = ('previous' in row_str or 'py' in row_str or '2024' in row_str) and \
+                           ('current' in row_str or 'fy' in row_str or '2025' in row_str)
+            if has_keywords:
+                for c_idx, cell in enumerate(row):
+                    c_str = str(cell).lower()
+                    if 'previous' in c_str or 'py' in c_str or '2024' in c_str:
+                        py_idx = c_idx
+                    elif 'current' in c_str or 'fy' in c_str or '2025' in c_str:
+                        fy_idx = c_idx
+                header_row_idx = idx
+                break
+        if py_idx is None and fy_idx is None:
+            for idx, row in enumerate(table[:10]):
+                has_years = len([x for x in row if re.search(r'\b(19|20)\d{2}\b', str(x))]) >= 2
+                if has_years:
+                    years = []
+                    for c_idx, cell in enumerate(row):
+                        match = re.search(r'\b((19|20)\d{2})\b', str(cell))
+                        if match:
+                            years.append((c_idx, int(match.group(1))))
+                    if len(years) >= 2:
+                        years.sort(key=lambda x: x[1])
+                        py_idx = years[0][0]
+                        fy_idx = years[-1][0]
+                        header_row_idx = idx
+                        break
+        if fy_idx is not None and py_idx is None:
+            if fy_idx > 1: py_idx = fy_idx - 1
+            elif fy_idx == 1 and len(table[0]) > 2: py_idx = 2
+        if py_idx is not None and fy_idx is None:
+            if py_idx > 1: fy_idx = py_idx - 1
+            elif py_idx == 1 and len(table[0]) > 2: fy_idx = 2
+        return py_idx, fy_idx, header_row_idx
+
+    def extract_rpt_transactions(self, tables, fdi_name):
+        if not fdi_name: return {}
+        
+        fdi_clean = re.sub(r'(?i)\b(inc|ltd|pte|llc|gmbh|pty|pvt|private|limited|corporation|corp)\b\.?', '', fdi_name).lower().strip()
+        fdi_parts = [p for p in fdi_clean.split() if len(p) > 2]
+        
+        payables_py, payables_fy = 0.0, 0.0
+        receivables_py, receivables_fy = 0.0, 0.0
+        
+        for table in tables:
+            py_idx, fy_idx, _ = self.detect_financials_columns(table)
+            
+            in_rpt_block = False
+            in_payables_block = False
+            in_receivables_block = False
+            
+            for row in table:
+                row_str = " ".join([str(c) for c in row]).lower()
+                
+                # Detect section headers
+                if "related party" in row_str or "rpt" in row_str:
+                    in_rpt_block = True
+                
+                if in_rpt_block:
+                    if "payable" in row_str or "liabilit" in row_str:
+                        in_payables_block = True
+                        in_receivables_block = False
+                    elif "receivable" in row_str or "claim" in row_str or "asset" in row_str:
+                        in_receivables_block = True
+                        in_payables_block = False
+                        
+                # Check for FDI name match
+                if any(p in row_str for p in fdi_parts) if fdi_parts else False:
+                    # Extract values if we have columns
+                    py_val = self.parse_number(row[py_idx]) if py_idx is not None and py_idx < len(row) else 0.0
+                    fy_val = self.parse_number(row[fy_idx]) if fy_idx is not None and fy_idx < len(row) else 0.0
+                    
+                    # If no columns, fallback to parsing first two numbers in the row
+                    if py_idx is None and fy_idx is None:
+                        nums = [self.parse_number(c) for c in row if self.parse_number(c) > 0]
+                        if len(nums) >= 2:
+                            fy_val, py_val = nums[0], nums[1]
+                        elif len(nums) == 1:
+                            fy_val = nums[0]
+                    
+                    if in_payables_block or "payable" in row_str or "liabilit" in row_str:
+                        if py_val > payables_py: payables_py = py_val
+                        if fy_val > payables_fy: payables_fy = fy_val
+                    elif in_receivables_block or "receivable" in row_str or "claim" in row_str:
+                        if py_val > receivables_py: receivables_py = py_val
+                        if fy_val > receivables_fy: receivables_fy = fy_val
+                        
+        return {
+            "liabilities_py": payables_py,
+            "liabilities_fy": payables_fy,
+            "claims_py": receivables_py,
+            "claims_fy": receivables_fy
+        }
 
     def parse_all(self, docs_paths, ocr_outputs=None):
         """Main parsing orchestrator that combines text extraction, table matching, and excel parsing."""
@@ -738,6 +860,26 @@ class DocumentParser:
                 if k not in all_extracted or not all_extracted[k]:
                     all_extracted[k] = v
             
+            # --- Extract RPT Transactions for Section 3 ---
+            fdi_investors_json_str = all_extracted.get("fdi_investors_json")
+            if fdi_investors_json_str:
+                import json
+                try:
+                    fdi_investors = json.loads(fdi_investors_json_str)
+                    for inv in fdi_investors:
+                        rpt_details = self.extract_rpt_transactions(tables, inv.get("name", ""))
+                        
+                        # Apply financial scale to RPT values later (done in rule engine)
+                        # If the excel extractor (Fallback) didn't find anything, overwrite it with Financials RPT if > 0
+                        if rpt_details["liabilities_py"] > 0: inv["fallback_liabilities_py"] = rpt_details["liabilities_py"]
+                        if rpt_details["liabilities_fy"] > 0: inv["fallback_liabilities_fy"] = rpt_details["liabilities_fy"]
+                        if rpt_details["claims_py"] > 0: inv["fallback_claims_py"] = rpt_details["claims_py"]
+                        if rpt_details["claims_fy"] > 0: inv["fallback_claims_fy"] = rpt_details["claims_fy"]
+                    
+                    all_extracted["fdi_investors_json"] = json.dumps(fdi_investors)
+                except Exception as e:
+                    print(f"[!] Error processing FDI investors JSON for RPT: {e}")
+            
         # Detect financials scale from document text
         financials_text = ""
         try:
@@ -850,46 +992,7 @@ class DocumentParser:
                 all_extracted["domestic_purchases_fy"] = self.parse_number(indig_match.group(1))
                 all_extracted["domestic_purchases_py"] = self.parse_number(indig_match.group(2))
 
-        # 6. Related Party Transactions (Liabilities & Claims for FDI Block 1, 2, 3 and DI Block 1, 2, 3)
-        for prefix in ["fdi_investor", "di_investor"]:
-            for i in range(1, 4):
-                inv_key = f"{prefix}_{i}_name"
-                if inv_key in all_extracted and all_extracted[inv_key]:
-                    investor_name = all_extracted[inv_key]
-                    
-                    # Focus on Related Party section if it exists
-                    search_content = md_content
-                    rpt_match = re.search(r'(?i)(?:Related\s+party\s+disclosures?|Related\s+party\s+transactions?)', md_content)
-                    if rpt_match:
-                        search_content = md_content[rpt_match.start():]
-
-                    # 2.1 Other Liabilities (Trade payables, loans from investor)
-                    payables_match = re.search(r'(?:trade payable|payable|trade creditor|creditor|owed|outstanding|ecb|loan|ccd|ccp)[\s\S]{0,100}?' + re.escape(investor_name) + r'[\s\S]{0,100}?\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', search_content, re.IGNORECASE)
-                    if payables_match:
-                        all_extracted[f"{prefix}_{i}_other_liabilities_fy"] = self.parse_number(payables_match.group(1))
-                        all_extracted[f"{prefix}_{i}_other_liabilities_py"] = self.parse_number(payables_match.group(2))
-                        
-                    # 2.2 Other Claims (Trade receivables from investor)
-                    receivables_match = re.search(r'(?:trade receivable|receivable|trade debtor|debtor|due from)[\s\S]{0,100}?' + re.escape(investor_name) + r'[\s\S]{0,100}?\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', search_content, re.IGNORECASE)
-                    if receivables_match:
-                        all_extracted[f"{prefix}_{i}_other_claims_fy"] = self.parse_number(receivables_match.group(1))
-                        all_extracted[f"{prefix}_{i}_other_claims_py"] = self.parse_number(receivables_match.group(2))
-                        
-                    # 1.2 Claims on Direct Investors (Reverse Investment)
-                    inv_match = re.search(r'investment[\s\S]{0,50}?' + re.escape(investor_name) + r'[\s\S]{0,100}?\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', search_content, re.IGNORECASE)
-                    if inv_match:
-                        all_extracted[f"{prefix}_{i}_claims_fy"] = self.parse_number(inv_match.group(1))
-                        all_extracted[f"{prefix}_{i}_claims_py"] = self.parse_number(inv_match.group(2))
-
-                    # 3 Disinvestments
-                    if f"{prefix}_{i}_equity_percent_py" in all_extracted and f"{prefix}_{i}_equity_percent_fy" in all_extracted:
-                        py_pct = all_extracted[f"{prefix}_{i}_equity_percent_py"]
-                        fy_pct = all_extracted[f"{prefix}_{i}_equity_percent_fy"]
-                        if fy_pct < py_pct:
-                            dis_match = re.search(r'(?:buyback|transfer|reduction)[\s\S]{0,150}?\|\s*([\d,.]+)\s*\|\s*([\d,.]+)', search_content, re.IGNORECASE)
-                            if dis_match:
-                                all_extracted[f"{prefix}_{i}_disinvestment_fy"] = self.parse_number(dis_match.group(1))
-                                all_extracted[f"{prefix}_{i}_disinvestment_py"] = self.parse_number(dis_match.group(2))
+        # (Old Section 3 Regex extraction logic removed in favor of robust tabular RPT extractor)
                     
         # 6c. First FDI Date
         fcgpr_match = re.search(r'(?:FCGPR|first allotment|first share allotment)[\s\S]{0,100}?((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s*\d{4})', md_content, re.IGNORECASE)

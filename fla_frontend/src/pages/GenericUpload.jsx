@@ -8,7 +8,6 @@ export default function GenericUpload() {
   const { moduleId } = useParams();
   const navigate = useNavigate();
   const [files, setFiles] = useState([]);
-  const [previousFlaFile, setPreviousFlaFile] = useState(null);
   const [companyName, setCompanyName] = useState('');
   const [uploading, setUploading] = useState(false);
 
@@ -47,10 +46,6 @@ export default function GenericUpload() {
     files.forEach(file => {
       formData.append('files', file);
     });
-
-    if (previousFlaFile && moduleConfig.features.hasPreviousYearComparison) {
-      formData.append('files', previousFlaFile, `previous_fla_${previousFlaFile.name}`);
-    }
 
     try {
       const res = await axios.post(`http://localhost:8000/api/upload?company_name=${encodeURIComponent(companyName)}&module_type=${moduleConfig.apiType}`, formData, {
@@ -163,52 +158,6 @@ export default function GenericUpload() {
               />
             </div>
           </div>
-
-          {moduleConfig.features.hasPreviousYearComparison && (
-            <div className="shrink-0">
-              <label className="block text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2">Previous Year Data (Optional - for auto comparison)</label>
-              {previousFlaFile ? (
-                <div className={`flex items-center justify-between p-4 bg-${moduleConfig.themeColor}-500/10 border border-${moduleConfig.themeColor}-500/20 rounded-xl`}>
-                  <div className="flex items-center gap-3 truncate">
-                    <div className={`bg-${moduleConfig.themeColor}-500/20 p-2 rounded-lg shrink-0`}>
-                      <File className={`w-5 h-5 text-${moduleConfig.themeColor}-400`} />
-                    </div>
-                    <div className="truncate">
-                      <p className="text-sm font-semibold text-slate-800 dark:text-slate-200 truncate">{previousFlaFile.name}</p>
-                      <p className="text-xs text-slate-600 dark:text-slate-400">Used for automated mismatch detection</p>
-                    </div>
-                  </div>
-                  <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPreviousFlaFile(null); }} className="text-slate-600 dark:text-slate-400 hover:text-red-500 transition-colors p-2 bg-slate-900/5 dark:bg-white/5 rounded-lg hover:bg-slate-900/10 dark:bg-white/10 shrink-0 ml-2 z-30 relative">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <div
-                  onDrop={(e) => { e.preventDefault(); if (e.dataTransfer.files[0]) setPreviousFlaFile(e.dataTransfer.files[0]); }}
-                  onDragOver={(e) => e.preventDefault()}
-                  className={`group relative border-2 border-dashed border-slate-200 dark:border-white/10 rounded-xl p-5 flex flex-col items-center justify-center bg-white dark:bg-[#131B2C]/30 hover:bg-white dark:bg-[#1A2235] hover:border-${moduleConfig.themeColor}-400/50 transition-all cursor-pointer overflow-hidden`}
-                  onClick={() => document.getElementById('prev-file-upload').click()}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className="bg-white dark:bg-[#1A2235] p-3 border border-slate-200 dark:border-white/10 rounded-full shadow-sm group-hover:scale-110 transition-transform">
-                      <File className={`w-6 h-6 text-${moduleConfig.themeColor}-400/70`} />
-                    </div>
-                    <div className="text-left">
-                      <p className="text-slate-700 dark:text-slate-300 font-medium text-sm">Select Previous Year Document</p>
-                      <p className="text-slate-500 text-xs mt-0.5">.pdf, .xlsx, .md</p>
-                    </div>
-                  </div>
-                  <input
-                    id="prev-file-upload"
-                    type="file"
-                    accept=".pdf,.xlsx,.md"
-                    className="hidden"
-                    onChange={(e) => { if (e.target.files[0]) setPreviousFlaFile(e.target.files[0]); }}
-                  />
-                </div>
-              )}
-            </div>
-          )}
 
           <div className="flex justify-end shrink-0 pt-2">
             <button

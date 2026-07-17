@@ -338,7 +338,7 @@ class ExcelExtractor:
             for key, data in buckets.items():
                 extracted[f"excel_nr_{key}_shares_count"] = data["count"]
                 extracted[f"excel_nr_{key}_amount"] = data["amount"]
-
+            
             # Group foreign shareholders by name and country to aggregate different security types (like Equity + Preference)
             # for the same investor!
             foreign_df_copy = foreign_df.copy()
@@ -366,24 +366,52 @@ class ExcelExtractor:
                 else:
                     di_rows.append((row, percent))
             
-            fdi_count = len(foreign_df_sorted)
+            fdi_count = len(fdi_rows)
             extracted["fdi_investors_count"] = fdi_count
             
-            # Populate FDI 1 (Block 1) using the largest FDI investor (>= 10%)
-            if len(fdi_rows) > 0:
-                fdi_rows_sorted = sorted(fdi_rows, key=lambda x: x[1], reverse=True)
-                top_fdi_row, top_fdi_pct = fdi_rows_sorted[0]
-                extracted["fdi_investor_1_name"] = str(top_fdi_row[name_col]).strip()
-                extracted["fdi_investor_1_country"] = str(top_fdi_row[country_col]).strip()
-                extracted["fdi_investor_1_equity_percent_py"] = top_fdi_pct
-                extracted["fdi_investor_1_equity_percent_fy"] = top_fdi_pct
-            else:
-                extracted["fdi_investor_1_name"] = ""
-                extracted["fdi_investor_1_country"] = ""
-                extracted["fdi_investor_1_equity_percent_py"] = 0.0
-                extracted["fdi_investor_1_equity_percent_fy"] = 0.0
+            import json
+            
+            # --- Populate FDI (Block 1) JSON Array ---
+            fdi_investors_data = []
+            fdi_rows_sorted = sorted(fdi_rows, key=lambda x: x[1], reverse=True)
+            for row, pct in fdi_rows_sorted:
+                name_clean = str(row[name_col]).strip()
+                country_clean = str(row[country_col]).strip()
                 
-            # Populate DI (Block 2) by consolidating all < 10% investors country-wise
+                # Fallback logic: check for payables/receivables for this specific investor
+                row_clean_name = str(row["clean_name"])
+                row_clean_country = str(row["clean_country"])
+                
+                fdi_original_rows = foreign_df_copy[
+                    (foreign_df_copy["clean_name"] == row_clean_name) & 
+                    (foreign_df_copy["clean_country"] == row_clean_country)
+                ]
+                
+                payables = 0.0
+                receivables = 0.0
+                
+                for col in df.columns:
+                    lower_col = str(col).lower().strip()
+                    if "payable" in lower_col or "liabilit" in lower_col:
+                        payables += pd.to_numeric(fdi_original_rows[col], errors='coerce').sum()
+                    elif "receivable" in lower_col or "claim" in lower_col:
+                        receivables += pd.to_numeric(fdi_original_rows[col], errors='coerce').sum()
+                        
+                fdi_investors_data.append({
+                    "name": name_clean,
+                    "country": country_clean,
+                    "equity_percent_py": pct,
+                    "equity_percent_fy": pct,
+                    "fallback_liabilities_py": payables,
+                    "fallback_liabilities_fy": payables,
+                    "fallback_claims_py": receivables,
+                    "fallback_claims_fy": receivables
+                })
+            
+            extracted["fdi_investors_json"] = json.dumps(fdi_investors_data)
+                
+            # --- Populate DI (Block 2) JSON Array ---
+            di_countries_data = []
             if len(di_rows) > 0:
                 fdi_clean_keys = set()
                 for f_row, _ in fdi_rows:
@@ -406,49 +434,21 @@ class ExcelExtractor:
                     # Set the count of countries in Block 2 (with <10%)
                     extracted["fdi_less_than_10_countries_count"] = len(grouped_di_sorted)
                     
-                    # Consolidate all DI countries and sum their percentages
-                    di_countries = []
-                    di_countries_data = []
-                    total_di_shares = 0
-                    import json
-                    for idx, row in grouped_di_sorted.iterrows():
-                        c_name = str(row[country_col]).strip()
-                        c_shares = float(row[securities_col])
+                    for idx, r in grouped_di_sorted.iterrows():
+                        c_name = str(r[country_col]).strip()
+                        c_shares = float(r[securities_col])
                         c_pct = (c_shares / total_securities) * 100.0 if total_securities > 0 else 0.0
-                        di_countries.append(c_name)
                         di_countries_data.append({
                             "country": c_name,
-                            "percent_py": c_pct,
-                            "percent_fy": c_pct
+                            "equity_percent_py": c_pct,
+                            "equity_percent_fy": c_pct
                         })
-                        total_di_shares += c_shares
-                        
-                    di_country_str = ", ".join(di_countries)
-                    di_percent = (total_di_shares / total_securities) * 100.0 if total_securities > 0 else 0.0
-                    
-                    extracted["fdi_investor_2_name"] = di_country_str
-                    extracted["fdi_investor_2_country"] = di_country_str
-                    extracted["fdi_investor_2_equity_percent_py"] = di_percent
-                    extracted["fdi_investor_2_equity_percent_fy"] = di_percent
-                    extracted["fdi_investor_2_countries_json"] = json.dumps(di_countries_data)
                 else:
                     extracted["fdi_less_than_10_countries_count"] = 0
-                    extracted["fdi_investor_2_name"] = ""
-                    extracted["fdi_investor_2_country"] = ""
-                    extracted["fdi_investor_2_equity_percent_py"] = 0.0
-                    extracted["fdi_investor_2_equity_percent_fy"] = 0.0
-                    extracted["fdi_investor_2_countries_json"] = "[]"
             else:
                 extracted["fdi_less_than_10_countries_count"] = 0
-                extracted["fdi_investor_2_name"] = ""
-                extracted["fdi_investor_2_country"] = ""
-                extracted["fdi_investor_2_equity_percent_py"] = 0.0
-                extracted["fdi_investor_2_equity_percent_fy"] = 0.0
-
-            
-            
-            
-            
+                
+            extracted["di_countries_json"] = json.dumps(di_countries_data)
 
             return extracted
             

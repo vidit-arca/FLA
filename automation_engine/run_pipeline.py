@@ -171,7 +171,7 @@ def main():
         populated_path = writer.write_values(cell_values)
         print(f"[+] Output Excel file created successfully!")
     except Exception as e:
-        print(f"[!] Critical Error populating Excel: {e}")
+        print(f"[!] Critical Error populating Excel: {e}"); import traceback; traceback.print_exc()
         sys.exit(1)
         
     # 7. Audit & Validation consistency check

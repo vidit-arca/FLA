@@ -300,61 +300,80 @@ class RuleEngine:
         cell_values["Section II"]["G30"] = get_val("Section II", "G27") - get_val("Section II", "G28") - get_val("Section II", "G29")
         
         # Net Worth (F34 = F6 + F32, G34 = G6 + G32)
-        cell_values["Section II"]["F34"] = get_val("Section II", "F6") + get_val("Section II", "F32")
-        cell_values["Section II"]["G34"] = get_val("Section II", "G6") + get_val("Section II", "G32")
+        # Try to get Net Worth directly from extracted data, fallback to Reserves & Surplus + Share Capital
+        nw_py = extracted_data.get("net_worth_py", 0.0)
+        nw_fy = extracted_data.get("net_worth_fy", 0.0)
+        
+        cell_values["Section II"]["F34"] = nw_py if nw_py > 0 else (get_val("Section II", "F6") + get_val("Section II", "F32"))
+        cell_values["Section II"]["G34"] = nw_fy if nw_fy > 0 else (get_val("Section II", "G6") + get_val("Section II", "G32"))
         
         # Total Purchases (F41 = F39 + F40, G41 = G39 + G40)
         cell_values["Section II"]["F41"] = get_val("Section II", "F39") + get_val("Section II", "F40")
         cell_values["Section II"]["G41"] = get_val("Section II", "G39") + get_val("Section II", "G40")
 
-        # Section III FDI / DI calculations
-        # FDI 1 Equity Capital holding (D20 = (D17 / 100) * Net_Worth_PY, E20 = (E17 / 100) * Net_Worth_FY)
+        # Section III FDI / DI dynamic calculations
         net_worth_py = cell_values["Section II"]["F34"]
         net_worth_fy = cell_values["Section II"]["G34"]
         
-        fdi1_eq_pct_py = get_val("Section III", "D17")
-        fdi1_eq_pct_fy = get_val("Section III", "E17")
-        cell_values["Section III"]["D20"] = (fdi1_eq_pct_py / 100.0) * net_worth_py
-        cell_values["Section III"]["E20"] = (fdi1_eq_pct_fy / 100.0) * net_worth_fy
+        import json
         
-        # FDI 1: 1.1 Liabilities to Direct Investors (D21, E21)
-        cell_values["Section III"]["D21"] = cell_values["Section III"]["D20"]
-        cell_values["Section III"]["E21"] = cell_values["Section III"]["E20"]
-        
-        # FDI 1 Other Capital (D23 = D24 - D25, E23 = E24 - E25)
-        cell_values["Section III"]["D23"] = get_val("Section III", "D24") - get_val("Section III", "D25")
-        cell_values["Section III"]["E23"] = get_val("Section III", "E24") - get_val("Section III", "E25")
+        # Process FDI Investors
+        fdi_investors_str = extracted_data.get("fdi_investors_json", "[]")
+        try:
+            fdi_investors = json.loads(fdi_investors_str)
+            for inv in fdi_investors:
+                pct_py = inv.get("equity_percent_py", 0) / 100.0
+                pct_fy = inv.get("equity_percent_fy", 0) / 100.0
+                
+                eq_cap_py = pct_py * net_worth_py
+                eq_cap_fy = pct_fy * net_worth_fy
+                
+                inv["equity_capital_py"] = eq_cap_py
+                inv["equity_capital_fy"] = eq_cap_fy
+                
+                inv["liabilities_py"] = eq_cap_py
+                inv["liabilities_fy"] = eq_cap_fy
+                
+                liab_py = inv.get("fallback_liabilities_py", 0)
+                liab_fy = inv.get("fallback_liabilities_fy", 0)
+                claims_py = inv.get("fallback_claims_py", 0)
+                claims_fy = inv.get("fallback_claims_fy", 0)
+                
+                inv["other_capital_py"] = liab_py - claims_py
+                inv["other_capital_fy"] = liab_fy - claims_fy
+                
+            cell_values["Section III"]["fdi_investors_json"] = json.dumps(fdi_investors)
+        except Exception as e:
+            print(f"[!] Error processing FDI calculations: {e}")
 
-        # FDI 2 Equity Capital holding (Z33 = (Z31 / 100) * Net_Worth_PY, Z34 = (Z32 / 100) * Net_Worth_FY)
-        fdi2_eq_pct_py = get_val("Section III", "Z31")
-        fdi2_eq_pct_fy = get_val("Section III", "Z32")
-        cell_values["Section III"]["Z33"] = (fdi2_eq_pct_py / 100.0) * net_worth_py
-        cell_values["Section III"]["Z34"] = (fdi2_eq_pct_fy / 100.0) * net_worth_fy
-        
-        # FDI 2: 1.1 Liabilities to Direct Investors (Z35, Z36)
-        cell_values["Section III"]["Z35"] = cell_values["Section III"]["Z33"]
-        cell_values["Section III"]["Z36"] = cell_values["Section III"]["Z34"]
-
-        # FDI 2 Other Capital (Z39 = Z41 - Z43, Z40 = Z42 - Z44)
-        cell_values["Section III"]["Z39"] = get_val("Section III", "Z41") - get_val("Section III", "Z43")
-        cell_values["Section III"]["Z40"] = get_val("Section III", "Z42") - get_val("Section III", "Z44")
-
-        # Block 2 DI 1 Equity Capital holding (D44 = (C41 / 100) * Net_Worth_PY, E44 = (D41 / 100) * Net_Worth_FY)
-        di1_eq_pct_py = get_val("Section III", "C41")
-        di1_eq_pct_fy = get_val("Section III", "D41")
-        cell_values["Section III"]["D44"] = (di1_eq_pct_py / 100.0) * net_worth_py
-        cell_values["Section III"]["E44"] = (di1_eq_pct_fy / 100.0) * net_worth_fy
-        
-        # Block 2 DI 1: 1.1 Liabilities to Direct Investors (D45, E45)
-        cell_values["Section III"]["D45"] = cell_values["Section III"]["D44"]
-        cell_values["Section III"]["E45"] = cell_values["Section III"]["E44"]
-
-        # Block 2 DI 1 Other Capital (D47 = D48 - D49, E47 = E48 - E49)
-        cell_values["Section III"]["D47"] = get_val("Section III", "D48") - get_val("Section III", "D49")
-        cell_values["Section III"]["E47"] = get_val("Section III", "E48") - get_val("Section III", "E49")
-        
-        # Pass multi-country JSON if present to Section III cell_values
-        cell_values["Section III"]["fdi_investor_2_countries_json"] = extracted_data.get("fdi_investor_2_countries_json", "[]")
+        # Process DI Countries
+        di_countries_str = extracted_data.get("di_countries_json", "[]")
+        try:
+            di_countries = json.loads(di_countries_str)
+            for c in di_countries:
+                pct_py = c.get("equity_percent_py", 0) / 100.0
+                pct_fy = c.get("equity_percent_fy", 0) / 100.0
+                
+                eq_cap_py = pct_py * net_worth_py
+                eq_cap_fy = pct_fy * net_worth_fy
+                
+                c["equity_capital_py"] = eq_cap_py
+                c["equity_capital_fy"] = eq_cap_fy
+                
+                c["liabilities_py"] = eq_cap_py
+                c["liabilities_fy"] = eq_cap_fy
+                
+                # DI Countries default to 0 for other capital as per previous logic
+                c["other_liabilities_py"] = 0.0
+                c["other_liabilities_fy"] = 0.0
+                c["other_claims_py"] = 0.0
+                c["other_claims_fy"] = 0.0
+                c["other_capital_py"] = 0.0
+                c["other_capital_fy"] = 0.0
+                
+            cell_values["Section III"]["di_countries_json"] = json.dumps(di_countries)
+        except Exception as e:
+            print(f"[!] Error processing DI calculations: {e}")
         
         # Unrelated Total Liabilities (D74 = Sum of D70..D73, E74 = Sum of E70..E73)
         cell_values["Section III"]["D74"] = sum(get_val("Section III", f"D{r}") for r in range(70, 74))

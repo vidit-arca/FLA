@@ -91,7 +91,7 @@ class DocumentIngestion:
                     
 
         # Fallbacks for missing basic PDFs
-        pdfs = [f for f in files if f.endswith('.pdf')]
+        pdfs = [f for f in os.listdir(self.signed_dir) if f.endswith('.pdf')]
         if "board_report" not in docs and len(pdfs) > 0:
             docs["board_report"] = os.path.join(self.signed_dir, pdfs[0])
         if "financials" not in docs and len(pdfs) > 1:

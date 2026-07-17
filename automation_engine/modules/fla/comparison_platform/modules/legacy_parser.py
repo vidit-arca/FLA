@@ -64,31 +64,45 @@ class LegacyFLAParser:
             if not headers or not rows:
                 continue
 
-            # Identify which columns hold PY vs FY data
-            # We look for headers containing "End March 2024" or "April - March 2024" (PY)
-            # and "End March 2025" or "April - March 2025" (FY)
+            # Identify which columns hold PY vs FY data dynamically
             py_col_indices = []
             fy_col_indices = []
             item_col_idx = 0  # Usually the first column
+
+            # Dynamically extract all years present in the table headers and first few rows
+            years = set()
+            for h in headers:
+                for m in re.finditer(r'\b(20\d{2})\b', h):
+                    years.add(int(m.group(1)))
+            for row in rows[:3]:
+                for cell in row:
+                    for m in re.finditer(r'\b(20\d{2})\b', cell):
+                        years.add(int(m.group(1)))
+
+            # Fallbacks just in case the document lacks any year
+            py_year, fy_year = "2024", "2025"
+            if len(years) >= 2:
+                sorted_years = sorted(list(years))
+                py_year = str(sorted_years[-2])
+                fy_year = str(sorted_years[-1])
 
             for i, h in enumerate(headers):
                 h_lower = h.lower().strip()
                 if "item" in h_lower or "type" in h_lower:
                     item_col_idx = i
-                if "2024" in h:
+                if py_year in h:
                     py_col_indices.append(i)
-                elif "2025" in h:
+                elif fy_year in h:
                     fy_col_indices.append(i)
 
             # If headers didn't contain year info, check first few data rows
-            # (some MD tables have a sub-header row like ['Item', 'End March 2024', ...])
             for row in rows[:3]:
                 if not py_col_indices and not fy_col_indices:
                     for ci, cell in enumerate(row):
                         cell_s = cell.strip()
-                        if "2024" in cell_s:
+                        if py_year in cell_s:
                             py_col_indices.append(ci)
-                        elif "2025" in cell_s:
+                        elif fy_year in cell_s:
                             fy_col_indices.append(ci)
                         if "item" in cell_s.lower() or "type" in cell_s.lower():
                             item_col_idx = ci

@@ -46,149 +46,9 @@ class ExcelWriter:
                 "Section IV": ["C39:E39", "C42:E42"]
             }
             
-            # Custom dynamic row insertion for Section III multiple DI countries
-            num_new_rows = 0
-            if section == "Section III" and "fdi_investor_2_countries_json" in cells:
-                import json
-                import re
-                try:
-                    countries_data = json.loads(cells["fdi_investor_2_countries_json"])
-                    if len(countries_data) > 1:
-                        num_new_blocks = len(countries_data) - 1
-                        rows_per_block = 12
-                        total_new_rows = num_new_blocks * rows_per_block
-                        
-                        # Insert rows after row 50
-                        print(f"[*] Section III: Inserting {total_new_rows} new rows for multi-country DI consolidation...")
-                        sheet.insert_rows(51, total_new_rows)
-                        
-                        # Manually shift all merged ranges below row 50 due to openpyxl insert_rows bug
-                        merged_ranges = list(sheet.merged_cells.ranges)
-                        sheet.merged_cells.ranges = []
-                        import copy
-                        for r in merged_ranges:
-                            if r.min_row > 50:
-                                r.shift(row_shift=total_new_rows)
-                                sheet.merged_cells.add(r)
-                            elif 39 <= r.min_row <= 50 and 39 <= r.max_row <= 50:
-                                sheet.merged_cells.add(r)
-                                # Duplicate this merged range for all new blocks
-                                for i in range(1, num_new_blocks + 1):
-                                    new_r = copy.copy(r)
-                                    new_r.shift(row_shift=i * rows_per_block)
-                                    sheet.merged_cells.add(new_r)
-                            else:
-                                sheet.merged_cells.add(r)
-                        
-                        # Copy styles/borders and values from Row 39-50 to newly inserted blocks
-                        for i in range(1, num_new_blocks + 1):
-                            offset = i * rows_per_block
-                            for row_offset in range(rows_per_block):
-                                src_row = 39 + row_offset
-                                target_row = src_row + offset
-                                sheet.row_dimensions[target_row].height = sheet.row_dimensions[src_row].height
-                                
-                                for col_idx in range(1, sheet.max_column + 1):
-                                    src_cell = sheet.cell(row=src_row, column=col_idx)
-                                    dst_cell = sheet.cell(row=target_row, column=col_idx)
-                                    dst_cell.value = src_cell.value
-                                    if src_cell.has_style:
-                                        if src_cell.font: dst_cell.font = copy.copy(src_cell.font)
-                                        if src_cell.border: dst_cell.border = copy.copy(src_cell.border)
-                                        if src_cell.fill: dst_cell.fill = copy.copy(src_cell.fill)
-                                        if src_cell.alignment: dst_cell.alignment = copy.copy(src_cell.alignment)
-                                        dst_cell.number_format = src_cell.number_format
-                        
-                        # Populate country/percentages in the blocks
-                        for idx, country_info in enumerate(countries_data):
-                            offset = idx * rows_per_block
-                            target_row_41 = 41 + offset
-                            c_name = country_info["country"]
-                            p_py = float(country_info.get("percent_py", 0))
-                            p_fy = float(country_info.get("percent_fy", 0))
-                            
-                            sheet.cell(row=target_row_41, column=2, value=c_name) # Column B
-                            
-                            cell_py = sheet.cell(row=target_row_41, column=3, value=p_py / 100.0) # Column C
-                            cell_py.number_format = '0.00%'
-                            
-                            cell_fy = sheet.cell(row=target_row_41, column=4, value=p_fy / 100.0) # Column D
-                            cell_fy.number_format = '0.00%'
-                            
-                            # For the duplicated blocks (idx > 0), explicitly zero out the financial figure templates
-                            # since we only extract aggregate amounts for the first block right now.
-                            if idx > 0:
-                                sheet.cell(row=45 + offset, column=4, value=0.0) # 1.1 PY
-                                sheet.cell(row=45 + offset, column=5, value=0.0) # 1.1 FY
-                                sheet.cell(row=46 + offset, column=4, value=0.0) # 1.2 PY
-                                sheet.cell(row=46 + offset, column=5, value=0.0) # 1.2 FY
-                                sheet.cell(row=48 + offset, column=4, value=0.0) # 2.1 PY
-                                sheet.cell(row=48 + offset, column=5, value=0.0) # 2.1 FY
-                                sheet.cell(row=49 + offset, column=4, value=0.0) # 2.2 PY
-                                sheet.cell(row=49 + offset, column=5, value=0.0) # 2.2 FY
-                                sheet.cell(row=50 + offset, column=4, value=0.0) # 3 PY
-                                sheet.cell(row=50 + offset, column=5, value=0.0) # 3 FY
-                            
-                        # Shift all coordinates > 50 in cells by total_new_rows!
-                        new_cells = {}
-                        for coord, val in cells.items():
-                            if coord == "fdi_investor_2_countries_json":
-                                continue
-                            match = re.match(r"^([a-zA-Z]+)(\d+)$", coord)
-                            if match:
-                                col_part, row_part = match.groups()
-                                row_num = int(row_part)
-                                if row_num > 50:
-                                    new_coord = f"{col_part}{row_num + total_new_rows}"
-                                    new_cells[new_coord] = val
-                                else:
-                                    new_cells[coord] = val
-                            else:
-                                new_cells[coord] = val
-                        cells = new_cells
-                        
-                        # Dynamically duplicate and shift unmerge_targets coordinates for Section III
-                        sec3_unmerge = []
-                        for rng_str in unmerge_targets["Section III"]:
-                            parts = rng_str.split(":")
-                            
-                            # Determine if this unmerge target is inside the copied block (C44:E44, C47:E47)
-                            match = re.match(r"^[a-zA-Z]+(\d+)", parts[0])
-                            row_num = int(match.group(1)) if match else 0
-                            
-                            if 39 <= row_num <= 50:
-                                sec3_unmerge.append(rng_str)
-                                for i in range(1, num_new_blocks + 1):
-                                    offset = i * rows_per_block
-                                    new_parts = []
-                                    for p in parts:
-                                        m = re.match(r"^([a-zA-Z]+)(\d+)$", p)
-                                        if m:
-                                            new_parts.append(f"{m.group(1)}{int(m.group(2)) + offset}")
-                                        else:
-                                            new_parts.append(p)
-                                    sec3_unmerge.append(":".join(new_parts))
-                            else:
-                                new_parts = []
-                                for p in parts:
-                                    m = re.match(r"^([a-zA-Z]+)(\d+)$", p)
-                                    if m:
-                                        r_num = int(m.group(2))
-                                        if r_num > 50:
-                                            new_parts.append(f"{m.group(1)}{r_num + total_new_rows}")
-                                        else:
-                                            new_parts.append(p)
-                                    else:
-                                        new_parts.append(p)
-                                sec3_unmerge.append(":".join(new_parts))
-                                
-                        unmerge_targets["Section III"] = sec3_unmerge
-                except Exception as e:
-                    print(f"[!] Error processing multi-country DI insertion: {e}")
-                
-                # ALWAYS remove the json key so openpyxl doesn't try to write to it
-                if "fdi_investor_2_countries_json" in cells:
-                    del cells["fdi_investor_2_countries_json"]
+            # Custom dynamic row insertion for Section III multiple investors and countries
+            if section == "Section III":
+                cells = self._process_section_3_dynamic(sheet, cells, unmerge_targets)
             
             if section in unmerge_targets:
                 for rng_str in unmerge_targets[section]:
@@ -224,19 +84,22 @@ class ExcelWriter:
                         
                     # If this is a percentage coordinate, convert to decimal and apply percentage formatting
                     if (section == "Section II" and resolved_coord in ["F24", "G24"]) or \
-                       (section == "Section III" and resolved_coord in ["D17", "E17", "C41", "D41"]) or \
                        (section == "Section IV" and resolved_coord in ["E19", "F19"]):
                         try:
                             val_float = float(val)
                             val = val_float / 100.0
-                            sheet[resolved_coord].number_format = '0.00%'
+                            sheet[resolved_coord]
                         except Exception:
                             pass
                             
                     # Write to the resolved coordinate (always the top-left of the merged block)
                     sheet[resolved_coord] = val
+                    
                 except Exception as e:
                     print(f"[!] Error writing {val} to cell {coord} (resolved: {resolved_coord}) in sheet {section}: {e}")
+
+
+
                     
         # Apply premium formatting fixes to prevent clipping, overlapping, or jagged borders
         self.beautify_layout(wb)
@@ -304,3 +167,243 @@ class ExcelWriter:
                     new_bottom = current_border.bottom if current_border.bottom.style else Side(style='thin', color='000000')
                     
                     cell.border = Border(left=new_left, right=new_right, top=new_top, bottom=new_bottom)
+
+    def _process_section_3_dynamic(self, sheet, cells, unmerge_targets):
+        import json
+        import re
+        import copy
+        
+        new_cells = {}
+        fdi_json = cells.pop("fdi_investors_json", "[]")
+        di_json = cells.pop("di_countries_json", "[]")
+        
+        try:
+            fdi_investors = json.loads(fdi_json)
+            di_countries = json.loads(di_json)
+        except:
+            fdi_investors = []
+            di_countries = []
+            
+        # We need to process FDI blocks first, then DI blocks.
+        fdi_blocks_to_add = max(0, len(fdi_investors) - 1)
+        fdi_rows_per_block = 13
+        fdi_shift = fdi_blocks_to_add * fdi_rows_per_block
+        
+        di_blocks_to_add = max(0, len(di_countries) - 1)
+        di_rows_per_block = 12
+        di_shift = di_blocks_to_add * di_rows_per_block
+        
+        merged_ranges = list(sheet.merged_cells.ranges)
+        sheet.merged_cells.ranges = []
+        
+        # 1. Insert rows for FDI
+        if fdi_shift > 0:
+            print(f"[*] Section III: Inserting {fdi_shift} rows for {fdi_blocks_to_add} additional FDI investors...")
+            sheet.insert_rows(28, fdi_shift)
+            
+        # 2. Insert rows for DI
+        di_start_row = 39 + fdi_shift
+        if di_shift > 0:
+            print(f"[*] Section III: Inserting {di_shift} rows for {di_blocks_to_add} additional DI countries...")
+            sheet.insert_rows(di_start_row + 12, di_shift)
+            
+        # 3. Handle merged cells shifting and duplication
+        for r in merged_ranges:
+            if r.min_row > 50:
+                # Shift by both
+                r.shift(row_shift=fdi_shift + di_shift)
+                sheet.merged_cells.add(r)
+            elif 39 <= r.min_row <= 50:
+                # Shift down by FDI shift to get to new DI start
+                r.shift(row_shift=fdi_shift)
+                sheet.merged_cells.add(r)
+                # Duplicate for DI
+                for i in range(1, di_blocks_to_add + 1):
+                    new_r = copy.copy(r)
+                    new_r.shift(row_shift=i * di_rows_per_block)
+                    sheet.merged_cells.add(new_r)
+            elif 28 <= r.min_row <= 38:
+                # Interstitial rows between FDI and DI (Rows 28 to 38)
+                r.shift(row_shift=fdi_shift)
+                sheet.merged_cells.add(r)
+            elif 15 <= r.min_row <= 27:
+                # FDI block
+                sheet.merged_cells.add(r)
+                # Duplicate for FDI
+                for i in range(1, fdi_blocks_to_add + 1):
+                    new_r = copy.copy(r)
+                    new_r.shift(row_shift=i * fdi_rows_per_block)
+                    sheet.merged_cells.add(new_r)
+            else:
+                sheet.merged_cells.add(r)
+                
+        # 4. Copy styles/borders for FDI blocks
+        for i in range(1, fdi_blocks_to_add + 1):
+            offset = i * fdi_rows_per_block
+            for row_offset in range(fdi_rows_per_block):
+                src_row = 15 + row_offset
+                target_row = src_row + offset
+                sheet.row_dimensions[target_row].height = sheet.row_dimensions[src_row].height
+                for col_idx in range(1, sheet.max_column + 1):
+                    src_cell = sheet.cell(row=src_row, column=col_idx)
+                    dst_cell = sheet.cell(row=target_row, column=col_idx)
+                    if type(dst_cell).__name__ == 'MergedCell':
+                        continue
+                    try:
+                        dst_cell.value = src_cell.value
+                    except Exception:
+                        pass
+                    if src_cell.has_style:
+                        if src_cell.font: dst_cell.font = copy.copy(src_cell.font)
+                        if src_cell.border: dst_cell.border = copy.copy(src_cell.border)
+                        if src_cell.fill: dst_cell.fill = copy.copy(src_cell.fill)
+                        if src_cell.alignment: dst_cell.alignment = copy.copy(src_cell.alignment)
+                        dst_cell.number_format = src_cell.number_format
+                        
+        # 5. Copy styles/borders for DI blocks
+        for i in range(1, di_blocks_to_add + 1):
+            offset = i * di_rows_per_block
+            for row_offset in range(di_rows_per_block):
+                src_row = 39 + fdi_shift + row_offset
+                target_row = src_row + offset
+                sheet.row_dimensions[target_row].height = sheet.row_dimensions[src_row].height
+                for col_idx in range(1, sheet.max_column + 1):
+                    src_cell = sheet.cell(row=src_row, column=col_idx)
+                    dst_cell = sheet.cell(row=target_row, column=col_idx)
+                    if type(dst_cell).__name__ == 'MergedCell':
+                        continue
+                    try:
+                        dst_cell.value = src_cell.value
+                    except Exception:
+                        pass
+                    if src_cell.has_style:
+                        if src_cell.font: dst_cell.font = copy.copy(src_cell.font)
+                        if src_cell.border: dst_cell.border = copy.copy(src_cell.border)
+                        if src_cell.fill: dst_cell.fill = copy.copy(src_cell.fill)
+                        if src_cell.alignment: dst_cell.alignment = copy.copy(src_cell.alignment)
+                        dst_cell.number_format = src_cell.number_format
+
+        if not hasattr(self, 'sec3_pct_cells'):
+            self.sec3_pct_cells = []
+            
+        # 6. Populate FDI blocks dynamically (Rows 15 to 27)
+        for idx, inv in enumerate(fdi_investors):
+            offset = idx * fdi_rows_per_block
+            base = 15 + offset
+            
+            new_cells[f"B{base+2}"] = inv.get("name", "") # B17
+            new_cells[f"C{base+2}"] = inv.get("country", "") # C17
+            new_cells[f"D{base+2}"] = inv.get("equity_percent_py", 0) # D17
+            new_cells[f"E{base+2}"] = inv.get("equity_percent_fy", 0) # E17
+            self.sec3_pct_cells.extend([f"D{base+2}", f"E{base+2}"])
+            
+            new_cells[f"D{base+5}"] = inv.get("equity_capital_py", 0) # D20
+            new_cells[f"E{base+5}"] = inv.get("equity_capital_fy", 0) # E20
+            
+            new_cells[f"D{base+6}"] = inv.get("liabilities_py", 0) # D21
+            new_cells[f"E{base+6}"] = inv.get("liabilities_fy", 0) # E21
+            
+            new_cells[f"D{base+7}"] = inv.get("claims_py", 0) # D22
+            new_cells[f"E{base+7}"] = inv.get("claims_fy", 0) # E22
+            
+            new_cells[f"D{base+8}"] = inv.get("other_capital_py", 0) # D23
+            new_cells[f"E{base+8}"] = inv.get("other_capital_fy", 0) # E23
+            
+            new_cells[f"D{base+9}"] = inv.get("fallback_liabilities_py", 0) # D24
+            new_cells[f"E{base+9}"] = inv.get("fallback_liabilities_fy", 0) # E24
+            
+            new_cells[f"D{base+10}"] = inv.get("fallback_claims_py", 0) # D25
+            new_cells[f"E{base+10}"] = inv.get("fallback_claims_fy", 0) # E25
+            
+            new_cells[f"D{base+11}"] = 0.0 # D26 Disinvestments
+            new_cells[f"E{base+11}"] = 0.0 # E26 Disinvestments
+            
+        # 7. Populate DI blocks dynamically (Rows 39 to 50)
+        for idx, c in enumerate(di_countries):
+            offset = idx * di_rows_per_block
+            base = 39 + fdi_shift + offset
+            
+            new_cells[f"B{base+2}"] = c.get("country", "") # B41
+            new_cells[f"C{base+2}"] = c.get("equity_percent_py", 0) # C41
+            new_cells[f"D{base+2}"] = c.get("equity_percent_fy", 0) # D41
+            self.sec3_pct_cells.extend([f"C{base+2}", f"D{base+2}"])
+
+            
+            new_cells[f"D{base+5}"] = c.get("equity_capital_py", 0) # D44
+            new_cells[f"E{base+5}"] = c.get("equity_capital_fy", 0) # E44
+            
+            new_cells[f"D{base+6}"] = c.get("liabilities_py", 0) # D45
+            new_cells[f"E{base+6}"] = c.get("liabilities_fy", 0) # E45
+            
+            new_cells[f"D{base+7}"] = 0.0 # D46 Claims
+            new_cells[f"E{base+7}"] = 0.0 # E46 Claims
+            
+            new_cells[f"D{base+8}"] = c.get("other_capital_py", 0) # D47
+            new_cells[f"E{base+8}"] = c.get("other_capital_fy", 0) # E47
+            
+            new_cells[f"D{base+9}"] = c.get("other_liabilities_py", 0) # D48
+            new_cells[f"E{base+9}"] = c.get("other_liabilities_fy", 0) # E48
+            
+            new_cells[f"D{base+10}"] = c.get("other_claims_py", 0) # D49
+            new_cells[f"E{base+10}"] = c.get("other_claims_fy", 0) # E49
+            
+            new_cells[f"D{base+11}"] = 0.0 # D50 Disinvestments
+            new_cells[f"E{base+11}"] = 0.0 # E50 Disinvestments
+
+        # 8. Shift unmerged coordinates
+        sec3_unmerge = []
+        for rng_str in unmerge_targets["Section III"]:
+            parts = rng_str.split(":")
+            match = re.match(r"^[a-zA-Z]+(\d+)", parts[0])
+            row_num = int(match.group(1)) if match else 0
+            
+            if 39 <= row_num <= 50:
+                for i in range(di_blocks_to_add + 1):
+                    offset = fdi_shift + (i * di_rows_per_block)
+                    new_parts = []
+                    for p in parts:
+                        m = re.match(r"^([a-zA-Z]+)(\d+)$", p)
+                        if m: new_parts.append(f"{m.group(1)}{int(m.group(2)) + offset}")
+                        else: new_parts.append(p)
+                    sec3_unmerge.append(":".join(new_parts))
+            elif 15 <= row_num <= 27:
+                for i in range(fdi_blocks_to_add + 1):
+                    offset = i * fdi_rows_per_block
+                    new_parts = []
+                    for p in parts:
+                        m = re.match(r"^([a-zA-Z]+)(\d+)$", p)
+                        if m: new_parts.append(f"{m.group(1)}{int(m.group(2)) + offset}")
+                        else: new_parts.append(p)
+                    sec3_unmerge.append(":".join(new_parts))
+            else:
+                new_parts = []
+                for p in parts:
+                    m = re.match(r"^([a-zA-Z]+)(\d+)$", p)
+                    if m:
+                        r_num = int(m.group(2))
+                        if r_num > 50: new_parts.append(f"{m.group(1)}{r_num + fdi_shift + di_shift}")
+                        elif r_num > 27: new_parts.append(f"{m.group(1)}{r_num + fdi_shift}")
+                        else: new_parts.append(p)
+                    else: new_parts.append(p)
+                sec3_unmerge.append(":".join(new_parts))
+        unmerge_targets["Section III"] = sec3_unmerge
+        
+        # 9. Shift static cells passed in
+        for coord, val in cells.items():
+            match = re.match(r"^([a-zA-Z]+)(\d+)$", coord)
+            if match:
+                col_part, row_part = match.groups()
+                row_num = int(row_part)
+                if row_num > 50:
+                    new_coord = f"{col_part}{row_num + fdi_shift + di_shift}"
+                    new_cells[new_coord] = val
+                elif row_num > 27:
+                    new_coord = f"{col_part}{row_num + fdi_shift}"
+                    new_cells[new_coord] = val
+                else:
+                    new_cells[coord] = val
+            else:
+                new_cells[coord] = val
+                
+        return new_cells
+

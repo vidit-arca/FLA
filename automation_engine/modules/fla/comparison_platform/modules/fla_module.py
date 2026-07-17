@@ -311,13 +311,14 @@ class FLAComparisonModule(BaseComparisonPlatformModule):
                     if fn_lower == 'total' or fn_lower.startswith('total:') or fn_lower == 'total (in inr)':
                         continue
 
-                    # FY value = the main key (previous FLA's "End March 2025" data)
+                    # FY value = the main key (previous FLA's FY data, e.g. "End March 2025")
                     fy_amount_val = self._normalize_val(self._lookup(parsed_previous_fla, field_name))
                     fy_share_val = self._normalize_val(self._lookup(parsed_previous_fla, f"{field_name}__shares"))
                     
-                    # PY value = the __PY key (previous FLA's "End March 2024" data)
-                    py_amount_val = self._normalize_val(parsed_previous_fla.get(f"{field_name}__PY", None))
-                    py_share_val = self._normalize_val(parsed_previous_fla.get(f"{field_name}__shares__PY", None))
+                    # PY value MUST ALSO BE the previous FLA's FY data! 
+                    # The previous FLA's PY data (e.g. End March 2024) is obsolete for the new return!
+                    py_amount_val = fy_amount_val
+                    py_share_val = fy_share_val
                     
                     # If no shares found, use amount as fallback
                     if not fy_share_val:
