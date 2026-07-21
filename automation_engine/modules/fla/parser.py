@@ -1078,5 +1078,12 @@ class DocumentParser:
             except Exception as e:
                 print(f"  [!] Could not prefill from Previous FLA: {e}")
 
-        return all_extracted
+        # ── IDP Studio Override Injection ──────────────
+        try:
+            from automation_engine.modules.idp_studio.spatial_extractor import apply_spatial_overrides
+            # If IDP spatial rules are defined, they will override the extracted values
+            all_extracted = apply_spatial_overrides("FLA", ocr_outputs, all_extracted)
+        except Exception as e:
+            print(f"[!] IDP Studio override failed (non-fatal): {e}")
 
+        return all_extracted

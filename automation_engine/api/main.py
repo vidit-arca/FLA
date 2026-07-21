@@ -20,12 +20,15 @@ from automation_engine.modules.fla.validator import ReturnValidator
 from automation_engine.modules.fla.comparison_platform.manager import ComparisonPlatformManager
 from automation_engine.core.workflow.graph import create_workflow_graph
 
+from automation_engine.modules.idp_studio.router import router as idp_router
+
 from . import models
 from .database import engine, get_db
 
 models.Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="FLA Extraction API")
+app.include_router(idp_router, prefix="/api/idp")
 
 app.add_middleware(
     CORSMiddleware,
