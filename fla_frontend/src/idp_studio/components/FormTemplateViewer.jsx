@@ -74,21 +74,28 @@ export default function FormTemplateViewer({ templateId, onTemplateChange, templ
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {/* DEBUG INFO */}
         {!currentSchema && (
-            <div className="text-red-500 text-xs p-4">
-                Debug: currentSchema is null. 
-                templateId: {templateId} | 
-                templates length: {templates?.length || 0} | 
-                available names: {templates?.map(t => t.template_name).join(', ')}
+            <div className="flex flex-col items-center justify-center text-center p-8 mt-10">
+                <div className="w-12 h-12 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500 rounded-xl flex items-center justify-center mb-4">
+                    <UploadCloud className="w-6 h-6" />
+                </div>
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-2">No Template Found</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Click the upload icon above to upload an Excel (.xlsx) file containing your target form fields.
+                </p>
             </div>
         )}
         {currentSchema && currentSchema.fields.length === 0 && (
-            <div className="text-red-500 text-xs p-4">
-                Debug: currentSchema has 0 fields.
+            <div className="flex flex-col items-center justify-center text-center p-8 mt-10">
+                <div className="w-12 h-12 bg-amber-50 dark:bg-amber-500/10 text-amber-500 rounded-xl flex items-center justify-center mb-4">
+                    <UploadCloud className="w-6 h-6" />
+                </div>
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-2">Empty Template</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                    The uploaded Excel file didn't contain any recognizable fields.
+                </p>
             </div>
         )}
-        {/* END DEBUG INFO */}
         {currentSchema && currentSchema.fields.map(field => {
           const rule = rules.find(r => r.form_field === field.id);
           const canLink = selectedExtractedData && !rule;
