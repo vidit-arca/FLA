@@ -1,0 +1,8 @@
+{
+  "source_file": "/Users/admin/Downloads/AR_Financials_MSME_Disclosures.pdf",
+  "output_file": "/Users/admin/Downloads/ocr_output/AR_Financials_MSME_Disclosures.md",
+  "model": "marker_model",
+  "processed_at": "2026-07-17T11:07:50",
+  "elapsed_sec": 153.58,
+  "char_count": 232895
+}
