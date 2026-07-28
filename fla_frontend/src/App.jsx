@@ -8,6 +8,7 @@ import ComparisonPlatform from './pages/ComparisonPlatform';
 import ReviewPage from './pages/ReviewPage';
 import TaskReviewView from './pages/TaskReviewView';
 import IdpStudio from './idp_studio/IdpStudio';
+import IdpProductionApp from './idp_studio/IdpProductionApp';
 import { LayoutDashboard, FileText, Settings, User, FileDiff, ClipboardCheck, ShieldAlert, Sun, Moon, PenTool } from 'lucide-react';
 import { useTheme } from './context/ThemeContext';
 
@@ -21,6 +22,7 @@ function App() {
   const { isDarkMode, toggleTheme } = useTheme();
 
   const isIdpStudio = window.location.pathname === '/idp-studio';
+  const isIdpExtract = window.location.pathname === '/idp-extract';
 
   if (isReviewMode) {
     return (
@@ -41,6 +43,17 @@ function App() {
       </Router>
     );
   }
+
+  if (isIdpExtract) {
+    return (
+      <Router>
+        <Routes>
+          <Route path="/idp-extract" element={<IdpProductionApp />} />
+        </Routes>
+      </Router>
+    );
+  }
+
 
   return (
     <Router>
@@ -110,6 +123,17 @@ function App() {
             })}
             
             <a
+              href="/idp-extract"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 font-medium text-sm text-slate-600 dark:text-slate-400 hover:text-slate-800 dark:text-slate-200 hover:bg-slate-900/5 dark:bg-white/5 border border-transparent group"
+            >
+              <FileText className="w-4 h-4 text-indigo-500" />
+              IDP Batch Extractor
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ml-auto opacity-40 group-hover:opacity-100 transition-opacity"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+            </a>
+
+            <a
               href="/idp-studio"
               target="_blank"
               rel="noopener noreferrer"
@@ -119,6 +143,7 @@ function App() {
               IDP Studio
               <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ml-auto opacity-40 group-hover:opacity-100 transition-opacity"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
             </a>
+
 
             <div className="h-px bg-slate-900/5 dark:bg-white/5 my-4 mx-3" />
             <p className="px-3 text-[0.65rem] font-bold text-slate-500 uppercase tracking-wider mb-2">Modules</p>

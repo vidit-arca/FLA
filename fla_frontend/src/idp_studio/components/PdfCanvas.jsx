@@ -7,11 +7,20 @@ import { UploadCloud, Wand2, Loader2, Target, CheckCircle2 } from 'lucide-react'
 // Initialize pdf.js worker
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 
-export default function PdfCanvas({ onDocumentUpload, onRegionSelect, isExtractingRegion }) {
+export default function PdfCanvas({ onDocumentUpload, onRegionSelect, isExtractingRegion, uploadedFiles = [], activeFileIndex = 0, onSelectDocument }) {
   const [file, setFile] = useState(null);
   const [numPages, setNumPages] = useState(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [scale, setScale] = useState(1.0);
+  
+  // Sync active file when uploadedFiles or activeFileIndex changes
+  React.useEffect(() => {
+    if (uploadedFiles && uploadedFiles.length > 0 && uploadedFiles[activeFileIndex]) {
+      setFile(uploadedFiles[activeFileIndex].file);
+    } else if (!uploadedFiles || uploadedFiles.length === 0) {
+      setFile(null);
+    }
+  }, [uploadedFiles, activeFileIndex]);
   
   // 2-Step Mapping State
   // 'idle' | 'anchor' | 'value'
@@ -24,14 +33,12 @@ export default function PdfCanvas({ onDocumentUpload, onRegionSelect, isExtracti
   const containerRef = useRef(null);
 
   const onFileChange = (e) => {
-    const selectedFile = e.target.files[0];
-    if (selectedFile) {
-      setFile(selectedFile);
-      if (onDocumentUpload) {
-          onDocumentUpload(selectedFile);
-      }
+    const selectedFiles = Array.from(e.target.files);
+    if (selectedFiles.length > 0 && onDocumentUpload) {
+      onDocumentUpload(selectedFiles);
     }
   };
+
 
   const onDocumentLoadSuccess = ({ numPages }) => {
     setNumPages(numPages);
@@ -120,8 +127,8 @@ export default function PdfCanvas({ onDocumentUpload, onRegionSelect, isExtracti
                 <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-2">Upload a Document</h3>
                 <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">Upload a PDF to build deterministic spatial rules.</p>
                 <label className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg cursor-pointer shadow-sm shadow-indigo-600/20 transition-all font-medium text-sm inline-block">
-                    Browse Files
-                    <input type="file" className="hidden" accept=".pdf" onChange={onFileChange} />
+                    Browse Files (Single or Multiple)
+                    <input type="file" className="hidden" accept=".pdf" multiple={true} onChange={onFileChange} />
                 </label>
             </div>
         </div>
@@ -130,7 +137,34 @@ export default function PdfCanvas({ onDocumentUpload, onRegionSelect, isExtracti
 
   return (
     <div className="relative w-full h-full flex flex-col bg-slate-200/50 dark:bg-[#0B0F19] rounded-xl overflow-hidden border border-slate-200 dark:border-white/5">
+      {/* Document Switcher Tab Bar (for Multi-Document Batch Upload) */}
+      {uploadedFiles && uploadedFiles.length > 0 && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-[#111726] border-b border-slate-200 dark:border-white/10 overflow-x-auto shrink-0">
+          {uploadedFiles.map((doc, idx) => (
+            <button
+              key={doc.file.name + idx}
+              onClick={() => onSelectDocument && onSelectDocument(idx)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shrink-0 ${
+                activeFileIndex === idx
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-white dark:bg-white/5 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+              }`}
+            >
+              <span>📄 {doc.file.name}</span>
+              {doc.status === 'success' && <span className="text-emerald-400 font-extrabold" title="100% Deterministic">✓</span>}
+              {doc.status === 'review' && <span className="text-amber-400 font-extrabold" title="Needs Human Review">⚠</span>}
+              {doc.status === 'loading' && <span className="animate-spin text-indigo-300">⏳</span>}
+            </button>
+          ))}
+          <label className="px-2.5 py-1.5 bg-slate-200 dark:bg-white/10 hover:bg-slate-300 rounded-lg cursor-pointer text-xs font-bold shrink-0 text-slate-700 dark:text-slate-300">
+            + Add PDF
+            <input type="file" className="hidden" accept=".pdf" multiple={true} onChange={onFileChange} />
+          </label>
+        </div>
+      )}
+
       {/* Top Toolbar */}
+
       <div className="h-12 border-b border-slate-200 dark:border-white/10 bg-white dark:bg-[#1A2234] flex items-center px-4 justify-between shrink-0">
         <div className="flex items-center gap-4">
             <span className="text-xs font-semibold text-slate-500">Page {pageNumber} of {numPages || '?'}</span>

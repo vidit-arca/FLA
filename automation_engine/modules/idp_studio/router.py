@@ -25,7 +25,23 @@ class IdpTemplateResponse(BaseModel):
 
 @router.get("/templates", response_model=List[IdpTemplateResponse])
 def get_all_templates(db: Session = Depends(get_db)):
-    return db.query(models.IdpTemplate).all()
+    templates = db.query(models.IdpTemplate).all()
+    existing_names = {t.template_name for t in templates}
+    
+    saved_rules = db.query(models.SchemaAliasRule.template_name).distinct().all()
+    for (t_name,) in saved_rules:
+        if t_name and t_name not in existing_names:
+            templates.append(
+                models.IdpTemplate(
+                    template_id=t_name,
+                    template_name=t_name,
+                    fields_json="[]"
+                )
+            )
+            existing_names.add(t_name)
+            
+    return templates
+
 
 @router.post("/templates/upload")
 async def upload_excel_template(file: UploadFile = File(...), db: Session = Depends(get_db)):
@@ -207,7 +223,35 @@ Document Text:
         print(f"[!] Parsing Error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to parse LLM response: {str(e)}")
 
+@router.post("/extract/batch")
+async def extract_batch_documents(files: List[UploadFile] = File(...)):
+    """
+    Processes multiple uploaded PDFs concurrently or sequentially.
+    Returns extracted key-values and a confidence badge status for each file.
+    """
+    results = []
+    for file in files:
+        try:
+            # Re-use single document extraction logic
+            res = await extract_document_llm(file)
+            extracted_fields = res.get("extracted_data", [])
+            status_badge = "success" if extracted_fields else "review"
+            results.append({
+                "filename": file.filename,
+                "status": status_badge,
+                "extracted_fields": extracted_fields
+            })
+        except Exception as e:
+            print(f"[!] Batch extraction error on {file.filename}: {e}")
+            results.append({
+                "filename": file.filename,
+                "status": "review",
+                "extracted_fields": []
+            })
+    return {"total_files": len(files), "results": results}
+
 from fastapi import Form
+
 
 @router.post("/extract_region")
 async def extract_region_llm(
@@ -361,6 +405,7 @@ async def extract_spatial_rule(
     contents = await file.read()
     
     def _extract_rect(pdf_page, x, y, width, height):
+        import re
         page_width = pdf_page.width
         page_height = pdf_page.height
         
@@ -369,15 +414,33 @@ async def extract_spatial_rule(
         x1 = min(float(page_width), x0 + float(width * page_width))
         bottom = min(float(page_height), top + float(height * page_height))
         
-        if x0 >= x1: x1 = x0 + 1.0
-        if top >= bottom: bottom = top + 1.0
-            
-        bbox = (x0, top, x1, bottom)
-        cropped_page = pdf_page.within_bbox(bbox)
-        extracted = cropped_page.extract_text()
+        # Expand box slightly by 4 points to catch numbers/labels drawn tightly
+        pad = 4.0
+        bx0 = max(0, x0 - pad)
+        btop = max(0, top - pad)
+        bx1 = min(page_width, x1 + pad)
+        bbottom = min(page_height, bottom + pad)
         
-        if extracted and extracted.strip():
-            return extracted.strip()
+        words = pdf_page.extract_words()
+        overlapping_words = []
+        for w in words:
+            if not (w['x1'] < bx0 or w['x0'] > bx1 or w['bottom'] < btop or w['top'] > bbottom):
+                overlapping_words.append(w)
+                
+        extracted = ""
+        if overlapping_words:
+            overlapping_words.sort(key=lambda w: (round(w['top'] / 5) * 5, w['x0']))
+            extracted = " ".join([w['text'] for w in overlapping_words]).strip()
+            
+        if not extracted:
+            bbox = (bx0, btop, bx1, bbottom)
+            cropped_page = pdf_page.within_bbox(bbox)
+            extracted = cropped_page.extract_text() or ""
+            
+        # Clean markdown symbols like ## or ** from text
+        extracted = re.sub(r'^[#*_\-\s]+', '', extracted.strip()).strip()
+        if extracted:
+            return extracted
             
         # Triton Fallback
         try:
@@ -385,24 +448,28 @@ async def extract_spatial_rule(
             import numpy as np
             import io
             
+            bbox = (bx0, btop, bx1, bbottom)
+            cropped_page = pdf_page.within_bbox(bbox)
             img = cropped_page.to_image(resolution=300).original
             img_byte_arr = io.BytesIO()
             img.save(img_byte_arr, format='PNG')
             raw_bytes = img_byte_arr.getvalue()
             
-            client = httpclient.InferenceServerClient(url="192.168.112.2:8000", network_timeout=600.0, connection_timeout=600.0)
+            client = httpclient.InferenceServerClient(url="192.168.112.2:8000", network_timeout=60.0, connection_timeout=60.0)
             input_tensor = httpclient.InferInput("PDF_BYTES", [1], "BYTES")
             input_tensor.set_data_from_numpy(np.array([raw_bytes], dtype=np.object_))
             output_tensor = httpclient.InferRequestedOutput("MARKDOWN")
             
             response = client.infer(model_name="marker_model", inputs=[input_tensor], outputs=[output_tensor])
             ocr_text = response.as_numpy("MARKDOWN")[0].decode("utf-8")
-            if ocr_text and ocr_text.strip():
-                return ocr_text.strip()
+            ocr_text = re.sub(r'^[#*_\-\s]+', '', ocr_text.strip()).strip()
+            if ocr_text:
+                return ocr_text
         except Exception as e:
             print(f"[!] OCR Fallback failed in spatial rule: {e}")
             
         return "Unknown"
+
 
     try:
         import pdfplumber

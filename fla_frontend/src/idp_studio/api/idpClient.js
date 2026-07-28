@@ -46,7 +46,58 @@ export const idpClient = {
         }
     },
     
+    extractBatchDocuments: async (files, templateName = "FLA") => {
+        try {
+            const formData = new FormData();
+            files.forEach(file => {
+                formData.append("files", file);
+            });
+            formData.append("template_name", templateName);
+            const response = await axios.post(`${API_BASE_URL}/extract/batch`, formData, { headers: {'Content-Type': 'multipart/form-data'} });
+            return response.data;
+        } catch (error) {
+             console.error('Error extracting batch documents:', error);
+             throw error;
+        }
+    },
+    
+    exportToExcel: (batchResults, filename = 'IDP_Batch_Export.csv') => {
+        if (!batchResults || batchResults.length === 0) return;
+        
+        const allKeysSet = new Set();
+        batchResults.forEach(doc => {
+            (doc.data || []).forEach(field => {
+                if (field.key) allKeysSet.add(field.key);
+            });
+        });
+        const headers = ['Document Name', 'Status', ...Array.from(allKeysSet)];
+        
+        const rows = batchResults.map(doc => {
+            const fieldMap = {};
+            (doc.data || []).forEach(field => {
+                fieldMap[field.key] = field.value || '';
+            });
+            return [
+                `"${doc.file.name}"`,
+                `"${doc.status.toUpperCase()}"`,
+                ...Array.from(allKeysSet).map(key => `"${(fieldMap[key] || '').replace(/"/g, '""')}"`)
+            ];
+        });
+        
+        const csvContent = [headers.map(h => `"${h}"`).join(','), ...rows.map(r => r.join(','))].join('\n');
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', filename);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    },
+    
     getTemplates: async () => {
+
         try {
             const response = await axios.get(`${API_BASE_URL}/templates`);
             return response.data;

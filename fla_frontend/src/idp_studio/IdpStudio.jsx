@@ -20,6 +20,21 @@ export default function IdpStudio() {
   const [selectedExtractedData, setSelectedExtractedData] = useState(null);
   const [pdfFile, setPdfFile] = useState(null);
 
+  // Multi-Document Batch State
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+  const [activeFileIndex, setActiveFileIndex] = useState(0);
+
+  useEffect(() => {
+    if (uploadedFiles && uploadedFiles.length > 0 && uploadedFiles[activeFileIndex]) {
+      setPdfFile(uploadedFiles[activeFileIndex].file);
+      setExtractedData(uploadedFiles[activeFileIndex].data || []);
+    } else {
+      setPdfFile(null);
+      setExtractedData([]);
+    }
+  }, [uploadedFiles, activeFileIndex]);
+
+
   useEffect(() => {
     fetchTemplates();
   }, []);
@@ -79,27 +94,54 @@ export default function IdpStudio() {
     }
   };
 
-  const handleDocumentUpload = async (file) => {
-      setPdfFile(file);
-      if (!file) {
+  const handleDocumentUpload = async (filesInput) => {
+      if (!filesInput || (Array.isArray(filesInput) && filesInput.length === 0)) {
+          setUploadedFiles([]);
+          setPdfFile(null);
           setExtractedData([]);
           setSelectedExtractedData(null);
           return;
       }
       
+      const fileArray = Array.isArray(filesInput) ? filesInput : [filesInput];
+
+      const newQueue = fileArray.map(file => ({
+          file: file,
+          status: 'loading',
+          data: []
+      }));
+      
+      setUploadedFiles(prev => [...prev, ...newQueue]);
+      setActiveFileIndex(0);
       setIsExtracting(true);
       setSelectedExtractedData(null);
       
       try {
-          const data = await idpClient.extractDocument(file);
-          setExtractedData(data);
+          const batchResults = await idpClient.extractBatchDocuments(fileArray, templateName);
+          setUploadedFiles(prev => prev.map(item => {
+              const res = batchResults.results.find(r => r.filename === item.file.name);
+              if (res) {
+                  return {
+                      ...item,
+                      status: res.status,
+                      data: res.extracted_fields
+                  };
+              }
+              return item;
+          }));
       } catch (err) {
-          console.error("Failed to extract document", err);
-          alert("Failed to auto-extract document values.");
+          console.error("Failed to extract document batch", err);
+          alert("Failed to auto-extract document batch values.");
       } finally {
           setIsExtracting(false);
       }
   };
+
+  const handleSelectDocument = (index) => {
+      setActiveFileIndex(index);
+      setSelectedExtractedData(null);
+  };
+
 
   const handleRegionSelect = async (pageNumber, anchorRect, valueRect) => {
       if (!pdfFile) return;
@@ -174,6 +216,9 @@ export default function IdpStudio() {
             onDocumentUpload={handleDocumentUpload} 
             onRegionSelect={handleRegionSelect}
             isExtractingRegion={isExtractingRegion}
+            uploadedFiles={uploadedFiles}
+            activeFileIndex={activeFileIndex}
+            onSelectDocument={handleSelectDocument}
           />
         </div>
       </div>
