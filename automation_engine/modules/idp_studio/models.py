@@ -14,7 +14,8 @@
 # 3. Anyone running the server will automatically get your table in their local DB!
 # ==============================================================================
 
-from sqlalchemy import Column, String, Text
+from sqlalchemy import Column, String, Text, Integer, DateTime
+import datetime
 from .db import Base
 
 class SchemaAliasRule(Base):
@@ -33,3 +34,19 @@ class IdpTemplate(Base):
     template_name = Column(String)
     fields_json = Column(Text) # JSON serialized list of {id, label} objects
 
+
+class DomExtractionRule(Base):
+    __tablename__ = "idp_dom_extraction_rules"
+
+    rule_id = Column(String, primary_key=True, index=True)
+    
+    # Context
+    template_name = Column(String, index=True)      # e.g., "FLA"
+    variable_name = Column(String, index=True)      # e.g., "Trade payables"
+    
+    # The actual rule
+    dom_path = Column(String)                       # e.g., "section(...) → table(...) → row(...)"
+    
+    # Metrics for ordering/prioritizing rules
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    success_count = Column(Integer, default=0)      # To prioritize most successful paths
