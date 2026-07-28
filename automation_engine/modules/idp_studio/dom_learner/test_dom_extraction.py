@@ -1,11 +1,12 @@
 """
-test_dom_extraction.py — Validates the DOM pipeline by extracting 10 key variables.
+test_dom_extraction.py — Validates the DOM pipeline by extracting key variables.
 
-Queries the DOM for specific financial line items and exports results to an
-Excel file with columns: Variable, DOM Path, FY2025 Value, FY2024 Value, Status.
+Scans all .md files in the ocr_output folder, builds a DOM for each, then
+searches for each variable across ALL DOMs.  If a variable appears in
+multiple files, every occurrence is reported (with the source file name).
 
-This script proves the DOM is navigable and values are extractable via
-structure-based queries rather than coordinate-based extraction.
+Exports results to an Excel file with columns:
+  Source File, Variable, Status, Current Year Value, Prior Year Value, …
 
 Usage:
     cd automation_engine/modules/idp_studio
@@ -15,7 +16,9 @@ Usage:
 from __future__ import annotations
 
 import csv
+import json
 import logging
+from collections import defaultdict
 import sys
 import time
 from dataclasses import dataclass
@@ -34,11 +37,13 @@ from dom_learner.models import DOMNode, NodeType
 # Configuration
 # ---------------------------------------------------------------------------
 
-_DEFAULT_INPUT = _THIS_DIR / "Docs" / "ocr_output" / "AR_Financials_MSME_Disclosures.md"
+_OCR_OUTPUT_DIR = _THIS_DIR / "Docs" / "ocr_output"
 _DEFAULT_OUTPUT = _THIS_DIR / "output" / "dom_extraction_test.xlsx"
 
-# Variables to extract — these are the test cases
+# Variables to extract — single flat list, searched across ALL DOMs.
+# These can come from any .md file; we don't pre-map them to files.
 VARIABLES = [
+    # Balance sheet items
     "Partners' contribution",
     "Partners' current account",
     "Trade payables",
@@ -49,6 +54,12 @@ VARIABLES = [
     "Revenue from operations",
     "Employee benefits expense",
     "Professional & Consultancy Charges",
+    # Additional items that may appear in other documents
+    "Reserves and surplus",
+    "Profit before tax",
+    "Long-term provisions",
+    "Other long-term liabilities",
+    "Tangible assets",
 ]
 
 
@@ -59,14 +70,14 @@ VARIABLES = [
 @dataclass
 class ExtractionResult:
     variable: str
+    source_file: str  # which .md file this was found in
     dom_path: str
     depth: int
     node_id: str
     section: str
     table_id: str
-    row_id: str
-    fy2025_value: str
-    fy2024_value: str
+    current_year_value: str
+    prior_year_value: str
     status: str  # FOUND / PARTIAL / NOT_FOUND
 
 
@@ -142,31 +153,43 @@ def _find_row_by_label(q: DOMQuery, label: str) -> DOMNode | None:
 
 
 def _get_value_cells(row: DOMNode) -> tuple[str, str]:
-    """Extract FY2025 and FY2024 values from a row.
+    """Extract current-year and prior-year values from a row.
 
     Strategy: the last two cells with numeric-looking content are typically
     the current year and previous year values.  We also look at column
-    headers containing "2025" and "2024".
+    headers containing year indicators.
     """
     cells = [c for c in row.children if c.node_type == NodeType.CELL]
 
-    fy2025 = ""
-    fy2024 = ""
+    current_year = ""
+    prior_year = ""
 
-    # Strategy 1: look for cells whose column header contains year
-    for cell in cells:
-        col_header = cell.metadata.get("column_header", "").lower()
-        text = cell.text.strip()
-        if not text or text in ("", "(empty)"):
-            continue
+    # Strategy 1: look for cells whose column header contains year keywords
+    # Try multiple year patterns to handle different documents
+    year_pairs = [
+        ("2025", "2024"),
+        ("2022", "2021"),
+        ("2023", "2022"),
+        ("2024", "2023"),
+    ]
 
-        if "2025" in col_header:
-            fy2025 = text
-        elif "2024" in col_header:
-            fy2024 = text
+    for curr_yr, prev_yr in year_pairs:
+        for cell in cells:
+            col_header = cell.metadata.get("column_header", "").lower()
+            text = cell.text.strip()
+            if not text or text in ("", "(empty)"):
+                continue
+
+            if curr_yr in col_header:
+                current_year = text
+            elif prev_yr in col_header:
+                prior_year = text
+
+        if current_year or prior_year:
+            break
 
     # Strategy 2: if headers don't have year, use positional (last two numeric cells)
-    if not fy2025 and not fy2024:
+    if not current_year and not prior_year:
         numeric_cells = []
         for cell in cells:
             text = cell.text.strip()
@@ -176,12 +199,12 @@ def _get_value_cells(row: DOMNode) -> tuple[str, str]:
                 numeric_cells.append(cell)
 
         if len(numeric_cells) >= 2:
-            fy2025 = numeric_cells[-2].text.strip()
-            fy2024 = numeric_cells[-1].text.strip()
+            current_year = numeric_cells[-2].text.strip()
+            prior_year = numeric_cells[-1].text.strip()
         elif len(numeric_cells) == 1:
-            fy2025 = numeric_cells[0].text.strip()
+            current_year = numeric_cells[0].text.strip()
 
-    return fy2025, fy2024
+    return current_year, prior_year
 
 
 def _format_dom_path(q: DOMQuery, node: DOMNode) -> str:
@@ -197,52 +220,105 @@ def _format_dom_path(q: DOMQuery, node: DOMNode) -> str:
     return " → ".join(parts)
 
 
-def extract_variables(q: DOMQuery) -> list[ExtractionResult]:
-    """Query the DOM for all test variables and return results."""
+def extract_variables(
+    dom_queries: dict[str, DOMQuery],
+) -> list[ExtractionResult]:
+    """Search for all variables across all DOMs.
+
+    Parameters
+    ----------
+    dom_queries : dict[str, DOMQuery]
+        Mapping of ``filename → DOMQuery`` for every .md file.
+
+    Returns
+    -------
+    list[ExtractionResult]
+        One result per (variable, source_file) match.  If a variable is
+        found in zero files a single NOT_FOUND row is emitted.
+    """
     results: list[ExtractionResult] = []
 
     for var_name in VARIABLES:
-        row = _find_row_by_label(q, var_name)
+        found_in_any = False
 
-        if row is None:
+        for filename, q in dom_queries.items():
+            row = _find_row_by_label(q, var_name)
+
+            if row is None:
+                continue
+
+            found_in_any = True
+
+            # Get values
+            curr_val, prev_val = _get_value_cells(row)
+
+            # Get structural context
+            dom_path = _format_dom_path(q, row)
+            section_node = row.section
+            table_node = row.table
+
+            status = "FOUND" if curr_val else "PARTIAL"
+
             results.append(ExtractionResult(
                 variable=var_name,
+                source_file=filename,
+                dom_path=dom_path,
+                depth=row.depth,
+                node_id=row.id,
+                section=section_node.text[:60] if section_node else "—",
+                table_id=table_node.id if table_node else "—",
+                current_year_value=curr_val,
+                prior_year_value=prev_val,
+                status=status,
+            ))
+
+        if not found_in_any:
+            results.append(ExtractionResult(
+                variable=var_name,
+                source_file="—",
                 dom_path="—",
                 depth=0,
                 node_id="—",
                 section="—",
                 table_id="—",
-                row_id="—",
-                fy2025_value="—",
-                fy2024_value="—",
+                current_year_value="—",
+                prior_year_value="—",
                 status="NOT_FOUND",
             ))
-            continue
-
-        # Get values
-        fy2025, fy2024 = _get_value_cells(row)
-
-        # Get structural context
-        dom_path = _format_dom_path(q, row)
-        section_node = row.section
-        table_node = row.table
-
-        status = "FOUND" if fy2025 else "PARTIAL"
-
-        results.append(ExtractionResult(
-            variable=var_name,
-            dom_path=dom_path,
-            depth=row.depth,
-            node_id=row.id,
-            section=section_node.text[:60] if section_node else "—",
-            table_id=table_node.id if table_node else "—",
-            row_id=row.id,
-            fy2025_value=fy2025,
-            fy2024_value=fy2024,
-            status=status,
-        ))
 
     return results
+
+
+# ---------------------------------------------------------------------------
+# Duplicate detection
+# ---------------------------------------------------------------------------
+
+def _report_duplicates(
+    results: list[ExtractionResult],
+    log: logging.Logger,
+) -> dict[str, list[str]]:
+    """Detect variables found in multiple files and log them.
+
+    Returns a dict mapping variable name → list of source files.
+    """
+    var_files: dict[str, list[str]] = defaultdict(list)
+    for r in results:
+        if r.status != "NOT_FOUND":
+            var_files[r.variable].append(r.source_file)
+
+    duplicates = {v: files for v, files in var_files.items() if len(files) > 1}
+
+    if duplicates:
+        log.info("")
+        log.info("⚠️  Duplicate variables found across files:")
+        for var, files in duplicates.items():
+            file_list = ", ".join(files)
+            log.info("    %-40s → %s", var, file_list)
+    else:
+        log.info("")
+        log.info("✅  No duplicate variables across files.")
+
+    return duplicates
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +352,7 @@ def _export_xlsx(results: list[ExtractionResult], output_path: Path) -> Path:
     found_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
     partial_fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
     not_found_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+    dup_fill = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid")
     thin_border = Border(
         left=Side(style="thin"),
         right=Side(style="thin"),
@@ -284,9 +361,9 @@ def _export_xlsx(results: list[ExtractionResult], output_path: Path) -> Path:
     )
 
     # --- Title row ---
-    ws.merge_cells("A1:I1")
+    ws.merge_cells("A1:J1")
     title_cell = ws["A1"]
-    title_cell.value = "DOM Learning Engine — Extraction Test Results"
+    title_cell.value = "DOM Learning Engine — Multi-File Extraction Test Results"
     title_cell.font = Font(name="Calibri", bold=True, size=14, color="2F5496")
     title_cell.alignment = Alignment(horizontal="center")
 
@@ -295,10 +372,11 @@ def _export_xlsx(results: list[ExtractionResult], output_path: Path) -> Path:
 
     # --- Headers ---
     headers = [
+        "Source File",
         "Variable",
         "Status",
-        "FY2025 Value",
-        "FY2024 Value",
+        "Current Year Value",
+        "Prior Year Value",
         "DOM Depth",
         "Node ID",
         "Section",
@@ -313,13 +391,22 @@ def _export_xlsx(results: list[ExtractionResult], output_path: Path) -> Path:
         cell.alignment = Alignment(horizontal="center", wrap_text=True)
         cell.border = thin_border
 
+    # --- Detect duplicates for highlighting ---
+    dup_vars: set[str] = set()
+    var_counts: dict[str, int] = defaultdict(int)
+    for r in results:
+        if r.status != "NOT_FOUND":
+            var_counts[r.variable] += 1
+    dup_vars = {v for v, c in var_counts.items() if c > 1}
+
     # --- Data rows ---
     for i, r in enumerate(results, start=4):
         row_data = [
+            r.source_file,
             r.variable,
             r.status,
-            r.fy2025_value,
-            r.fy2024_value,
+            r.current_year_value,
+            r.prior_year_value,
             r.depth,
             r.node_id,
             r.section,
@@ -329,13 +416,17 @@ def _export_xlsx(results: list[ExtractionResult], output_path: Path) -> Path:
         ws.append(row_data)
 
         # status coloring
-        status_cell = ws.cell(row=i, column=2)
+        status_cell = ws.cell(row=i, column=3)
         if r.status == "FOUND":
             status_cell.fill = found_fill
         elif r.status == "PARTIAL":
             status_cell.fill = partial_fill
         else:
             status_cell.fill = not_found_fill
+
+        # highlight duplicates
+        if r.variable in dup_vars and r.status != "NOT_FOUND":
+            ws.cell(row=i, column=2).fill = dup_fill
 
         for col_idx in range(1, len(headers) + 1):
             cell = ws.cell(row=i, column=col_idx)
@@ -356,9 +447,24 @@ def _export_xlsx(results: list[ExtractionResult], output_path: Path) -> Path:
     ws.cell(row=summary_row + 2, column=1).fill = partial_fill
     ws.cell(row=summary_row + 3, column=1, value=f"Not Found: {not_found}/{len(results)}")
     ws.cell(row=summary_row + 3, column=1).fill = not_found_fill
+    ws.cell(row=summary_row + 4, column=1, value=f"Duplicates: {len(dup_vars)} variable(s)")
+    ws.cell(row=summary_row + 4, column=1).fill = dup_fill
+
+    # --- Per-file breakdown ---
+    file_stats_row = summary_row + 6
+    ws.cell(row=file_stats_row, column=1, value="Per-File Breakdown").font = Font(bold=True)
+    source_files = sorted({r.source_file for r in results if r.source_file != "—"})
+    for idx, sf in enumerate(source_files):
+        sf_found = sum(1 for r in results if r.source_file == sf and r.status == "FOUND")
+        sf_partial = sum(1 for r in results if r.source_file == sf and r.status == "PARTIAL")
+        sf_total = sum(1 for r in results if r.source_file == sf)
+        ws.cell(
+            row=file_stats_row + 1 + idx, column=1,
+            value=f"{sf}: {sf_found} found, {sf_partial} partial (of {sf_total} matches)",
+        )
 
     # --- Column widths ---
-    col_widths = [35, 12, 18, 18, 10, 12, 40, 12, 80]
+    col_widths = [35, 35, 12, 18, 18, 10, 12, 40, 12, 80]
     for i, width in enumerate(col_widths, start=1):
         ws.column_dimensions[chr(64 + i)].width = width
 
@@ -374,12 +480,14 @@ def _export_csv(results: list[ExtractionResult], output_path: Path) -> Path:
     with output_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow([
-            "Variable", "Status", "FY2025 Value", "FY2024 Value",
+            "Source File", "Variable", "Status",
+            "Current Year Value", "Prior Year Value",
             "DOM Depth", "Node ID", "Section", "Table ID", "DOM Path",
         ])
         for r in results:
             writer.writerow([
-                r.variable, r.status, r.fy2025_value, r.fy2024_value,
+                r.source_file, r.variable, r.status,
+                r.current_year_value, r.prior_year_value,
                 r.depth, r.node_id, r.section, r.table_id, r.dom_path,
             ])
     return output_path
@@ -398,40 +506,76 @@ def main() -> None:
     log = logging.getLogger("dom_learner.test")
 
     log.info("=" * 70)
-    log.info("   DOM Extraction Test — 10 Variables")
+    log.info("   DOM Extraction Test — Multi-File (%d Variables)", len(VARIABLES))
     log.info("=" * 70)
 
-    # Build DOM
-    log.info("Building DOM from %s...", _DEFAULT_INPUT.name)
-    t0 = time.perf_counter()
-    document = DOMBuilder().build(_DEFAULT_INPUT)
-    q = DOMQuery(document)
-    log.info("DOM built in %.3fs (%d nodes)", time.perf_counter() - t0, sum(q.summary().values()))
+    # --- Discover all .md files ---
+    md_files = sorted(_OCR_OUTPUT_DIR.glob("*.md"))
+    if not md_files:
+        log.error("No .md files found in %s", _OCR_OUTPUT_DIR)
+        sys.exit(1)
 
-    # Extract variables
-    log.info("")
-    log.info("Extracting %d variables...", len(VARIABLES))
-    log.info("-" * 70)
-    results = extract_variables(q)
+    log.info("Found %d .md file(s) in %s:", len(md_files), _OCR_OUTPUT_DIR.name)
+    for f in md_files:
+        log.info("    • %s", f.name)
 
-    # Print results to console
-    for r in results:
-        icon = "✅" if r.status == "FOUND" else ("⚠️" if r.status == "PARTIAL" else "❌")
+    # --- Build DOM for each file ---
+    dom_queries: dict[str, DOMQuery] = {}
+    builder = DOMBuilder()
+
+    for md_file in md_files:
+        log.info("")
+        log.info("Building DOM from %s...", md_file.name)
+        t0 = time.perf_counter()
+        document = builder.build(md_file)
+        q = DOMQuery(document)
+        dom_queries[md_file.name] = q
         log.info(
-            "  %s %-40s FY2025=%-15s FY2024=%-15s [%s]",
-            icon, r.variable, r.fy2025_value or "—", r.fy2024_value or "—", r.node_id,
+            "  DOM built in %.3fs (%d nodes)",
+            time.perf_counter() - t0,
+            sum(q.summary().values()),
         )
 
-    # Summary
+        # --- Save DOM tree to JSON ---
+        _DEFAULT_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
+        dom_json_path = _DEFAULT_OUTPUT.parent / f"{md_file.stem}.dom.json"
+        with dom_json_path.open("w", encoding="utf-8") as f:
+            json.dump(document.to_dict(), f, indent=2)
+        log.info("  Saved DOM tree to %s", dom_json_path.name)
+
+    # --- Extract variables across all DOMs ---
+    log.info("")
+    log.info("Extracting %d variables across %d DOM(s)...", len(VARIABLES), len(dom_queries))
+    log.info("-" * 70)
+    results = extract_variables(dom_queries)
+
+    # --- Print results to console ---
+    for r in results:
+        icon = "✅" if r.status == "FOUND" else ("⚠️" if r.status == "PARTIAL" else "❌")
+        src = r.source_file if r.source_file != "—" else "(none)"
+        log.info(
+            "  %s %-40s CY=%-15s PY=%-15s [%s] ← %s",
+            icon, r.variable,
+            r.current_year_value or "—",
+            r.prior_year_value or "—",
+            r.node_id, src,
+        )
+
+    # --- Duplicate report ---
+    _report_duplicates(results, log)
+
+    # --- Summary ---
     found = sum(1 for r in results if r.status == "FOUND")
     partial = sum(1 for r in results if r.status == "PARTIAL")
     not_found = sum(1 for r in results if r.status == "NOT_FOUND")
 
     log.info("-" * 70)
-    log.info("  ✅ Found: %d/%d   ⚠️ Partial: %d/%d   ❌ Not Found: %d/%d",
-             found, len(results), partial, len(results), not_found, len(results))
+    log.info(
+        "  ✅ Found: %d/%d   ⚠️ Partial: %d/%d   ❌ Not Found: %d/%d",
+        found, len(results), partial, len(results), not_found, len(results),
+    )
 
-    # Export to Excel
+    # --- Export to Excel ---
     log.info("")
     output_path = _export_excel(results, _DEFAULT_OUTPUT)
     log.info("Exported results → %s", output_path)
