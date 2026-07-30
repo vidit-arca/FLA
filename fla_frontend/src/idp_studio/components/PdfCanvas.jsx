@@ -87,23 +87,29 @@ export default function PdfCanvas({ onDocumentUpload, onRegionSelect, isExtracti
       const width = Math.abs(selectionRect.startX - selectionRect.currentX);
       const height = Math.abs(selectionRect.startY - selectionRect.currentY);
       
-      // Only extract if the box is reasonably sized (prevent accidental clicks)
-      if (width > 10 && height > 10) {
-          const normalizedBox = {
-              x: left / rect.width,
-              y: top / rect.height,
-              w: width / rect.width,
-              h: height / rect.height
-          };
-          
+      // Handle both Drag Selection (>10px) AND 1-Click Selection (<=10px)
+      const isSingleClick = width <= 10 && height <= 10;
+      
+      const normalizedBox = {
+          x: left / rect.width,
+          y: top / rect.height,
+          w: isSingleClick ? 0.01 : width / rect.width,
+          h: isSingleClick ? 0.01 : height / rect.height
+      };
+      
+      if (isSingleClick && onRegionSelect) {
+          // 1-Click Row Resolver: Single click automatically resolves row label + value
+          const clickPoint = normalizedBox;
+          onRegionSelect(pageNumber, clickPoint, clickPoint);
+          setMappingStep('idle');
+          setAnchorRectSaved(null);
+      } else if (width > 10 && height > 10) {
           if (mappingStep === 'anchor') {
               setAnchorRectSaved(normalizedBox);
               setMappingStep('value');
           } else if (mappingStep === 'value' && onRegionSelect) {
               const valueRect = normalizedBox;
               onRegionSelect(pageNumber, anchorRectSaved, valueRect);
-              
-              // Reset
               setMappingStep('idle');
               setAnchorRectSaved(null);
           }

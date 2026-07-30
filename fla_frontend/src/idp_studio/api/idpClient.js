@@ -13,18 +13,79 @@ export const idpClient = {
         }
     },
     
-    saveRule: async (ruleData) => {
-        // ruleData: { template_name, form_field, extracted_key }
+    saveRuleWithDom: async (ruleData, pdfFile) => {
         try {
-            const response = await axios.post(`${API_BASE_URL}/rules`, ruleData);
+            const formData = new FormData();
+            formData.append("template_name", ruleData.template_name);
+            formData.append("form_field", ruleData.form_field);
+            formData.append("extracted_key", ruleData.extracted_key);
+            if (ruleData.spatial_meta) {
+                formData.append("spatial_meta", JSON.stringify(ruleData.spatial_meta));
+            }
+            if (pdfFile) {
+                formData.append("file", pdfFile);
+            }
+            const response = await axios.post(`${API_BASE_URL}/rules_with_dom`, formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
             return response.data;
         } catch (error) {
-            console.error('Error saving IDP schema rule:', error);
+            console.error('Error saving rule with DOM learning:', error);
             throw error;
         }
     },
     
+    saveRulesBatch: async (templateName, mappedRules, pdfFile) => {
+        try {
+            const formData = new FormData();
+            formData.append("template_name", templateName);
+            formData.append("rules_json", JSON.stringify(mappedRules));
+            if (pdfFile) {
+                formData.append("file", pdfFile);
+            }
+            const response = await axios.post(`${API_BASE_URL}/rules_batch_save`, formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            return response.data;
+        } catch (error) {
+            console.error('Error saving batch rules:', error);
+            throw error;
+        }
+    },
+
+    testFlaEngine: async (extractedDataPayload) => {
+        try {
+            const response = await axios.post(`${API_BASE_URL}/test_fla_engine`, extractedDataPayload);
+            return response.data.computed_state;
+        } catch (error) {
+            console.error('Error testing FLA engine:', error);
+            throw error;
+        }
+    },
+
+    generateExcel: async (extractedDataPayload) => {
+        try {
+            const response = await axios.post(`${API_BASE_URL}/generate_excel`, extractedDataPayload, {
+                responseType: 'blob'
+            });
+            const blob = new Blob([response.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.setAttribute('download', 'FLA_Return_Populated.xlsx');
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+            return true;
+        } catch (error) {
+            console.error('Error generating Excel from IDP mappings:', error);
+            throw error;
+        }
+    },
+
     deleteRule: async (ruleId) => {
+
         try {
             const response = await axios.delete(`${API_BASE_URL}/rules/${ruleId}`);
             return response.data;
@@ -34,7 +95,20 @@ export const idpClient = {
         }
     },
     
+    processDocument: async (file) => {
+        try {
+            const formData = new FormData();
+            formData.append("file", file);
+            const response = await axios.post(`${API_BASE_URL}/process_document`, formData, { headers: {'Content-Type': 'multipart/form-data'} });
+            return response.data;
+        } catch (error) {
+            console.error('Error processing document OCR:', error);
+            throw error;
+        }
+    },
+
     extractDocument: async (file) => {
+
         try {
             const formData = new FormData();
             formData.append("file", file);
@@ -119,29 +193,12 @@ export const idpClient = {
         }
     },
     
-    extractSpatialRule: async (file, anchorRect, valueRect, page) => {
+    getStructuredDocument: async (filename) => {
         try {
-            const formData = new FormData();
-            formData.append("file", file);
-            
-            // Anchor coordinates
-            formData.append("anchor_x", anchorRect.x);
-            formData.append("anchor_y", anchorRect.y);
-            formData.append("anchor_w", anchorRect.w);
-            formData.append("anchor_h", anchorRect.h);
-            
-            // Value coordinates
-            formData.append("value_x", valueRect.x);
-            formData.append("value_y", valueRect.y);
-            formData.append("value_w", valueRect.w);
-            formData.append("value_h", valueRect.h);
-            
-            formData.append("page", page);
-            
-            const response = await axios.post(`${API_BASE_URL}/extract_spatial_rule`, formData, { headers: {'Content-Type': 'multipart/form-data'} });
-            return response.data.extracted_data;
+            const response = await axios.get(`${API_BASE_URL}/structured_document/${filename}`);
+            return response.data.structured_document;
         } catch (error) {
-            console.error('Error extracting spatial rule:', error);
+            console.error('Error fetching structured document:', error);
             throw error;
         }
     }

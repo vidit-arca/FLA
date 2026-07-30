@@ -7,21 +7,21 @@ export default function ExtractedDataSidebar({ extractedData, isExtracting, sele
   const mappedKeys = rules.map(r => r.extracted_key);
 
   return (
-    <div className="w-80 h-full bg-white dark:bg-[#1A2234] border-l border-slate-200 dark:border-white/10 flex flex-col shrink-0">
-      <div className="p-5 border-b border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-white/5">
+    <div className="w-full h-full bg-transparent flex flex-col shrink-0">
+      <div className="p-5 border-b border-white/5 bg-white/5">
         <div className="flex items-center gap-2 mb-2">
-            <Database className="w-5 h-5 text-indigo-500" />
-            <h2 className="text-lg font-bold text-slate-800 dark:text-white">PDF Data</h2>
+            <Database className="w-5 h-5 text-indigo-400" />
+            <h2 className="text-lg font-bold text-white">PDF Data</h2>
         </div>
-        <p className="text-xs text-slate-500">Auto-extracted values from the document. Select one to map it.</p>
+        <p className="text-xs text-slate-400 font-medium">Auto-extracted values from the document. Select one to map it.</p>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {isExtracting ? (
-            <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-3">
-                <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-                <p className="text-sm font-medium">Extracting data from PDF...</p>
-            </div>
+            <div className="flex flex-col items-center justify-center h-full text-slate-400">
+            <Loader2 className="w-6 h-6 animate-spin text-indigo-400 mb-2" />
+            <span className="text-sm font-medium">Processing Document...</span>
+          </div>
         ) : extractedData.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-slate-400 text-center px-4">
                 <p className="text-sm">Upload a PDF to automatically extract its key-value pairs.</p>
@@ -32,27 +32,38 @@ export default function ExtractedDataSidebar({ extractedData, isExtracting, sele
                 const isMapped = mappedKeys.includes(item.key);
                 
                 return (
-                    <div 
-                        key={idx}
-                        onClick={() => {
-                            if (!isMapped) setSelectedExtractedData(isSelected ? null : item);
-                        }}
-                        className={`p-3 rounded-lg border transition-all ${
-                            isMapped 
-                                ? 'bg-slate-100 dark:bg-white/5 border-slate-200 dark:border-white/10 opacity-60 cursor-not-allowed'
-                                : isSelected 
-                                    ? 'bg-indigo-600 border-indigo-600 shadow-md text-white' 
-                                    : 'bg-white dark:bg-transparent border-slate-200 dark:border-white/10 cursor-pointer hover:border-indigo-300 dark:hover:border-indigo-500/50 hover:shadow-sm'
-                        }`}
-                    >
-                        <div className="flex flex-col gap-1.5">
-                            <div className="flex justify-between items-start">
-                                <span className={`text-xs font-bold uppercase ${isSelected ? 'text-indigo-100' : 'text-slate-500'}`}>{item.key}</span>
-                                {isMapped && <span className="text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded">MAPPED</span>}
-                            </div>
-                            <span className={`text-lg font-bold tracking-tight ${isSelected ? 'text-white' : 'text-slate-800 dark:text-white'}`}>{item.value}</span>
-                        </div>
+                  <div 
+                    key={idx} 
+                    onClick={() => !isMapped && setSelectedExtractedData(item)}
+                    className={`p-4 rounded-xl border transition-all duration-200 ${
+                      isMapped 
+                        ? 'border-emerald-500/30 bg-emerald-500/5 cursor-default' 
+                        : isSelected 
+                            ? 'border-indigo-400 bg-indigo-500/10 shadow-[0_0_15px_rgba(99,102,241,0.2)] transform scale-[1.02]'
+                            : 'border-white/5 bg-black/10 hover:border-white/10 hover:bg-black/20 cursor-pointer'
+                    }`}
+                  >
+                    <div className="flex flex-col gap-1.5">
+                      <span className={`text-[10px] font-bold uppercase tracking-wider block truncate ${
+                        isMapped ? 'text-emerald-400' : isSelected ? 'text-indigo-400' : 'text-slate-400'
+                      }`} title={item.key}>
+                        {item.key}
+                      </span>
+                      
+                      <span className={`text-sm font-medium ${
+                        isMapped ? 'text-slate-300' : 'text-white'
+                      }`}>
+                        {item.value}
+                      </span>
                     </div>
+                    
+                    {isMapped && (
+                      <div className="mt-3 flex items-center gap-1.5">
+                          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+                          <span className="text-xs text-emerald-400 font-medium">Mapped</span>
+                      </div>
+                    )}
+                  </div>
                 );
             })
         )}
