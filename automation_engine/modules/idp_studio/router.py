@@ -376,64 +376,8 @@ def _looks_like_number(val: str) -> bool:
     return bool(cleaned and cleaned.isdigit())
 
 
-def _find_best_row_for_variable(q, label: str, target_y: float = None):
-    """
-    Finds the most reliable RowNode in the DOM for a given financial line item label.
-    Uses token overlap scoring and vertical position ratio target_y to intersect pre-built DOM nodes.
-    Returns the best RowNode or None.
-    """
-    try:
-        from dom_learner.models import NodeType
-        label_clean = label.strip().lower()
-        # Extract meaningful word tokens (ignoring numbers and 1-2 letter noise)
-        tokens = [w for w in label_clean.split() if len(w) >= 3 and not w.isdigit()]
-
-        all_rows = q.find_all(NodeType.ROW)
-        if not all_rows:
-            return None
-
-        best_row = None
-        best_score = -999.0
-
-        for idx, row in enumerate(all_rows):
-            row_text_lower = row.text.lower()
-            cells = [c for c in row.children if c.node_type == NodeType.CELL]
-            numeric_cells = [c for c in cells if _looks_like_number(c.text.strip())]
-
-            score = 0.0
-
-            # Token overlap scoring
-            if tokens:
-                matched_count = sum(1 for t in tokens if t in row_text_lower)
-                overlap_ratio = matched_count / len(tokens)
-                score += overlap_ratio * 60.0
-
-            # Vertical position proximity scoring
-            if target_y is not None and len(all_rows) > 0:
-                row_rel_y = idx / float(len(all_rows))
-                y_dist = abs(row_rel_y - target_y)
-                # Give high bonus to rows within 10% vertical distance
-                score += max(0.0, (1.0 - y_dist * 4.0)) * 30.0
-
-            # Table row with numbers bonus
-            if len(numeric_cells) >= 1:
-                score += 10.0
-
-            # Exact match bonus
-            if label_clean == row_text_lower:
-                score += 40.0
-
-            if score > best_score:
-                best_score = score
-                best_row = row
-
-        # Only return row if it achieved a solid confidence threshold
-        if best_score >= 15.0:
-            return best_row
-        return None
-    except Exception as e:
-        print(f"[DOM] Scoring error: {e}")
-        return None
+# _find_best_row_for_variable removed — replaced by q.find_row() from dom_learner engine.
+# dom_learner's find_row() uses exact label substring match which is more accurate.
 
 
 
@@ -480,7 +424,8 @@ def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_nam
         if q is None:
             return None, None
 
-        best_row = _find_best_row_for_variable(q, variable_name)
+        _matches = q.find_row(variable_name)
+        best_row = _matches[0] if _matches else None
         if best_row is None:
             return None, None
 
@@ -665,10 +610,11 @@ async def save_rules_batch(
             ))
         saved_count += 1
 
-        # Learn DOM structural path
+        # Learn DOM structural path using dom_learner's find_row (exact label match)
         if q and extracted_key:
             try:
-                best_row = _find_best_row_for_variable(q, extracted_key)
+                _matches = q.find_row(extracted_key)
+                best_row = _matches[0] if _matches else None
                 if best_row:
                     path = q.get_structural_path(best_row)
                     dom_path_str = python_json.dumps(path)
@@ -789,7 +735,8 @@ async def save_rule_with_dom(
                     q = _get_dom_query_from_markdown(full_markdown)
 
             if q:
-                best_row = _find_best_row_for_variable(q, extracted_key)
+                _matches = q.find_row(extracted_key)
+                best_row = _matches[0] if _matches else None
                 if best_row:
                     path = q.get_structural_path(best_row)
                     dom_path_str = python_json.dumps(path)
