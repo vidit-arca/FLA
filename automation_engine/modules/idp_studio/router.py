@@ -376,45 +376,55 @@ def _looks_like_number(val: str) -> bool:
     return bool(cleaned and cleaned.isdigit())
 
 
-# _find_best_row_for_variable removed — replaced by q.find_row() from dom_learner engine.
-# dom_learner's find_row() uses exact label substring match which is more accurate.
-
-
-
-def _extract_value_from_dom_row(row) -> str:
+def _extract_value_from_dom_node(node) -> str:
     """
-    Given a matched RowNode, extract the most recent year's numeric value (last 2nd numeric cell).
-    Returns the value string or empty string.
+    Extracts value from a matched DOM node (supports table rows and text/paragraph lines with colons).
     """
-    try:
+    if not node:
+        return ""
+    
+    text = (getattr(node, 'text', '') or '').strip()
+    
+    # 1. If line contains colon or hyphen delimiter (e.g. "PAN Number : AALCB0387K" or "CIN Number : U85100TN2022PTC154992")
+    if ':' in text or ' - ' in text:
+        delimiter = ':' if ':' in text else ' - '
+        parts = text.split(delimiter)
+        if len(parts) >= 2:
+            val = parts[-1].strip()
+            if val:
+                return val
+
+    # 2. If it's a table row with cells
+    if hasattr(node, 'children') and node.children:
         from dom_learner.models import NodeType
-        cells = [c for c in row.children if c.node_type == NodeType.CELL]
-        numeric_cells = [c for c in cells if _looks_like_number(c.text.strip())]
-        if len(numeric_cells) >= 2:
-            return numeric_cells[-2].text.strip()
-        elif len(numeric_cells) == 1:
-            return numeric_cells[0].text.strip()
-    except Exception as e:
-        print(f"[DOM] Value extraction error: {e}")
-    return ""
+        cells = [c for c in node.children if hasattr(c, 'node_type') and c.node_type == NodeType.CELL]
+        if cells:
+            numeric_cells = [c for c in cells if _looks_like_number(c.text.strip())]
+            if len(numeric_cells) >= 2:
+                return numeric_cells[-2].text.strip()
+            elif len(numeric_cells) == 1:
+                return numeric_cells[0].text.strip()
+            elif len(cells) >= 2:
+                return cells[-1].text.strip()
+
+    # 3. Fallback to text
+    return text
 
 
 def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_name: str):
     """
     Tier 1 extraction: Attempts to extract a value for a variable_name using saved DOM rules.
-    Steps:
-      1. Check DB for a saved DomExtractionRule for this template + variable.
-      2. Build DOM from OCR markdown.
-      3. Use find_best_row_for_variable() to find the row.
-      4. Extract the numeric value from the row.
-      5. Increment success_count on the rule.
+    Navigates via saved dom_path JSON and handles both table cells and text sentences.
     Returns (value_str, dom_path_json) or (None, None).
     """
     try:
+        clean_var = variable_name.strip().lower()
+        import json as python_json
+
         # Check if we have a DOM rule for this variable
         dom_rule = db.query(models.DomExtractionRule).filter(
             models.DomExtractionRule.template_name == template_name,
-            models.DomExtractionRule.variable_name.ilike(f"%{variable_name.strip()}%")
+            models.DomExtractionRule.variable_name.ilike(f"%{clean_var}%")
         ).order_by(models.DomExtractionRule.success_count.desc()).first()
 
         if not dom_rule:
@@ -424,12 +434,32 @@ def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_nam
         if q is None:
             return None, None
 
-        _matches = q.find_row(variable_name)
-        best_row = _matches[0] if _matches else None
-        if best_row is None:
+        matched_node = None
+
+        # Search for node containing clean_var key text
+        if hasattr(q, '_root') and q._root and hasattr(q._root, 'get_all_nodes'):
+            for n in q._root.get_all_nodes():
+                n_text = (getattr(n, 'text', '') or '').lower()
+                if clean_var in n_text:
+                    matched_node = n
+                    break
+
+        if not matched_node and hasattr(q, 'find_all'):
+            from dom_learner.models import NodeType
+            for n_type in [NodeType.PARAGRAPH, NodeType.ROW, NodeType.HEADING, NodeType.CELL]:
+                nodes = q.find_all(n_type)
+                for n in nodes:
+                    n_text = (getattr(n, 'text', '') or '').lower()
+                    if clean_var in n_text:
+                        matched_node = n
+                        break
+                if matched_node:
+                    break
+
+        if not matched_node:
             return None, None
 
-        value = _extract_value_from_dom_row(best_row)
+        value = _extract_value_from_dom_node(matched_node)
         if not value:
             return None, None
 
@@ -567,7 +597,7 @@ async def save_rules_batch(
     saved_count = 0
     dom_saved_count = 0
 
-    # 1. Fetch pre-built DOM Query from DOCUMENT_DOM_CACHE if available
+    # 1. Fetch pre-built DOM Query from DOCUMENT_DOM_CACHE if available, or build on-the-fly
     q = None
     if file and file.filename:
         if file.filename in DOCUMENT_DOM_CACHE:
@@ -579,6 +609,24 @@ async def save_rules_batch(
                     q = cache_entry.get("query")
                     print(f"[Batch Save] Using cached pre-built DOM tree (fuzzy match) for '{file.filename}'")
                     break
+
+        # Fallback: If cache missed (e.g. server restarted), build DOM on-the-fly via Triton OCR!
+        if not q:
+            try:
+                pdf_bytes = await file.read()
+                full_text = _run_triton_ocr_on_pdf_bytes(pdf_bytes)
+                if not full_text:
+                    try:
+                        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                            full_text = "\n".join(p.extract_text() or "" for p in pdf.pages if p.extract_text()).strip()
+                    except Exception:
+                        pass
+                if full_text:
+                    q = _get_dom_query_from_markdown(full_text)
+                    DOCUMENT_DOM_CACHE[file.filename] = {"markdown": full_text, "query": q}
+                    print(f"[Batch Save] Built DOM tree on-the-fly via Triton OCR for '{file.filename}'")
+            except Exception as e:
+                print(f"[Batch Save] Error building DOM tree on-the-fly: {e}")
 
     for item in mapped_rules:
         form_field = item.get("form_field")
@@ -610,31 +658,54 @@ async def save_rules_batch(
             ))
         saved_count += 1
 
-        # Learn DOM structural path using dom_learner's find_row (exact label match)
+        # Learn DOM structural path using dom_learner
         if q and extracted_key:
             try:
-                _matches = q.find_row(extracted_key)
-                best_row = _matches[0] if _matches else None
-                if best_row:
-                    path = q.get_structural_path(best_row)
-                    dom_path_str = python_json.dumps(path)
+                best_row = None
+                # Try exact row match first
+                _matches = q.find_row(extracted_key) if hasattr(q, 'find_row') else []
+                if _matches:
+                    best_row = _matches[0]
+                else:
+                    # Robust fallback: search all DOM nodes (rows, paragraphs, headings, cells)
+                    clean_key = extracted_key.strip().lower()
+                    if hasattr(q, '_root') and q._root and hasattr(q._root, 'get_all_nodes'):
+                        for n in q._root.get_all_nodes():
+                            if hasattr(n, 'text') and n.text and clean_key in n.text.lower():
+                                best_row = n
+                                break
+                    if not best_row and hasattr(q, 'find_all'):
+                        from dom_learner.models import NodeType
+                        for n_type in [NodeType.ROW, NodeType.PARAGRAPH, NodeType.HEADING, NodeType.CELL]:
+                            nodes = q.find_all(n_type)
+                            for n in nodes:
+                                if clean_key in (n.text or '').lower():
+                                    best_row = n
+                                    break
+                            if best_row:
+                                break
 
-                    existing_dom = db.query(models.DomExtractionRule).filter(
-                        models.DomExtractionRule.template_name == template_name,
-                        models.DomExtractionRule.variable_name == extracted_key
-                    ).first()
-                    if existing_dom:
-                        existing_dom.dom_path = dom_path_str
-                        existing_dom.created_at = datetime.datetime.utcnow()
-                    else:
-                        db.add(models.DomExtractionRule(
-                            rule_id=str(uuid.uuid4()),
-                            template_name=template_name,
-                            variable_name=extracted_key,
-                            dom_path=dom_path_str,
-                            success_count=0
-                        ))
-                    dom_saved_count += 1
+                if best_row:
+                    path = q.get_structural_path(best_row) if hasattr(q, 'get_structural_path') else None
+                    if path:
+                        dom_path_str = python_json.dumps(path)
+
+                        existing_dom = db.query(models.DomExtractionRule).filter(
+                            models.DomExtractionRule.template_name == template_name,
+                            models.DomExtractionRule.variable_name == extracted_key
+                        ).first()
+                        if existing_dom:
+                            existing_dom.dom_path = dom_path_str
+                            existing_dom.created_at = datetime.datetime.utcnow()
+                        else:
+                            db.add(models.DomExtractionRule(
+                                rule_id=str(uuid.uuid4()),
+                                template_name=template_name,
+                                variable_name=extracted_key,
+                                dom_path=dom_path_str,
+                                success_count=0
+                            ))
+                        dom_saved_count += 1
             except Exception as dom_err:
                 print(f"[Batch Save] Failed DOM learning for '{extracted_key}': {dom_err}")
 
@@ -889,20 +960,22 @@ async def extract_batch_documents(
 
             # --- TIER 1: DOM-based extraction for each mapped form field ---
             if schema_rules:
-                # Get full text for DOM (pdfplumber first, then OCR)
+                # Get structured text for DOM (pdfplumber digital layer first, then Triton OCR for scanned PDFs)
                 full_text = ""
                 try:
                     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-                        full_text = "\n".join(
-                            p.extract_text() or "" for p in pdf.pages
-                        ).strip()
+                        full_text = "\n\n".join(
+                            line for p in pdf.pages for line in (p.extract_text() or "").split('\n') if line.strip()
+                        )
                 except Exception:
                     pass
 
-                # If no digital text, run Triton OCR for DOM
                 if not full_text:
-                    print(f"[Batch][DOM] No digital text in {filename}, running Triton OCR...")
-                    full_text = _run_triton_ocr_on_pdf_bytes(pdf_bytes)
+                    try:
+                        print(f"[Batch][DOM] No digital text in {filename}, running Triton OCR...")
+                        full_text = _run_triton_ocr_on_pdf_bytes(pdf_bytes)
+                    except Exception as ocr_err:
+                        print(f"[Batch][DOM] Triton OCR failed: {ocr_err}")
 
                 if full_text:
                     q = _get_dom_query_from_markdown(full_text)

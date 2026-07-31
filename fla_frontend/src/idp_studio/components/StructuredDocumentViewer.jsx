@@ -98,8 +98,34 @@ export default function StructuredDocumentViewer({ pdfFile, onPairExtracted }) {
         }
     };
 
+    const handleTextClick = (textNode, parentNode) => {
+        const text = (textNode.text || '').trim();
+        // Check if sentence/line has key-value delimiter like '2. PAN Number : AALCB0387K'
+        if (text.includes(':') || text.includes(' - ')) {
+            const delimiter = text.includes(':') ? ':' : ' - ';
+            const parts = text.split(delimiter);
+            let rawKey = parts[0].trim();
+            let rawVal = parts.slice(1).join(delimiter).trim();
+            // Clean up leading numbers like "2. PAN Number" -> "PAN Number"
+            rawKey = rawKey.replace(/^[\d\.\-\s]+/, '').trim() || rawKey;
+            
+            if (onPairExtracted && rawKey && rawVal) {
+                onPairExtracted(pdfFile, { key: rawKey, value: rawVal });
+                setPendingKeyNode(null);
+                setSuggestedValueNode(null);
+                return;
+            }
+        }
+
+        // Fallback to standard 2-click key-value selection
+        handleCellClick(textNode, parentNode);
+    };
+
     const renderNode = (node, parentNode = null) => {
         if (!node) return null;
+
+        const isKey = pendingKeyNode?.id === node.id;
+        const isSuggestion = suggestedValueNode?.id === node.id;
 
         switch (node.type) {
             case 'document':
@@ -112,13 +138,34 @@ export default function StructuredDocumentViewer({ pdfFile, onPairExtracted }) {
             case 'heading':
                 const HTag = `h${Math.min(Math.max(node.metadata?.level || 2, 1), 6)}`;
                 return (
-                    <HTag key={node.id} className="text-xl font-bold mt-6 mb-4 text-slate-800 dark:text-slate-100">
+                    <HTag 
+                        key={node.id} 
+                        className={`text-xl font-bold mt-6 mb-4 cursor-pointer p-2 rounded transition-all duration-200 ${
+                            isKey ? "bg-indigo-600 text-white" : "text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/10"
+                        }`}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            handleTextClick(node, parentNode);
+                        }}
+                    >
                         {node.text}
                     </HTag>
                 );
             case 'paragraph':
                 return (
-                    <p key={node.id} className="mb-4 text-slate-600 dark:text-slate-300">
+                    <p 
+                        key={node.id} 
+                        className={`mb-3 p-2.5 rounded-lg cursor-pointer font-mono text-sm border border-transparent transition-all duration-200 ${
+                            isKey 
+                                ? "bg-indigo-600 text-white shadow-md font-semibold" 
+                                : "text-slate-700 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 hover:border-indigo-200 dark:hover:border-indigo-500/30"
+                        }`}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            handleTextClick(node, parentNode);
+                        }}
+                        title="Click to extract sentence or pair"
+                    >
                         {node.text}
                     </p>
                 );
@@ -145,9 +192,6 @@ export default function StructuredDocumentViewer({ pdfFile, onPairExtracted }) {
                     </tr>
                 );
             case 'cell':
-                const isKey = pendingKeyNode?.id === node.id;
-                const isSuggestion = suggestedValueNode?.id === node.id;
-                
                 let cellClass = "px-6 py-3 font-medium cursor-pointer transition-all duration-200 border-2 border-transparent ";
                 if (isKey) {
                     cellClass += "bg-indigo-600 text-white dark:bg-indigo-500 shadow-md transform scale-[1.02] z-10 relative";
@@ -177,7 +221,16 @@ export default function StructuredDocumentViewer({ pdfFile, onPairExtracted }) {
                 );
             case 'list_item':
                 return (
-                    <li key={node.id} className="mb-1">
+                    <li 
+                        key={node.id} 
+                        className={`mb-1.5 p-2 rounded cursor-pointer transition-all duration-200 ${
+                            isKey ? "bg-indigo-600 text-white" : "hover:bg-slate-100 dark:hover:bg-white/10"
+                        }`}
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            handleTextClick(node, parentNode);
+                        }}
+                    >
                         {node.text}
                     </li>
                 );
