@@ -175,6 +175,7 @@ export default function IdpStudio() {
       template_name: templateName,
       form_field: formFieldId,
       extracted_key: selectedExtractedData.key,
+      extracted_value: selectedExtractedData.value,
       spatial_meta: selectedExtractedData._spatial_meta
     };
 

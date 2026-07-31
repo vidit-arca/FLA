@@ -376,9 +376,10 @@ def _looks_like_number(val: str) -> bool:
     return bool(cleaned and cleaned.isdigit())
 
 
-def _extract_value_from_dom_node(node) -> str:
+def _extract_value_from_dom_node(node, target_col_index: Optional[int] = None) -> str:
     """
     Extracts value from a matched DOM node (supports table rows and text/paragraph lines with colons).
+    If target_col_index is specified, extracts the cell at that exact column index.
     """
     if not node:
         return ""
@@ -397,8 +398,11 @@ def _extract_value_from_dom_node(node) -> str:
     # 2. If it's a table row with cells
     if hasattr(node, 'children') and node.children:
         from dom_learner.models import NodeType
-        cells = [c for c in node.children if hasattr(c, 'node_type') and c.node_type == NodeType.CELL]
+        cells = [c for c in node.children if hasattr(c, 'node_type') and str(c.node_type).endswith('CELL')]
         if cells:
+            if target_col_index is not None and 0 <= target_col_index < len(cells):
+                return cells[target_col_index].text.strip()
+
             numeric_cells = [c for c in cells if _looks_like_number(c.text.strip())]
             if len(numeric_cells) >= 2:
                 return numeric_cells[-2].text.strip()
@@ -435,18 +439,71 @@ def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_nam
             return None, None
 
         matched_node = None
+        target_col_index = None
 
-        # Search for node containing clean_var key text
-        if hasattr(q, '_root') and q._root and hasattr(q._root, 'get_all_nodes'):
-            for n in q._root.get_all_nodes():
-                n_text = (getattr(n, 'text', '') or '').lower()
-                if clean_var in n_text:
-                    matched_node = n
-                    break
+        # Tier A: Try navigating via saved dom_path JSON if present
+        if dom_rule.dom_path:
+            try:
+                path_list = python_json.loads(dom_rule.dom_path)
+                if path_list and isinstance(path_list, list) and len(path_list) > 0:
+                    last_path_item = path_list[-1]
+                    target_col_index = last_path_item.get("col_index")
+
+                    if hasattr(q, '_root') and q._root:
+                        current_node = q._root
+                        # True structural traversal: Walk down the tree following the path steps
+                        for step_idx, step in enumerate(path_list):
+                            step_type = (step.get("type") or "").lower()
+                            
+                            # Skip the Document node step if we are already at it
+                            if step_idx == 0 and step_type == "document":
+                                continue
+                                
+                            best_child = None
+                            if hasattr(current_node, 'children') and current_node.children:
+                                for child in current_node.children:
+                                    child_type_str = str(getattr(child, 'node_type', '')).lower()
+                                    if step_type in child_type_str or child_type_str.endswith(step_type):
+                                        step_label = (step.get("label") or "").strip().lower()
+                                        step_text = (step.get("text") or "").strip().lower()
+                                        
+                                        child_label = (child.metadata.get("row_label") or "").strip().lower() if hasattr(child, 'metadata') and child.metadata else ""
+                                        child_text = (getattr(child, 'text', '') or "").strip().lower()
+                                        
+                                        # Prefer exact label/text match
+                                        if step_label and (step_label in child_label or step_label in child_text):
+                                            best_child = child
+                                            break
+                                        if step_text and step_text in child_text:
+                                            best_child = child
+                                            break
+                                            
+                                        # Fallback: if no specific label/text to match, just take the first matching type
+                                        if not best_child and not step_label and not step_text:
+                                            best_child = child
+                            
+                            if best_child:
+                                current_node = best_child
+                            else:
+                                # Path broke, we can't find the next child
+                                current_node = None
+                                break
+                                
+                        if current_node and current_node != q._root:
+                            matched_node = current_node
+            except Exception as path_err:
+                print(f"[DOM] Path navigation error: {path_err}")
+
+        # Tier B: Correct Node Search Order (ROW and CELL before PARAGRAPH)
+        if not matched_node:
+            _matches = q.find_row(variable_name) if hasattr(q, 'find_row') else []
+            if _matches:
+                matched_node = _matches[0]
 
         if not matched_node and hasattr(q, 'find_all'):
             from dom_learner.models import NodeType
-            for n_type in [NodeType.PARAGRAPH, NodeType.ROW, NodeType.HEADING, NodeType.CELL]:
+            # Search order: ROW -> CELL -> PARAGRAPH -> HEADING
+            for n_type in [NodeType.ROW, NodeType.CELL, NodeType.PARAGRAPH, NodeType.HEADING]:
                 nodes = q.find_all(n_type)
                 for n in nodes:
                     n_text = (getattr(n, 'text', '') or '').lower()
@@ -459,7 +516,12 @@ def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_nam
         if not matched_node:
             return None, None
 
-        value = _extract_value_from_dom_node(matched_node)
+        # If matched node is a cell directly, return its text
+        if hasattr(matched_node, 'node_type') and str(matched_node.node_type).endswith('CELL'):
+            value = (getattr(matched_node, 'text', '') or '').strip()
+        else:
+            value = _extract_value_from_dom_node(matched_node, target_col_index=target_col_index)
+
         if not value:
             return None, None
 
@@ -658,36 +720,50 @@ async def save_rules_batch(
             ))
         saved_count += 1
 
-        # Learn DOM structural path using dom_learner
+        # Learn DOM structural path using dom_learner down to Cell level when value is present
+        extracted_val = item.get("extracted_value") or item.get("mapped_value")
         if q and extracted_key:
             try:
-                best_row = None
+                best_target_node = None
                 # Try exact row match first
                 _matches = q.find_row(extracted_key) if hasattr(q, 'find_row') else []
                 if _matches:
-                    best_row = _matches[0]
+                    best_target_node = _matches[0]
                 else:
-                    # Robust fallback: search all DOM nodes (rows, paragraphs, headings, cells)
                     clean_key = extracted_key.strip().lower()
                     if hasattr(q, '_root') and q._root and hasattr(q._root, 'get_all_nodes'):
                         for n in q._root.get_all_nodes():
                             if hasattr(n, 'text') and n.text and clean_key in n.text.lower():
-                                best_row = n
+                                best_target_node = n
                                 break
-                    if not best_row and hasattr(q, 'find_all'):
+                    if not best_target_node and hasattr(q, 'find_all'):
                         from dom_learner.models import NodeType
-                        for n_type in [NodeType.ROW, NodeType.PARAGRAPH, NodeType.HEADING, NodeType.CELL]:
+                        for n_type in [NodeType.ROW, NodeType.CELL, NodeType.PARAGRAPH, NodeType.HEADING]:
                             nodes = q.find_all(n_type)
                             for n in nodes:
                                 if clean_key in (n.text or '').lower():
-                                    best_row = n
+                                    best_target_node = n
                                     break
-                            if best_row:
+                            if best_target_node:
                                 break
 
-                if best_row:
-                    path = q.get_structural_path(best_row) if hasattr(q, 'get_structural_path') else None
+                # If extracted_val is present and best_target_node is a table row, find exact matching CellNode or col_index
+                matched_cell_col_idx = None
+                if best_target_node and extracted_val and hasattr(best_target_node, 'children'):
+                    clean_val = str(extracted_val).strip()
+                    cells = [c for c in best_target_node.children if hasattr(c, 'node_type') and str(c.node_type).endswith('CELL')]
+                    for idx, cell in enumerate(cells):
+                        if cell.text.strip() == clean_val:
+                            best_target_node = cell
+                            matched_cell_col_idx = idx
+                            break
+
+                if best_target_node:
+                    path = q.get_structural_path(best_target_node) if hasattr(q, 'get_structural_path') else None
                     if path:
+                        if matched_cell_col_idx is not None and isinstance(path, list) and len(path) > 0:
+                            path[-1]["col_index"] = matched_cell_col_idx
+
                         dom_path_str = python_json.dumps(path)
 
                         existing_dom = db.query(models.DomExtractionRule).filter(
