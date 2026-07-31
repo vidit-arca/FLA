@@ -411,7 +411,30 @@ def _extract_value_from_dom_node(node, target_col_index: Optional[int] = None) -
             elif len(cells) >= 2:
                 return cells[-1].text.strip()
 
-    # 3. Fallback to text
+    # 3. Fallback to text (handles flattened text lines without cell children)
+    tokens = text.split()
+    numeric_tokens = []
+    # Find contiguous numeric tokens at the end of the line
+    for token in reversed(tokens):
+        if _looks_like_number(token):
+            numeric_tokens.insert(0, token)
+        else:
+            break
+            
+    if numeric_tokens:
+        # Simulate table cells: Col 0 = Text Label, Col 1+ = Numbers
+        label_len = len(tokens) - len(numeric_tokens)
+        label = " ".join(tokens[:label_len])
+        simulated_cells = [label] + numeric_tokens if label else numeric_tokens
+        
+        if target_col_index is not None and 0 <= target_col_index < len(simulated_cells):
+            return simulated_cells[target_col_index]
+            
+        if len(numeric_tokens) >= 2:
+            return numeric_tokens[-2]
+        elif len(numeric_tokens) == 1:
+            return numeric_tokens[0]
+
     return text
 
 
