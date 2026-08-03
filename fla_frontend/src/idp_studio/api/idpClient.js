@@ -56,7 +56,10 @@ export const idpClient = {
     testFlaEngine: async (extractedDataPayload) => {
         try {
             const response = await axios.post(`${API_BASE_URL}/test_fla_engine`, extractedDataPayload);
-            return response.data.computed_state;
+            return {
+                computed_state: response.data.computed_state,
+                cell_labels: response.data.cell_labels
+            };
         } catch (error) {
             console.error('Error testing FLA engine:', error);
             throw error;

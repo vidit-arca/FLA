@@ -61,22 +61,12 @@ def get_default_fla_template_fields():
 @router.get("/templates", response_model=List[IdpTemplateResponse])
 def get_all_templates(db: Session = Depends(get_db)):
     templates = db.query(models.IdpTemplate).all()
+    templates = [t for t in templates if t.template_name != "FLA Return (Standard Form)"]
     existing_names = {t.template_name for t in templates}
-    
-    # Always include standard FLA Return form schema at the top of the dropdown
-    fla_template_name = "FLA Return (Standard Form)"
-    if fla_template_name not in existing_names:
-        default_fields = get_default_fla_template_fields()
-        templates.insert(0, models.IdpTemplate(
-            template_id="default-fla-return",
-            template_name=fla_template_name,
-            fields_json=json.dumps(default_fields)
-        ))
-        existing_names.add(fla_template_name)
     
     saved_rules = db.query(models.SchemaAliasRule.template_name).distinct().all()
     for (t_name,) in saved_rules:
-        if t_name and t_name not in existing_names:
+        if t_name and t_name not in existing_names and t_name != "FLA Return (Standard Form)":
             templates.append(
                 models.IdpTemplate(
                     template_id=t_name,
@@ -209,29 +199,20 @@ def get_rule_history(template_name: str, db: Session = Depends(get_db)):
 @router.post("/test_fla_engine")
 async def test_fla_engine(payload: Dict[str, Any] = Body(...)):
     """
-    Takes the mapped dictionary from IDP Studio, feeds it into the old 
-    FLA RuleEngine, and returns the computed state.
+    Takes the mapped dictionary from IDP Studio, feeds it into the FLABridgeAdapter
+    (which executes untouched FLA RuleEngine math + direct mapping guarantee),
+    and returns the computed cell state.
     """
     try:
-        # Dynamically import the old RuleEngine to keep modules independent
-        import sys
-        import os
-        # Add root to sys path if not there
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        if root_dir not in sys.path:
-            sys.path.append(root_dir)
-            
-        from modules.fla.rule_engine import RuleEngine
-        
-        # Initialize engine (assumes it runs from root or handles its own path)
-        engine = RuleEngine(config_path="modules/fla/rules_config.json")
-        
-        # Evaluate using the provided payload
-        computed_state = engine.evaluate_all(payload)
+        from modules.idp_studio.fla_bridge import FLABridgeAdapter
+        bridge = FLABridgeAdapter()
+        computed_state = bridge.adapt_and_evaluate(payload)
+        cell_labels = bridge.get_all_cell_labels()
         
         return {
             "status": "success",
-            "computed_state": computed_state
+            "computed_state": computed_state,
+            "cell_labels": cell_labels
         }
     except Exception as e:
         import traceback
@@ -244,20 +225,16 @@ async def test_fla_engine(payload: Dict[str, Any] = Body(...)):
 @router.post("/generate_excel")
 async def generate_excel_from_idp(payload: Dict[str, Any] = Body(...)):
     """
-    Takes the mapped dictionary from IDP Studio, evaluates it via legacy FLA RuleEngine,
+    Takes the mapped dictionary from IDP Studio, evaluates it via FLABridgeAdapter,
     populates the skeletal Excel template, and returns the physical .xlsx file.
     """
     try:
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-        if root_dir not in sys.path:
-            sys.path.append(root_dir)
-            
-        from modules.fla.rule_engine import RuleEngine
+        from modules.idp_studio.fla_bridge import FLABridgeAdapter
         from core.excel_writer import ExcelWriter
         
-        # 1. Compute target cells via legacy RuleEngine
-        engine = RuleEngine(config_path="modules/fla/rules_config.json")
-        target_cells = engine.evaluate_all(payload)
+        # 1. Compute target cells via 3-Phase FLABridgeAdapter
+        bridge = FLABridgeAdapter()
+        target_cells = bridge.adapt_and_evaluate(payload)
         
         # 2. Setup paths
         skeletal_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "fla", "excel", "FLA Return existing skeletal.xlsx"))
