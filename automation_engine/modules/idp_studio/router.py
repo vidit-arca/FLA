@@ -204,6 +204,7 @@ async def test_fla_engine(payload: Dict[str, Any] = Body(...)):
     and returns the computed cell state.
     """
     try:
+        print("INCOMING IDP PAYLOAD:", payload)
         from modules.idp_studio.fla_bridge import FLABridgeAdapter
         bridge = FLABridgeAdapter()
         computed_state = bridge.adapt_and_evaluate(payload)
@@ -928,6 +929,30 @@ async def save_rule_with_dom(
     )
 
 
+def _normalize_llm_fields(raw_json):
+    """Unwraps LLM response wrappers and ensures key-value pairs are flat primitive strings."""
+    if isinstance(raw_json, dict):
+        for wrapper_key in ["data", "extracted_data", "fields", "items", "results", "financials"]:
+            if wrapper_key in raw_json and isinstance(raw_json[wrapper_key], list):
+                raw_json = raw_json[wrapper_key]
+                break
+    
+    items = []
+    if isinstance(raw_json, dict):
+        for k, v in raw_json.items():
+            if isinstance(v, (dict, list)):
+                continue
+            items.append({"key": str(k), "value": str(v)})
+    elif isinstance(raw_json, list):
+        for item in raw_json:
+            if isinstance(item, dict):
+                k = item.get("key") or item.get("field") or item.get("label") or item.get("name")
+                v = item.get("value") or item.get("val") or item.get("amount")
+                if k is not None and v is not None and not isinstance(v, (dict, list)):
+                    items.append({"key": str(k), "value": str(v)})
+    return items
+
+
 @router.post("/extract")
 async def extract_document_llm(file: UploadFile = File(...)):
     if not file.filename.endswith('.pdf'):
@@ -959,11 +984,13 @@ async def extract_document_llm(file: UploadFile = File(...)):
     prompt = f"""
 You are an advanced Intelligent Document Processing (IDP) extractor.
 Extract all relevant financial and tabular key-value pairs from the following document text.
+CRITICAL INSTRUCTION: When you see tables with two years of data (e.g., 2023 and 2024), you MUST distinguish them.
+Append "PY" to the key for the Previous Year and "FY" to the key for the Current/Financial Year.
 Return ONLY a valid JSON array of objects, with each object having exactly two keys: "key" and "value".
-Example: [{{"key": "Total Assets", "value": "150000"}}, {{"key": "Net Profit", "value": "2000"}}]
+Example: [{{"key": "Total Assets PY", "value": "120000"}}, {{"key": "Total Assets FY", "value": "150000"}}]
 
 Document Text:
-{text_content[:8000]} # Limit to avoid context window explosion
+{text_content[:8000]}
     """
     
     try:
@@ -983,11 +1010,8 @@ Document Text:
         
         # Parse the JSON response
         import json as python_json
-        extracted_data = python_json.loads(extracted_text)
-        
-        # Ensure it's a list
-        if not isinstance(extracted_data, list):
-            extracted_data = [{"key": k, "value": v} for k, v in extracted_data.items()] if isinstance(extracted_data, dict) else []
+        raw_data = python_json.loads(extracted_text)
+        extracted_data = _normalize_llm_fields(raw_data)
             
         return {"extracted_data": extracted_data}
         
@@ -1033,6 +1057,30 @@ async def extract_batch_documents(
             pdf_bytes = await file.read()
             extracted_fields = []
             any_dom_miss = False
+
+            # --- TIER 0: Direct Excel (.xlsx / .xls) and Markdown (.md) Parsing ---
+            fname_lower = filename.lower()
+            if fname_lower.endswith(('.xlsx', '.xls', '.md', '.txt')):
+                try:
+                    from modules.fla.comparison_platform.modules.legacy_parser import LegacyFLAParser
+                    parser = LegacyFLAParser()
+                    if fname_lower.endswith(('.xlsx', '.xls')):
+                        import pandas as pd
+                        excel_dfs = pd.read_excel(io.BytesIO(pdf_bytes), sheet_name=None)
+                        parsed_dict = parser.parse_previous_fla(excel_dfs)
+                    else:
+                        text_str = pdf_bytes.decode('utf-8', errors='ignore')
+                        parsed_dict = parser.parse_md(text_str)
+
+                    extracted_fields = [{"key": k, "value": str(v)} for k, v in parsed_dict.items() if v not in [None, "", "Unknown", "N/A"]]
+                    results.append({
+                        "filename": filename,
+                        "status": "success",
+                        "extracted_fields": extracted_fields
+                    })
+                    continue
+                except Exception as excel_err:
+                    print(f"[Batch] Direct Excel/MD parsing error on {filename}: {excel_err}")
 
             # --- TIER 1: DOM-based extraction for each mapped form field ---
             if schema_rules:
@@ -1082,8 +1130,7 @@ async def extract_batch_documents(
                         })
 
             # --- TIER 2 / 3: LLM fallback for any fields that DOM missed ---
-            pending_fields = [f for f in extracted_fields if f.get("_source") == "pending_llm"]
-            if pending_fields or not schema_rules:
+            if True:
                 try:
                     # Reuse full_text already extracted from digital layer or Triton OCR (never repeat OCR!)
                     if not full_text:
@@ -1094,8 +1141,10 @@ async def extract_batch_documents(
                         prompt = f"""
 You are an advanced Intelligent Document Processing (IDP) extractor.
 Extract all relevant financial and tabular key-value pairs from the following document text.
+CRITICAL INSTRUCTION: When you see tables with two years of data (e.g., 2023 and 2024), you MUST distinguish them.
+Append "PY" to the key for the Previous Year and "FY" to the key for the Current/Financial Year.
 Return ONLY a valid JSON array of objects, with each object having exactly two keys: "key" and "value".
-Example: [{{"key": "Total Assets", "value": "150000"}}, {{"key": "Net Profit", "value": "2000"}}]
+Example: [{{"key": "Total Assets PY", "value": "120000"}}, {{"key": "Total Assets FY", "value": "150000"}}]
 
 Document Text:
 {full_text[:8000]}
@@ -1116,9 +1165,8 @@ Document Text:
                             extracted_text = result.get("response", "[]")
                             
                             import json as python_json
-                            llm_fields = python_json.loads(extracted_text)
-                            if not isinstance(llm_fields, list):
-                                llm_fields = [{"key": k, "value": v} for k, v in llm_fields.items()] if isinstance(llm_fields, dict) else []
+                            raw_data = python_json.loads(extracted_text)
+                            llm_fields = _normalize_llm_fields(raw_data)
                         except Exception as ollama_err:
                             print(f"[!] Ollama LLM call error: {ollama_err}")
                             llm_fields = []
@@ -1138,6 +1186,14 @@ Document Text:
                                             break
                                     field["value"] = matched_val or "Unknown"
                                     field["_source"] = "llm"
+
+                            # Append all extra fields extracted by LLM (e.g., Previous Year PY fields not yet saved in schema_rules)
+                            existing_keys = {f["key"].lower() for f in extracted_fields}
+                            for item in llm_fields:
+                                k = item.get("key", "")
+                                v = item.get("value", "")
+                                if k and k.lower() not in existing_keys and v not in [None, "", "Unknown", "N/A"]:
+                                    extracted_fields.append({"key": k, "value": v, "_source": "llm"})
                     else:
                         print(f"[!] No text content available for LLM fallback on {filename}")
                         for field in extracted_fields:

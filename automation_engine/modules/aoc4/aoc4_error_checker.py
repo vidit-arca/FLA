@@ -124,11 +124,45 @@ class AOC4CommonErrorEngine:
             # Row 5: Previous year figures
             elif "previous year figures" in particulars.lower():
                 import re
-                if "previous year" in full_text_lower or "prior year" in full_text_lower or re.search(r"31st march 20\d\d", full_text_lower):
+                has_prev_column = "previous year" in full_text_lower or "prior year" in full_text_lower or bool(re.search(r"31st march 20\d\d", full_text_lower)) or bool(re.search(r"31\.03\.20\d\d", full_text_lower))
+                
+                prev_file = input_data.get("previous_fla_file") or input_data.get("prev_year_financials")
+                
+                # Financial metrics to tally for BS & PL
+                metrics_to_check = [
+                    ("Turnover/Revenue", input_data.get("prev_turnover"), input_data.get("last_year_turnover")),
+                    ("Paid Up Capital", input_data.get("prev_paid_up_capital"), input_data.get("last_year_paid_up_capital")),
+                    ("Net Worth", input_data.get("prev_net_worth"), input_data.get("last_year_net_worth")),
+                    ("Net Profit", input_data.get("prev_net_profit_after_tax"), input_data.get("last_year_net_profit"))
+                ]
+                
+                mismatches = []
+                compared_count = 0
+                
+                if prev_file:
+                    for label, fy_prev_val, py_val in metrics_to_check:
+                        if fy_prev_val is not None and py_val is not None:
+                            try:
+                                v1 = float(fy_prev_val)
+                                v2 = float(py_val)
+                                compared_count += 1
+                                # Rounding tolerance (e.g. within 1 unit or 0.1%)
+                                if abs(v1 - v2) > max(1.0, abs(v2) * 0.01):
+                                    mismatches.append(f"{label} (FY PY Col: {v1} vs PY Doc: {v2})")
+                            except (ValueError, TypeError):
+                                pass
+                                
+                if prev_file and compared_count > 0:
+                    if not mismatches:
+                        extracted_value = "Yes"
+                    else:
+                        extracted_value = "No"
+                        extracted_reason = f"Previous year figures in BS/PL do not tally with last year's filed financials: {', '.join(mismatches)}"
+                elif has_prev_column:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
-                    extracted_reason = "Missing keywords: 'previous year', 'prior year', or prior date"
+                    extracted_reason = "Missing previous year comparative figures or prior year date column in Balance Sheet / P&L"
                     
             # Row 6: Share capital notes
             elif "shareholding more than 5%" in particulars.lower():
@@ -147,45 +181,99 @@ class AOC4CommonErrorEngine:
                     extracted_reason = "Missing keyword: 'statutory register'"
                     
             elif "authorised capital is mentioned correctly" in particulars.lower():
-                if "authorised capital" in full_text_lower or "authorized capital" in full_text_lower or "authorised share capital" in full_text_lower:
+                import re
+                has_keywords = any(kw in full_text_lower for kw in ["authorised capital", "authorized capital", "authorised share capital", "authorized share capital"])
+                
+                mca_auth = input_data.get("mca_authorised_capital") or input_data.get("authorised_capital_mca")
+                doc_auth = input_data.get("authorised_capital")
+                
+                if mca_auth is not None and doc_auth is not None:
+                    try:
+                        if float(mca_auth) == float(doc_auth):
+                            extracted_value = "Yes"
+                        else:
+                            extracted_value = "No"
+                            extracted_reason = f"Authorised Capital in FS ({doc_auth}) does not match MCA Master Data ({mca_auth})"
+                    except (ValueError, TypeError):
+                        extracted_value = "Yes" if has_keywords else "No"
+                elif has_keywords and (re.search(r'\b(authorised|authorized)\b.{0,100}?\d', full_text_lower) or "face value" in full_text_lower):
+                    extracted_value = "Yes"
+                elif has_keywords:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
-                    extracted_reason = "Missing keywords: 'authorised/authorized capital'"
+                    extracted_reason = "Missing keywords: 'authorised capital'"
                     
-            elif "paid up capital  is mentioned correctly" in particulars.lower():
-                if "paid up capital" in full_text_lower or "paid-up capital" in full_text_lower or "paid up share capital" in full_text_lower:
+            elif "paid up capital" in particulars.lower() and "mentioned correctly" in particulars.lower():
+                import re
+                has_keywords = any(kw in full_text_lower for kw in ["paid up capital", "paid-up capital", "paid up share capital", "subscribed and paid up"])
+                
+                mca_puc = input_data.get("mca_paid_up_capital") or input_data.get("paid_up_capital_mca")
+                doc_puc = input_data.get("paid_up_capital")
+                
+                if mca_puc is not None and doc_puc is not None:
+                    try:
+                        if float(mca_puc) == float(doc_puc):
+                            extracted_value = "Yes"
+                        else:
+                            extracted_value = "No"
+                            extracted_reason = f"Paid Up Capital in FS ({doc_puc}) does not match MCA Master Data ({mca_puc})"
+                    except (ValueError, TypeError):
+                        extracted_value = "Yes" if has_keywords else "No"
+                elif has_keywords and (re.search(r'\bpaid\s*[-_]?\s*up\b.{0,100}?\d', full_text_lower) or "face value" in full_text_lower):
+                    extracted_value = "Yes"
+                elif has_keywords:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
                     extracted_reason = "Missing keywords: 'paid up capital'"
                     
-            elif "reconciliation  of shares" in particulars.lower():
-                found_recon = "reconciliation" in full_text_lower
-                found_shares = "shares outstanding" in full_text_lower or "number of shares" in full_text_lower or "beginning of the year" in full_text_lower
-                if found_recon and found_shares:
+            elif "reconciliation  of shares" in particulars.lower() or "reconciliation of shares" in particulars.lower():
+                keywords = [
+                    "reconciliation",
+                    "shares at beginning of year",
+                    "shares at end of year",
+                    "number of equity shares outstanding at the end of the year",
+                    "number of equity shares outstanding at the beginning of the year"
+                ]
+                
+                matched = [kw for kw in keywords if kw in full_text_lower]
+                if matched:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
-                    missing = []
-                    if not found_recon: missing.append("'reconciliation' keyword")
-                    if not found_shares: missing.append("shares outstanding details")
-                    extracted_reason = f"Missing: {', '.join(missing)}"
+                    extracted_reason = "Missing keywords for share reconciliation"
                     
             elif "promoter holding is disclosed" in particulars.lower():
-                if "promoter holding" in full_text_lower or "promoter's holding" in full_text_lower or "shares held by promoters" in full_text_lower:
+                keywords = [
+                    "promoter",
+                    "promoter holding",
+                    "promoter's holding",
+                    "shares held by promoter",
+                    "shares held by promoters",
+                    "name of promoters",
+                    "shareholding of promoters"
+                ]
+                matched = [kw for kw in keywords if kw in full_text_lower]
+                if matched:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
-                    extracted_reason = "Missing keywords: 'promoter holding' or similar"
+                    extracted_reason = "Missing keywords for promoter holding disclosure"
                     
             # Row 7: Cash flow statement
             elif "cash flow statement is given" in particulars.lower():
-                if "cash flow statement" in full_text_lower or "statement of cash flows" in full_text_lower:
-                    extracted_value = "Yes"
+                is_small_company = input_data.get("is_small_company_calculated", False)
+                if is_small_company:
+                    extracted_value = "Not Applicable"
+                    extracted_reason = "Exempt because it is a Small Company."
                 else:
-                    extracted_value = "No"
-                    extracted_reason = "Missing keywords: 'cash flow statement'"
+                    if "cash flow statement" in full_text_lower or "statement of cash flows" in full_text_lower:
+                        extracted_value = "Yes"
+                    else:
+                        extracted_value = "No"
+                        extracted_reason = "Missing keywords: 'cash flow statement'"
+
                     
             # Row 8: Significant Accounting Policies
             elif "significant accounting policies" in particulars.lower():
@@ -197,116 +285,255 @@ class AOC4CommonErrorEngine:
                     
             # Row 9: EPS
             elif "eps & diluted eps" in particulars.lower():
-                if "eps" in full_text_lower or "earnings per share" in full_text_lower or ("basic" in full_text_lower and "diluted" in full_text_lower):
-                    extracted_value = "Yes"
+                import re
+                eps_pattern = r'\b(eps|earnings per share|diluted eps|diluted earning(s)? per share)\b'
+                matches = list(re.finditer(eps_pattern, full_text_lower))
+                
+                if matches:
+                    has_numbers = False
+                    for match in matches:
+                        start = max(0, match.start() - 100)
+                        end = min(len(full_text_lower), match.end() + 100)
+                        context = full_text_lower[start:end]
+                        if re.search(r'\d', context):
+                            has_numbers = True
+                            break
+                            
+                    if has_numbers:
+                        extracted_value = "Yes"
+                    else:
+                        extracted_value = "No"
+                        extracted_reason = "EPS keywords found, but no numbers present near them"
                 else:
                     extracted_value = "No"
-                    extracted_reason = "Missing keywords: 'eps', 'earnings per share', or 'basic/diluted'"
+                    extracted_reason = "Missing keywords: 'eps', 'earnings per share', 'diluted eps'"
                     
             # Row 10: Signed by directors and auditors
             elif "signed by both the directors and the auditors" in particulars.lower():
-                if "director" in full_text_lower and ("auditor" in full_text_lower or "partner" in full_text_lower or "chartered accountant" in full_text_lower):
+                import re
+                has_text_signatures = "director" in full_text_lower and ("auditor" in full_text_lower or "partner" in full_text_lower or "chartered accountant" in full_text_lower)
+                has_image_seal = bool(re.search(r'!\[.*?\]\(.*?\)', full_text_lower))
+                
+                if has_text_signatures or has_image_seal:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
-                    extracted_reason = "Missing keywords: 'director' and 'auditor'/'partner' combinations"
+                    extracted_reason = "Missing keywords for signatures AND no visual seal/image found"
             
             # Row 11: Check for UDIN
             elif "udin" in particulars.lower():
                 import re
-                if "udin" in full_text_lower or re.search(r'\b\d{18}\b', full_text_lower):
+                # We use word boundaries \b to avoid matching "udin" inside words like "including"
+                has_udin_word = bool(re.search(r'\budin\b', full_text_lower))
+                has_18_digit = bool(re.search(r'\b\d{18}\b', full_text_lower))
+                
+                if has_udin_word or has_18_digit:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
-                    extracted_reason = "Missing keywords: 'udin' or 18-digit number"
+                    extracted_reason = "Missing keywords: exact word 'udin' or an 18-digit number"
                     
             # Row 12: Seal of the auditor
             elif "seal of the auditor" in particulars.lower():
-                if "firm registration number" in full_text_lower or "frn" in full_text_lower or "seal" in full_text_lower or "membership no" in full_text_lower:
+                import re
+                has_auditor_text = "firm registration number" in full_text_lower or "frn" in full_text_lower or "seal" in full_text_lower or "membership no" in full_text_lower
+                has_image_seal = bool(re.search(r'!\[.*?\]\(.*?\)', full_text_lower))
+                
+                if has_auditor_text or has_image_seal:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
-                    extracted_reason = "Missing keywords: 'firm registration number', 'frn', 'seal', or 'membership no'"
+                    extracted_reason = "Missing auditor seal keywords AND no visual seal/image found"
                     
             # Row 13 & 14: RPT and Forex
             elif "rpt transaction" in particulars.lower() or "forex and rpt" in particulars.lower():
-                found_rpt = "related party" in full_text_lower or "rpt" in full_text_lower
-                found_forex = "foreign exchange" in full_text_lower or "forex" in full_text_lower or "foreign currency" in full_text_lower
+                import re
+                
+                forex_keywords = [
+                    "value of imports",
+                    "c.i.f basis",
+                    "c.l.f basis",
+                    "expenditure in foreign currency",
+                    "earnings in foreign exchange",
+                    "foreign exchange",
+                    "foreign currency",
+                    "forex",
+                    "related party",
+                    "rpt"
+                ]
                 
                 if "forex" in particulars.lower():
-                    if found_rpt and found_forex:
-                        extracted_value = "Yes"
-                    else:
-                        extracted_value = "No"
-                        missing = []
-                        if not found_rpt: missing.append("'related party'")
-                        if not found_forex: missing.append("'foreign exchange/forex'")
-                        extracted_reason = f"Missing keywords: {', '.join(missing)}"
-                else:
-                    if found_rpt:
-                        extracted_value = "Yes"
-                    else:
-                        extracted_value = "No"
-                        extracted_reason = "Missing keywords: 'related party' or 'rpt'"
+                    # Find all keyword matches
+                    matched_spans = []
+                    for kw in forex_keywords:
+                        for m in re.finditer(re.escape(kw), full_text_lower):
+                            matched_spans.append((m.start(), m.end()))
                     
-            # Audit Trail Rules
+                    if matched_spans:
+                        has_numbers = False
+                        for start_idx, end_idx in matched_spans:
+                            ctx_start = max(0, start_idx - 150)
+                            ctx_end = min(len(full_text_lower), end_idx + 150)
+                            context = full_text_lower[ctx_start:ctx_end]
+                            if re.search(r'\d', context):
+                                has_numbers = True
+                                break
+                        
+                        if has_numbers:
+                            extracted_value = "Yes"
+                        else:
+                            extracted_value = "No"
+                            extracted_reason = "Forex/RPT keywords found, but no figures/numbers present near them"
+                    else:
+                        extracted_value = "No"
+                        extracted_reason = "Missing Forex/RPT keywords in Notes to Accounts"
+                else:
+                    rpt_keywords = [
+                        "related party",
+                        "rpt",
+                        "loan to directors",
+                        "loan from directors",
+                        "remuneration to kmp"
+                    ]
+                    matched_rpt = [kw for kw in rpt_keywords if kw in full_text_lower]
+                    if matched_rpt:
+                        extracted_value = "Yes"
+                    else:
+                        extracted_value = "No"
+                        extracted_reason = "Missing RPT keywords (e.g. 'loan to directors', 'related party')"
+                    
+            # Audit Trail Rules — Main Header
             elif "audit trail features" in particulars.lower() or "accounting software" in particulars.lower():
-                if "accounting software" in full_text_lower and "audit trail" in full_text_lower:
+                audit_keywords = [
+                    "audit trail",
+                    "edit log",
+                    "accounting software",
+                    "recording of audit trail",
+                    "feature of recording audit trail"
+                ]
+                matched = [kw for kw in audit_keywords if kw in full_text_lower]
+                if matched:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
                     audit_trail_failed = True
-                    
+                    extracted_reason = "Missing audit trail keywords in auditor report"
+
+            # Audit Trail — (a) Edit Log / Recording Audit Trail
             elif "edit log" in particulars.lower():
-                if "edit log" in full_text_lower or "recording audit trail" in full_text_lower:
+                if "edit log" in full_text_lower or "recording audit trail" in full_text_lower or "feature of recording audit trail" in full_text_lower:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
                     audit_trail_failed = True
-                    
+                    extracted_reason = "Missing keywords: 'edit log' or 'recording audit trail'"
+
+            # Audit Trail — (b) Operated Throughout the Year
             elif "operated throughout the year" in particulars.lower():
-                if "operated throughout the year" in full_text_lower:
+                if "operated throughout the year" in full_text_lower or ("operated" in full_text_lower and "throughout" in full_text_lower):
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
                     audit_trail_failed = True
-                    
+                    extracted_reason = "Missing keyword: 'operated throughout the year'"
+
+            # Audit Trail — (c) Not Tampered With
             elif "tampered with" in particulars.lower():
-                if "tampered with" in full_text_lower:
+                if "tampered with" in full_text_lower or "not tampered" in full_text_lower or "audit trail feature has not been tampered" in full_text_lower:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
                     audit_trail_failed = True
-                    
+                    extracted_reason = "Missing keyword: 'tampered with'"
+
+            # Audit Trail — (d) Preserved / Statutory Requirements
             elif "preserved by the company" in particulars.lower() or "statutory requirements for record retention" in particulars.lower():
-                if "preserv" in full_text_lower and "audit trail" in full_text_lower:
+                if ("preserv" in full_text_lower or "retention" in full_text_lower) and "audit trail" in full_text_lower:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
                     audit_trail_failed = True
-                    
+                    extracted_reason = "Missing keywords: 'preserved' or 'statutory requirements for record retention'"
+
+            # Audit Trail — Final Decision: Send Back if Any NO
             elif "if any of the above points is no" in particulars.lower():
                 if audit_trail_failed:
                     extracted_value = "No"
+                    extracted_reason = "One or more audit trail sub-checks failed — send financials back"
                 else:
                     extracted_value = "Yes"
-                    
+
             # CSR Rules (Rows 30-37)
             elif any(csr_phrase in particulars.lower() for csr_phrase in [
-                "amount required to be spent by the company during the year",
-                "amount of expenditure incurred",
-                "shortfall at the end of the year",
-                "total of previous years shortfall",
+                "amount required to be spent",
+                "expenditure incurred",
+                "shortfall at the end",
+                "previous years shortfall",
                 "reason for shortfall",
                 "nature of csr activities",
-                "details of related party transactions, e.g., contribution to a trust",
-                "where a provision is made with respect to a liability incurred by entering into a contractual obligation"
+                "contribution to a trust",
+                "contractual obligation"
             ]):
-                import re
-                if "corporate social responsibility" in full_text_lower or "csr expense" in full_text_lower or re.search(r'\bcsr\b', full_text_lower):
-                    extracted_value = "Yes"
+                is_csr_applicable = input_data.get("is_csr_applicable_calculated", False)
+                
+                if not is_csr_applicable:
+                    extracted_value = "Not Applicable"
+                    extracted_reason = "CSR is Not Applicable based on compliance criteria (Net Worth < 500Cr, Turnover < 1000Cr, PBT < 5Cr)"
                 else:
-                    extracted_value = "No"
+                    p_lower = particulars.lower()
+                    if "amount required to be spent" in p_lower:
+                        kws = ["amount required to be spent", "required to be spent"]
+                    elif "expenditure incurred" in p_lower:
+                        kws = ["expenditure incurred", "amount of expenditure"]
+                    elif "shortfall at the end" in p_lower:
+                        kws = ["shortfall at the end", "shortfall"]
+                    elif "previous years shortfall" in p_lower:
+                        kws = ["previous years shortfall", "previous year shortfall"]
+                    elif "reason for shortfall" in p_lower:
+                        kws = ["reason for shortfall"]
+                    elif "nature of csr activities" in p_lower:
+                        kws = ["nature of csr", "csr activities", "contribution towards"]
+                    elif "contribution to a trust" in p_lower or "related party transactions" in p_lower:
+                        kws = ["related party transactions", "contribution to a trust", "trust"]
+                    elif "contractual obligation" in p_lower or "liability incurred" in p_lower:
+                        kws = ["contractual obligation", "provision is made", "liability incurred"]
+                    else:
+                        kws = ["csr", "corporate social responsibility"]
+                        
+                    found_kw = None
+                    for kw in kws:
+                        if kw in full_text_lower:
+                            found_kw = kw
+                            break
+                            
+                    if found_kw:
+                        import re
+                        has_numbers = False
+                        
+                        start_idx = 0
+                        while True:
+                            idx = full_text_lower.find(found_kw, start_idx)
+                            if idx == -1:
+                                break
+                                
+                            window_start = max(0, idx - 150)
+                            window_end = min(len(full_text_lower), idx + len(found_kw) + 150)
+                            window_text = full_text_lower[window_start:window_end]
+                            
+                            if re.search(r'\d', window_text):
+                                has_numbers = True
+                                break
+                                
+                            start_idx = idx + 1
+                            
+                        if has_numbers:
+                            extracted_value = "Yes"
+                        else:
+                            extracted_value = "No"
+                            extracted_reason = f"Keyword '{found_kw}' found, but no figures/numbers present near it"
+                    else:
+                        extracted_value = "No"
+                        extracted_reason = f"Missing keywords for CSR disclosure item: '{kws[0]}'"
                     
             # Row 17 & 18: Manual Team Checks
             elif "board resolutions was issued" in particulars.lower() or "directors were abroad" in particulars.lower():

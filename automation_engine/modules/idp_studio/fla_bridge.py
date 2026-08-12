@@ -62,8 +62,8 @@ class FLABridgeAdapter:
             ("filing_year", ["filingyear", "filing_year", "year", "field_year"]),
             ("closing_date", ["closingdate", "closing_date", "closingdateofreferenceperiod"]),
             ("listed_status", ["listed", "listedstatus", "whethercompanyislisted", "listed_status"]),
-            ("equity_amount_lakhs_fy", ["equityamountlakhsfy", "paidupcapital", "totalpaidupcapital", "totalpaidupcapital101112167631", "totalequityandparticipating167631"]),
-            ("equity_amount_lakhs_py", ["equityamountlakhspy", "paidupcapitalpy", "ordinaryequityamountpy"])
+            ("equity_amount_lakhs_fy", ["equityamountlakhsfy", "paidupcapital", "totalpaidupcapital", "totalpaidupcapital101112167631", "totalequityandparticipating167631", "ordinaryequityamount", "ordinaryequityamountfy", "ordinaryequityshareamount"]),
+            ("equity_amount_lakhs_py", ["equityamountlakhspy", "paidupcapitalpy", "ordinaryequityamountpy", "ordinaryequityshareamountpy"])
         ]
         
         cleaned_incoming = {}
@@ -76,6 +76,32 @@ class FLABridgeAdapter:
             if official_field not in normalized or not normalized[official_field] or normalized[official_field] in ["Unknown", "N/A"]:
                 for clean_k, (original_k, val) in cleaned_incoming.items():
                     if any(kw == clean_k or kw in clean_k for kw in kw_list):
+                        normalized[official_field] = val
+                        break
+                        
+        # Token-based robust matcher for ALL official fields (handles "3.1 Profit (+)/Loss (-) before tax PY" -> "profit_before_tax_py")
+        official_fields = []
+        for section, fields in self.engine.config.get("cell_mappings", {}).items():
+            for key, field_cfg in fields.items():
+                if field_cfg.get("type") == "extracted" and field_cfg.get("field"):
+                    official_fields.append(field_cfg.get("field"))
+                    
+        for official_field in official_fields:
+            if official_field not in normalized or not normalized[official_field] or normalized[official_field] in ["Unknown", "N/A"]:
+                is_py = official_field.endswith('_py')
+                is_fy = official_field.endswith('_fy')
+                
+                base_field = official_field.rsplit('_', 1)[0] if (is_py or is_fy) else official_field
+                tokens = [t for t in base_field.split('_') if t not in ['and', 'of', 'the', 'amount', 'lakhs', 'count', 'share', 'shares']]
+                
+                for clean_k, (original_k, val) in cleaned_incoming.items():
+                    # Year distinction check
+                    if is_py and not any(py_kw in clean_k for py_kw in ['py', 'previous', '2024', 'prior']):
+                        continue
+                    if is_fy and any(py_kw in clean_k for py_kw in ['py', 'previous', '2024', 'prior']):
+                        continue
+                        
+                    if tokens and all(t in clean_k for t in tokens):
                         normalized[official_field] = val
                         break
                         
@@ -101,47 +127,6 @@ class FLABridgeAdapter:
             except (ValueError, TypeError):
                 return default
 
-        # Translate Ordinary Equity, Part Pref, and Non-Part Pref Lakhs back to Rupees for RuleEngine
-        # RuleEngine divides `excel_*_amount` by 100,000.0, so we multiply by 100,000.0 here
-        if "equity_amount_lakhs_fy" in adapted or "equity_amount_lakhs_py" in adapted:
-            lakh_val = _get_float("equity_amount_lakhs_fy", _get_float("equity_amount_lakhs_py"))
-            adapted["excel_equity_amount"] = lakh_val * 100000.0
-
-        if "part_pref_amount_lakhs_fy" in adapted or "part_pref_amount_lakhs_py" in adapted:
-            lakh_val = _get_float("part_pref_amount_lakhs_fy", _get_float("part_pref_amount_lakhs_py"))
-            adapted["excel_part_pref_amount"] = lakh_val * 100000.0
-
-        if "non_part_pref_amount_lakhs_fy" in adapted or "non_part_pref_amount_lakhs_py" in adapted:
-            lakh_val = _get_float("non_part_pref_amount_lakhs_fy", _get_float("non_part_pref_amount_lakhs_py"))
-            adapted["excel_non_part_pref_amount"] = lakh_val * 100000.0
-
-        # Translate Share Counts if present
-        if "equity_shares_count_fy" in adapted:
-            adapted["excel_equity_shares_count"] = _get_float("equity_shares_count_fy")
-        if "part_pref_shares_count_fy" in adapted:
-            adapted["excel_part_pref_shares_count"] = _get_float("part_pref_shares_count_fy")
-        if "non_part_pref_shares_count_fy" in adapted:
-            adapted["excel_non_part_pref_shares_count"] = _get_float("non_part_pref_shares_count_fy")
-
-        # Translate all 11 Non-Resident (NR) categories
-        nr_categories = [
-            "individuals", "companies", "fii", "fvci", "trusts",
-            "pe_funds", "pension_funds", "swf", "partnerships",
-            "fin_institutions", "nri_pio", "non_part_pref"
-        ]
-        for cat in nr_categories:
-            amount_key_fy = f"nr_amount_{cat}_lakhs_fy"
-            amount_key_py = f"nr_amount_{cat}_lakhs_py"
-            share_key_fy = f"nr_shares_{cat}_fy"
-            share_key_py = f"nr_shares_{cat}_py"
-
-            if amount_key_fy in adapted or amount_key_py in adapted:
-                lakh_val = _get_float(amount_key_fy, _get_float(amount_key_py))
-                adapted[f"excel_nr_{cat}_amount"] = lakh_val * 100000.0
-            if share_key_fy in adapted or share_key_py in adapted:
-                share_val = _get_float(share_key_fy, _get_float(share_key_py))
-                adapted[f"excel_nr_{cat}_shares_count"] = share_val
-
         # ==============================================================================
         # PHASE 2: Untouched Legacy RuleEngine Evaluation (100% of FLA Accounting Math)
         # ==============================================================================
@@ -163,6 +148,19 @@ class FLABridgeAdapter:
                     if field_name and cell_code and field_name in adapted and adapted[field_name] not in [None, "", "Unknown", "N/A"]:
                         # Direct Mapping Guarantee: IDP Studio extracted value is absolute truth
                         target_cells[section][cell_code] = adapted[field_name]
+
+        # 1B. True Previous Year (PY) Isolation Guard:
+        # Ensure Previous Year (PY) values come strictly from PY only without legacy FY fallback overrides.
+        for section, fields in cell_mappings.items():
+            if section not in target_cells:
+                continue
+            for key, field_cfg in fields.items():
+                if field_cfg.get("type") == "extracted":
+                    field_name = field_cfg.get("field")
+                    cell_code = field_cfg.get("cell")
+                    if field_name and cell_code and field_name.endswith("_py"):
+                        if field_name not in adapted or adapted[field_name] in [None, "", "Unknown", "N/A"]:
+                            target_cells[section][cell_code] = 0.0
 
         # 2. Reconcile Section II Summary Totals so the Excel sheet is mathematically consistent
         def _cell_val(sec: str, coord: str) -> float:

@@ -95,12 +95,37 @@ class ExcelWriter:
                     # Write to the resolved coordinate (always the top-left of the merged block)
                     sheet[resolved_coord] = val
                     
+                    # Ensure font text color is Black (000000) so white theme text is not invisible!
+                    from openpyxl.styles import Font
+                    curr_font = sheet[resolved_coord].font
+                    if curr_font:
+                        sheet[resolved_coord].font = Font(
+                            name=curr_font.name or "Aptos Narrow",
+                            size=curr_font.size or 11,
+                            bold=curr_font.bold,
+                            italic=curr_font.italic,
+                            color="000000"
+                        )
+                    else:
+                        sheet[resolved_coord].font = Font(color="000000")
+                    
                 except Exception as e:
                     print(f"[!] Error writing {val} to cell {coord} (resolved: {resolved_coord}) in sheet {section}: {e}")
 
 
 
                     
+        # Clear intermediate logic columns K, L, M for the client-facing compliance sheet
+        if "compliance for Private " in wb.sheetnames:
+            comp_sheet = wb["compliance for Private "]
+            for row in range(1, 150):
+                try: comp_sheet.cell(row=row, column=11).value = None # K
+                except AttributeError: pass
+                try: comp_sheet.cell(row=row, column=12).value = None # L
+                except AttributeError: pass
+                try: comp_sheet.cell(row=row, column=13).value = None # M
+                except AttributeError: pass
+
         # Apply premium formatting fixes to prevent clipping, overlapping, or jagged borders
         self.beautify_layout(wb)
                     

@@ -176,9 +176,11 @@ async def export_excel(task_id: str, reviewed_data: dict, db: Session = Depends(
         safe_company_name = "".join(c if c.isalnum() or c in " .-_" else "_" for c in task.company_name)
         output_dir = os.path.join(BASE_OUTPUT_DIR, safe_company_name)
         os.makedirs(output_dir, exist_ok=True)
-        output_path = os.path.join(output_dir, "FLA_Return_Populated.xlsx")
+        module_type = (task.module_type or "fla").upper()
+        output_path = os.path.join(output_dir, f"{safe_company_name}_{module_type}_Populated.xlsx")
 
-        skeletal_path = os.path.join(mod["excel_dir"], "FLA Return existing skeletal.xlsx")
+        skeletal_filename = mod.get("skeletal_file", "FLA Return existing skeletal.xlsx")
+        skeletal_path = os.path.join(mod["excel_dir"], skeletal_filename)
         
         writer = ExcelWriter(skeletal_path, output_path)
         writer.write_values(target_cells)

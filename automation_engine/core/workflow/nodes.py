@@ -216,7 +216,7 @@ def node_output(state: WorkflowState) -> WorkflowState:
     os.makedirs(output_dir, exist_ok=True)
     
     module_type = state.get("module_type", "fla").upper()
-    output_path = os.path.join(output_dir, f"{module_type}_Return_Populated.xlsx")
+    output_path = os.path.join(output_dir, f"{safe_company_name}_{module_type}_Populated.xlsx")
 
     # Path logic: __file__ is inside core/workflow/nodes.py
     mod = ModuleFactory.get_module(state.get("module_type", "fla"))

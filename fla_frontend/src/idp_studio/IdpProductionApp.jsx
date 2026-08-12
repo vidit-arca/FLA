@@ -252,7 +252,9 @@ export default function IdpProductionApp() {
               break;
             }
           }
-          if (cleanK.includes("paidupcapital") || cleanK.includes("totalequity")) {
+          if (cleanK.includes("paidupcapitalpy") || cleanK.includes("totalequitypy")) {
+            payload["equity_amount_lakhs_py"] = val;
+          } else if (cleanK.includes("paidupcapital") || cleanK.includes("totalequity")) {
             payload["equity_amount_lakhs_fy"] = val;
           }
         }
@@ -463,7 +465,7 @@ export default function IdpProductionApp() {
               <UploadCloud className="w-8 h-8 text-indigo-500 mb-2" />
               <span className="text-xs font-bold text-slate-800 dark:text-white">Drag & Drop Batch PDFs</span>
               <span className="text-[11px] text-slate-500 mt-0.5">Upload 1 to 50 documents at once</span>
-              <input type="file" className="hidden" accept=".pdf" multiple={true} onChange={handleFileUpload} />
+              <input type="file" className="hidden" accept=".pdf,.xlsx,.xls,.md,.txt" multiple={true} onChange={handleFileUpload} />
             </label>
           </div>
 
@@ -615,7 +617,7 @@ export default function IdpProductionApp() {
                             <td className="p-3.5 font-bold text-slate-900 dark:text-white">
                               <input
                                 type="text"
-                                value={field.value || ''}
+                                value={typeof field.value === 'object' ? JSON.stringify(field.value) : (field.value || '')}
                                 onChange={(e) => handleCellEdit(activeFileIndex, fIdx, e.target.value)}
                                 className="w-full bg-transparent border-b border-dashed border-slate-300 dark:border-slate-700 focus:border-indigo-500 focus:outline-none py-1 px-1.5 rounded transition-colors font-bold text-base"
                                 placeholder="Type value..."

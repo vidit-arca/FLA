@@ -20,13 +20,83 @@ The `excel_extractor.py` processes all uploaded `.xlsx` files. To optimize extra
 
 Inside these targeted sheets, the engine searches the **row headers** for specific Regex keywords. When a match is found, it scans to the right (in the same row) to grab either a **Numeric Value** or a **Yes/No Boolean** (also supports 'Not Applicable' for boolean fields).
 
-### 1. Numeric Financial Metricss
+### 1. Unit Scale Multiplier (Hundreds, Lakhs, Crores)
+
+Both the Excel Extractor and the unstructured text Parser actively scan the document text for scale indicators. If found, a mathematical multiplier is applied to **all** extracted numeric values before they are used in compliance checks.
+
+| Detected Phrase (Regex Matches) | Multiplier Applied | Example Phrase in Document                  |
+| :------------------------------ | :----------------- | :------------------------------------------ |
+| `(?i)in hundreds?`            | `x 100`          | "All amounts are in Indian Rupees Hundreds" |
+| `(?i)in thousands?`           | `x 1,000`        | "Amounts are in Thousands"                  |
+| `(?i)in lakhs?`               | `x 100,000`      | "(in Lakhs)"                                |
+| `(?i)in millions?`            | `x 1,000,000`    | "Amounts in Millions"                       |
+| `(?i)in crores?`              | `x 10,000,000`   | "in Crores of Indian Rupees"                |
+| *None found*                  | `x 1` (Actuals)  | -                                           |
+
+### 2. Holding & Subsidiary Status Detection
+
+
+### Step 1: Text Normalization
+
+First, the engine takes the entire text from the financial PDF, converts it all to lowercase, and removes all weird spacing or newlines so it can search it cleanly.
+
+### Step 2: High Confidence Keyword Search (Instant 'Yes')
+
+It scans the entire document for a specific list of "High Confidence" legal phrases:
+
+* `"holding company"`
+* `"subsidiary company"`
+* `"is a subsidiary"`
+* `"ultimate holding company"`
+* `"parent company:"`
+* *(and a few others...)*
+
+If it finds **even one** of these phrases anywhere in the text, it immediately knows it's a holding/subsidiary, flags it as `"yes"`, and stops.
+
+### Step 3: Ownership Percentage Check (Instant 'Yes')
+
+If Step 2 didn't find anything, it uses a powerful Regex formula: `(?:ownership|holding|subsidiary|investment).{0,50}?(\d{2,3}(?:\.\d+)?)\s*%`
+
+This formula looks for words like *"ownership"* or  *"investment"* , and then scans the next 50 characters to see if there is a percentage (like `51%` or `99.9%`). If it extracts a percentage that is mathematically  **greater than 50.0%** , it immediately flags the company as `"yes"` and stops.
+
+### Step 4: The 100-Point Accumulator (Indirect Clues)
+
+If both Step 2 and Step 3 failed to find a definitive answer, it falls back to a scoring system. It scans for "Medium Confidence" accounting phrases:
+
+* `"investment in subsidiaries"`
+* `"investment in associates"`
+* `"consolidated financial statements"`
+* `"schedule of subsidiaries"`
+
+For every one of these phrases it finds, it awards the company  **20 points** . If the total score hits  **100 points or more** , it flags the company as `"yes"`.
+
+### Step 5: Default to 'No'
+
+If the company fails the keyword check, fails the percentage check, and scores less than 100 points on the accounting clues, the engine safely concludes it is an independent company and returns `"no"`.
+
+### 3. IND AS Applicability Detection
+
+Because Indian Accounting Standards (IND AS) is a strict, legally mandated framework, companies cannot apply it implicitly. It must be explicitly stated in their financial notes. The engine determines this using a strict text scanner:
+
+1. **Strict Legal Keyword Scan:**
+   It iterates through a hardcoded list of exactly four phrases that Indian companies legally use to declare IND AS:
+   - `"indian accounting standard"`
+   - `"ind as"`
+   - `"ind-as"`
+   - `"companies (indian accounting standards) rules"`
+
+2. **Boundary Validation:**
+   To prevent false positives (e.g., matching the letters "ind as" inside a phrase like "blind as"), the engine enforces strict Regex Word Boundaries (`\b`).
+
+If any exact match is found, it automatically flags the company as `Yes` (which subsequently forces an XBRL filing requirement). Otherwise, it safely defaults to `No`.
+
+### 4. Numeric Financial Metrics
 
 | Extracted Variable                | Regex Keywords Searched For                                                                                                    | Output Type |
 | :-------------------------------- | :----------------------------------------------------------------------------------------------------------------------------- | :---------- |
-| `turnover`                      | `revenue from operations?`, `total turnover`, `sales turnover`, `gross turnover`                                                                  | Float       |
+| `turnover`                      | `revenue from operations?`, `total turnover`, `sales turnover`, `gross turnover`                                       | Float       |
 | `prev_turnover`                 | `previous year turnover`, `turnover.*previous year`                                                                        | Float       |
-| `paid_up_capital`               | `paid.?up capital`, `paid.?up share capital`, `subscribed and paid.?up`, `equity share capital`                                         | Float       |
+| `paid_up_capital`               | `paid.?up capital`, `paid.?up share capital`, `subscribed and paid.?up`, `equity share capital`                        | Float       |
 | `net_worth`                     | `^net worth`, `total equity`, `capital + reserve & surplus`                                                              | Float       |
 | `prev_net_worth`                | `previous year net worth`, `net worth.*previous year`                                                                      | Float       |
 | `reserves_and_surplus`          | `reserves & surplus`, `reserves and surplus`, `other equity`                                                             | Float       |
@@ -34,7 +104,7 @@ Inside these targeted sheets, the engine searches the **row headers** for specif
 | `net_profit_before_tax`         | `profit before tax`, `profit/loss before tax`, `pbt`                                                                     | Float       |
 | `total_loans_investments_given` | `loans and advances given`, `investments made`, `total loans.*given`, `current investment`, `non current investment` | Float       |
 
-### 2. RPT Specific Transaction Metrics
+### 3. RPT Specific Transaction Metrics
 
 | Extracted Variable                | Regex Keywords Searched For                                           | Output Type |
 | :-------------------------------- | :-------------------------------------------------------------------- | :---------- |
@@ -49,7 +119,7 @@ Inside these targeted sheets, the engine searches the **row headers** for specif
 | `rpt_monthly_remun`             | `monthly remuneration`, `appointment to any office`, `salary`   | Float       |
 | `rpt_remuneration_underwriting` | `remuneration for underwriting`, `underwriting.*subscription`     | Float       |
 
-### 3. Boolean Flags (Yes/No Questions)
+### 4. Boolean Flags (Yes/No Questions)
 
 | Extracted Variable                     | Regex Keywords Searched For                                                                | Output Type                     |
 | :------------------------------------- | :----------------------------------------------------------------------------------------- | :------------------------------ |

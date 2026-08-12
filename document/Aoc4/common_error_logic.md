@@ -1,46 +1,59 @@
-# Common Error Engine - Rules & Extraction Logic
+# Common Error Sheet - NLP Extraction Rules
 
-The table below outlines the exact logic and extraction strategies implemented in the `AOC4CommonErrorEngine` for checking the **Common Error** sheet against the uploaded documents.
+The table below outlines the exact Natural Language Processing (NLP) logic and keyword combinations currently implemented in the `AOC4CommonErrorEngine` for the **Common Error** sheet.
 
-Unlike the Private Compliance Engine (which primarily relies on mathematical formulas from Excel), the Common Error Engine relies entirely on **Text Parsing (NLP / Regex)** of the PDFs and Word Documents (e.g., Auditor's Report, Board's Report, Financial Statements).
+The engine concatenates the entire textual content of all uploaded documents (Financials, Board Reports, Audit Reports) into a single lowercase text block and evaluates the presence of these statutory keywords.
 
-### General Behavior
-If a rule evaluates to **"No"**, the engine will output a specific `extracted_reason` detailing exactly which keywords or headings were missing from the document.
+### General Audit & Format Rules
 
----
-
-## 1. Custom Hardcoded Rules
-
-| Requirement / Rule | Implemented Search Logic & Keywords | Typical Source Document |
+| Requirement | Implemented NLP Logic / Keywords | Target Result |
 | :--- | :--- | :--- |
-| **Auditor Report Headings** | Checks for all 10 required SA 700 headings:<br>• Opinion<br>• Basis for Opinion<br>• Emphasis of matter<br>• Key Audit Matters<br>• Other Information<br>• Responsibility of Management<br>• Auditor's responsibility<br>• Other matters<br>• Report on other legal & regulatory requirements<br>• Internal Financial Controls | Auditor's Report |
-| **CARO Applicability** | Searches the text for `"Companies Auditor's Report Order"` or `"CARO"`. | Auditor's Report |
-| **Schedule III Format** | Relies on the table-parser output (`has_schedule_iii_format`) to detect Schedule III structured financial tables. | Financials |
-| **CIN & DIN Disclosure** | Requires both `"CIN"` (or `"Corporate Identity Number"`) AND `"DIN"` to be present in the document. | Board's Report |
-| **Previous Year Figures** | Checks for `"previous year"`, `"prior year"`, or explicit dates matching `"31st march 20XX"`. | Financials |
-| **Shareholding > 5%** | Searches for the number `"5%"` appearing alongside keywords `"shareholder"`, `"holding"`, or `"promoter"`. | Notes to Accounts |
-| **Statutory Register** | Checks if `"statutory register"` is explicitly mentioned. | Board's Report |
-| **Authorised & Paid-up Capital** | Checks for `"authorised capital"` / `"authorized capital"`, and `"paid up capital"`. | Balance Sheet Notes |
-| **Reconciliation of Shares** | Requires the keyword `"reconciliation"` to appear alongside `"shares outstanding"`, `"number of shares"`, or `"beginning of the year"`. | Notes to Accounts |
-| **Cash Flow Statement** | Checks for `"cash flow statement"` or `"statement of cash flows"`. | Financials |
-| **Significant Accounting Policies**| Checks for `"significant accounting policies"`. | Notes to Accounts |
-| **EPS & Diluted EPS** | Checks for `"eps"`, `"earnings per share"`, or `"basic"` + `"diluted"`. | P&L Statement |
-| **Signatures** | Checks for `"director"` alongside `"auditor"`, `"partner"`, or `"chartered accountant"`. | Financials |
-| **UDIN** | Searches for the keyword `"UDIN"` or any regex match for an **18-digit number**. | Auditor's Report |
-| **Auditor Seal / FRN** | Checks for `"firm registration number"`, `"frn"`, `"seal"`, or `"membership no"`. | Auditor's Report |
-| **Forex and RPT** | For Forex: `"foreign exchange"`, `"forex"`, `"foreign currency"`.<br>For RPT: `"related party"`, `"rpt"`. | Notes to Accounts |
-| **Audit Trail / Edit Log** | Checks for combinations of `"accounting software"`, `"audit trail"`, `"edit log"`, `"tampered with"`, `"operated throughout the year"`, and `"preserved"`.<br>*(If missing, automatically flags user to send financials back to client).* | Auditor's / Board's Report |
-| **CSR Activities** | Checks for `"corporate social responsibility"` or `"csr"` across various sub-rules (shortfall, nature of activities, etc.). | Board's Report |
-| **Manual Team Checks** | Rules mentioning `"board resolutions was issued"` or `"directors were abroad"` are forced to **No** with the reason: `"Manual Check Required"`. | Various |
+| **Audit Report Format** | Checks for all 10 standard headings: `Opinion`, `Basis of Opinion/for opinion`, `Emphasis of matter`, `Key Audit Matters`, `Other Information`, `Responsibility of Management`, `Auditor's responsibility`, `Other matters`, `Report on other legal...`, `Internal Financial Controls`. | **Yes** if ALL are found, else **No** with missing list. |
+| **CARO** | Strips punctuation and checks for `companies auditor s report order` OR `caro`. | **Yes** if found. |
+| **Schedule III** | Validates if the tabular layout detector (`excel_extractor`) flagged `has_schedule_iii_format` as Yes. | **Yes** if tabular structure aligns with Schedule III. |
+| **CIN & DIN** | Checks for (`cin` OR `corporate identity number`) AND `din`. | **Yes** if both found, else lists missing. |
+| **Previous year figures** | Checks for `previous year` OR `prior year` OR `31st march 20XX` date regex. | **Yes** if found. |
 
----
+### Share Capital Notes
 
-## 2. Global "Fuzzy Fallback" Engine
+| Requirement | Implemented NLP Logic / Keywords | Target Result |
+| :--- | :--- | :--- |
+| **Shareholding > 5%** | Checks for `5%` AND (`shareholder` OR `holding` OR `promoter`). | **Yes** if found. |
+| **Statutory Register** | Checks for `statutory register`. | **Yes** if found, else defaults to No (Manual). |
+| **Authorised Capital** | Checks for `authorised capital`, `authorized capital`, OR `authorised share capital`. | **Yes** if found. |
+| **Paid up capital** | Checks for `paid up capital`, `paid-up capital`, OR `paid up share capital`. | **Yes** if found. |
+| **Reconciliation of shares** | Checks for `reconciliation` AND (`shares outstanding` OR `number of shares` OR `beginning of the year`). | **Yes** if both combinations found. |
+| **Promoter holding** | Checks for `promoter holding`, `promoter's holding`, OR `shares held by promoters`. | **Yes** if found. |
 
-For the remaining **100+ rules** in the template that do not have custom logic (e.g., "Disclosure of MSME dues", "Reporting on Frauds"), the engine automatically uses the **Fuzzy Fallback**.
+### Financial Statements & Policies
 
-**How it works:**
-1. The engine strips punctuation, removes common fluff words (like `"whether audit report has the following fields"` or `"details of"`), and creates a highly specific `"search_key"`.
-2. It runs a global text search across all uploaded documents for this `search_key`.
-3. If found, it outputs **Yes**.
-4. If missing, it outputs **No** and reports exactly which `search_key` it couldn't find (e.g., `Why it is No: Keyword not found in documents: 'disclosure of msme'`).
+| Requirement | Implemented NLP Logic / Keywords | Target Result |
+| :--- | :--- | :--- |
+| **Cash flow statement** | Checks for `cash flow statement` OR `statement of cash flows`. | **Yes** if found. |
+| **Significant Accounting Policies**| Checks for `significant accounting policies` OR `summary of significant accounting policies`. | **Yes** if found. |
+| **EPS & Diluted EPS** | Checks for `eps` OR `earnings per share` OR (`basic` AND `diluted`). | **Yes** if found. |
+| **RPT & Forex** | Checks for (`related party` OR `rpt`) AND/OR (`foreign exchange` OR `forex` OR `foreign currency`) depending on the exact row being evaluated. | **Yes** if matched. |
+
+### Signatures & Auditor Details
+
+| Requirement | Implemented NLP Logic / Keywords | Target Result |
+| :--- | :--- | :--- |
+| **Signed by directors/auditors** | Checks for `director` AND (`auditor` OR `partner` OR `chartered accountant`). | **Yes** if found. |
+| **UDIN** | Checks for `udin` OR a strict 18-digit number regex (`\b\d{18}\b`). | **Yes** if found. |
+| **Seal of the auditor** | Checks for `firm registration number`, `frn`, `seal`, OR `membership no`. | **Yes** if found. |
+
+### Audit Trail Features
+
+| Requirement | Implemented NLP Logic / Keywords | Target Result |
+| :--- | :--- | :--- |
+| **Accounting Software/Trail** | Checks for `accounting software` AND `audit trail`. | **Yes** if found. |
+| **Edit Log** | Checks for `edit log` OR `recording audit trail`. | **Yes** if found. |
+| **Operated throughout year** | Checks for exact phrase `operated throughout the year`. | **Yes** if found. |
+| **Tampered with** | Checks for exact phrase `tampered with`. | **Yes** if found. |
+| **Preservation of records** | Checks for `preserv` AND `audit trail`. | **Yes** if found. |
+
+### Corporate Social Responsibility (CSR)
+
+| Requirement | Implemented NLP Logic / Keywords | Target Result |
+| :--- | :--- | :--- |
+| **CSR Mandatory Phrases** | The engine checks for standard CSR phrasing such as: `amount required to be spent`, `amount of expenditure incurred`, `shortfall at the end of the year`, `reason for shortfall`, etc. | **Yes** if exact phrases are found in the text. |

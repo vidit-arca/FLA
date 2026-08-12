@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import axios from 'axios';
@@ -23,9 +24,9 @@ export default function ExcelViewer({ taskId }) {
       const data = new Uint8Array(res.data);
       const wb = XLSX.read(data, { type: 'array' });
       setWorkbook(wb);
-      
-      // Select Section I or the first sheet by default
-      const defaultSheetIdx = wb.SheetNames.findIndex(n => n.includes("Section"));
+
+      // Select Section I or Compliance sheet for private by default
+      const defaultSheetIdx = wb.SheetNames.findIndex(n => n.includes("Section") || n.includes("Compliance sheet"));
       setActiveSheet(defaultSheetIdx >= 0 ? defaultSheetIdx : 0);
     } catch (err) {
       console.error(err);
@@ -65,7 +66,7 @@ export default function ExcelViewer({ taskId }) {
   }
 
   if (!workbook) {
-    return <div className="p-8 text-center text-red-500"><AlertCircle className="w-10 h-10 mx-auto mb-2"/> Failed to load Excel file.</div>;
+    return <div className="p-8 text-center text-red-500"><AlertCircle className="w-10 h-10 mx-auto mb-2" /> Failed to load Excel file.</div>;
   }
 
   const currentSheetName = workbook.SheetNames[activeSheet];
@@ -75,27 +76,30 @@ export default function ExcelViewer({ taskId }) {
   const maxCols = Math.max(...rawRows.map(r => r.length), 0);
   const htmlRows = rawRows.map(r => {
     const newRow = [...r];
-    while(newRow.length < maxCols) newRow.push("");
+    while (newRow.length < maxCols) newRow.push("");
     return newRow;
   });
 
   return (
     <div className="flex flex-col bg-white dark:bg-[#1A2235] border border-slate-300 dark:border-slate-700 rounded-xl shadow-sm overflow-hidden font-sans h-full">
-      
+
       {/* Tabs */}
       <div className="flex overflow-x-auto border-b border-slate-300 dark:border-slate-700 bg-white dark:bg-[#131B2C] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-        {workbook.SheetNames.map((name, idx) => (
-          <button
-            key={name}
-            onClick={() => setActiveSheet(idx)}
-            className={`px-6 py-3 text-sm font-medium whitespace-nowrap transition-colors outline-none
-              ${activeSheet === idx 
-                ? 'border-b-2 border-indigo-500 text-indigo-300 bg-white dark:bg-[#1A2235]' 
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:text-slate-300 hover:bg-[#1e293b]'}`}
-          >
-            {name}
-          </button>
-        ))}
+        {workbook.SheetNames.map((name, idx) => {
+          if (name === "compliance sheet" || name === "Freezing the input") return null;
+          return (
+            <button
+              key={name}
+              onClick={() => setActiveSheet(idx)}
+              className={`px-6 py-3 text-sm font-medium whitespace-nowrap transition-colors outline-none
+                ${activeSheet === idx
+                  ? 'border-b-2 border-indigo-500 text-indigo-300 bg-white dark:bg-[#1A2235]'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-700 dark:text-slate-300 hover:bg-[#1e293b]'}`}
+            >
+              {name}
+            </button>
+          );
+        })}
       </div>
 
       {/* Action Bar */}
@@ -107,7 +111,7 @@ export default function ExcelViewer({ taskId }) {
             <span>All changes saved</span>
           )}
         </div>
-        <button 
+        <button
           onClick={handleSave}
           disabled={saving || Object.keys(edits).length === 0}
           className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-300 text-slate-900 dark:text-white px-4 py-2 rounded-lg font-medium text-sm transition-colors"
@@ -144,7 +148,7 @@ export default function ExcelViewer({ taskId }) {
 
                   return (
                     <td key={colIdx} className="border border-slate-300 dark:border-slate-700 p-0 relative group">
-                      <input 
+                      <input
                         type="text"
                         value={displayValue}
                         onChange={(e) => handleCellEdit(currentSheetName, rowIdx, colIdx, e.target.value)}

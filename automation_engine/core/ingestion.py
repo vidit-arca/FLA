@@ -97,6 +97,27 @@ class DocumentIngestion:
         if "financials" not in docs and len(pdfs) > 1:
             docs["financials"] = os.path.join(self.signed_dir, pdfs[1])
             
+        # Generic fallback for any un-ingested MD or Excel files (e.g., if user uploads a poorly named file)
+        all_files = os.listdir(self.signed_dir)
+        md_files = [f for f in all_files if f.endswith('.md')]
+        excel_files = [f for f in all_files if f.endswith('.xlsx') or f.endswith('.xls')]
+        
+        # If financials is still totally empty, assign the first found md or excel
+        if "financials" not in docs:
+            if md_files: docs["financials"] = os.path.join(self.signed_dir, md_files[0])
+            elif excel_files: docs["financials"] = os.path.join(self.signed_dir, excel_files[0])
+            
+        # Just safely append ALL .md and .xlsx files to docs so they are definitely processed
+        for i, md in enumerate(md_files):
+            key = f"fallback_md_{i}"
+            if key not in docs and os.path.join(self.signed_dir, md) not in docs.values():
+                docs[key] = os.path.join(self.signed_dir, md)
+                
+        for i, xl in enumerate(excel_files):
+            key = f"fallback_xl_{i}"
+            if key not in docs and os.path.join(self.signed_dir, xl) not in docs.values():
+                docs[key] = os.path.join(self.signed_dir, xl)
+            
         return docs
 
     def is_scanned_pdf(self, pdf_path):

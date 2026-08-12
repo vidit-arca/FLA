@@ -35,7 +35,7 @@ class ModuleFactory:
                 "validator": AOC4Validator,
                 "config_path": os.path.join(base_dir, "modules", "aoc4", "rules_config.json"),
                 "excel_dir": os.path.join(base_dir, "modules", "aoc4", "excel"),
-                "skeletal_file": "Annual Filing common error Output.xlsx"
+                "skeletal_file": "ANNFIL COMMONERROR .xlsx"
             }
         else:
             raise ValueError(f"Unknown module type: {module_name}")

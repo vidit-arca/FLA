@@ -119,24 +119,34 @@ class AOC4Parser:
         print(f"[*] AOC 4 Parser: Attempting text fallback extraction for: {missing_keys}")
         
         numeric_keywords = {
-            "turnover": [r"revenue from operation", r"total revenue", r"turnover"],
+            "total_revenue": [r"total revenue", r"total income", r"revenue and other income"],
+            "turnover": [r"revenue from operation", r"total turnover", r"sales turnover", r"gross turnover", r"turnover"],
             "prev_turnover": [r"previous year turnover", r"turnover.*previous year"],
-            "paid_up_capital": [r"paid.?up.*capital", r"share capital"],
-            "net_worth": [r"net worth", r"total equity", r"capital.*reserve.*surplus"],
+            "paid_up_capital": [r"paid.?up.*capital", r"paid up share capital", r"subscribed and paid up", r"equity share capital", r"preference share capital", r"share capital"],
+            "net_worth": [r"net worth", r"total equity", r"capital.*reserve.*surplus", r"reserves & surplus"],
             "prev_net_worth": [r"previous year net worth", r"net worth.*previous year"],
-            "reserves_and_surplus": [r"reserves\s*&\s*surplus", r"reserves and surplus", r"other equity"],
-            "borrowings": [r"total borrowing", r"borrowing", r"loan from bank", r"loan from director", r"secured loan", r"unsecured loan"],
-            "secured_loan": [r"secured loan", r"secured borrowings"],
+            "reserves_and_surplus": [r"reserves and surplus", r"reserves & surplus", r"other equity", r"retained earnings", r"reserves\s*&\s*surplus"],
+            "borrowings": [r"total borrowing", r"total borrowings", r"borrowing", r"borrowings", r"long term borrowing", r"short term borrowing", r"long term borrowings", r"short term borrowings", r"secured loans", r"unsecured loans", r"loan from bank", r"loan from director", r"secured loan", r"unsecured loan"],
+            "loan_to_directors_assets": [r"loans given by company to directors", r"loan given by company to directors", r"loangiven by company to directors", r"loan given by company to director", r"loan to directors"],
+            "secured_loan": [r"\bsecured loan", r"\bsecured loans", r"\bsecured borrowings", r"^secured$", r"^secured\b", r"term loan taken during the year", r"^term loans?$"],
+            "loan_from_directors": [r"loan from directors", r"loan from director", r"loan from shareholders", r"unsecured loan from director", r"unsecured loan taken", r"due to directors", r"loans from relatives of directors"],
             "unsecured_loan": [r"unsecured loan", r"unsecured borrowings"],
+            "advance_from_customers": [r"advance from customers", r"advance from shareholders", r"security deposits"],
+            "dues_to_msme": [r"dues to msme", r"micro and small enterprises", r"dues to micro"],
             "operating_profit": [r"operating profit", r"profit before interest", r"ebitda"],
-            "net_profit_before_tax": [r"profit before tax", r"profit before exceptional items", r"pbt", r"profit.*?before.*?tax"],
-            "net_profit_after_tax": [r"profit after tax", r"profit for the period", r"pat", r"profit.*?after.*?tax", r"profit/.*?\(loss\).*?for the year"],
-            "rpt_monthly_remun": [r"remuneration", r"salary", r"director remuneration", r"managerial remuneration"],
+            "net_profit_before_tax": [r"profit before tax", r"profit before exceptional items", r"pbt", r"profit.*?before.*?tax", r"profit/\s*\(loss\)\s*before\s*tax"],
+            "net_profit_after_tax": [r"profit after tax", r"profit for the period", r"\bpat\b", r"profit.*?after.*?tax", r"profit/.*?\(loss\).*?for the year"],
+            "rpt_monthly_remun": [r"remuneration paid to directors", r"directors remuneration", r"remuneration to directors", r"managerial remuneration", r"remuneration.*director", r"monthly remuneration", r"annual remuneration", r"appointment to any office", r"salary", r"director remuneration", r"professional charges", r"professional fees"],
             "rpt_lease": [r"lease", r"rent"],
             "rpt_sale_goods": [r"sale of goods", r"sale of material"],
             "rpt_purchase_goods": [r"purchase of goods", r"purchase of material"],
-            "total_loans_investments_given": [r"loan given", r"investment made", r"loans and advances given"],
-            "borrowing_defaults": [r"default in repayment", r"borrowing default"]
+            "loan_given_by_company": [r"loans given by company", r"loan given by company", r"loans to related parties", r"inter company loan", r"inter corporate deposit.*given", r"icd given", r"long.?term loans.*advances", r"short.?term loans.*advances"],
+            "investments_made": [r"investments made by company", r"investment made by company", r"non.current investments", r"non current investments", r"current investments", r"investment in subsidiaries", r"investment in associates"],
+            "total_loans_investments_given": [r"total loans.*given", r"loans and advances given"],
+            "borrowing_defaults": [r"default in repayment", r"borrowing default"],
+            "has_corporate_shareholders": [r"corporate shareholder", r"holding more than 10%", r"shareholding pattern"],
+            "export_sales": [r"export sales", r"export turnover", r"revenue from export", r"fob value of exports"],
+            "sitting_fees": [r"sitting fee", r"directors sitting fee", r"director sitting fee", r"sitting fees to directors"]
         }
         
         found_data = {}
@@ -147,33 +157,190 @@ class AOC4Parser:
                 continue
                 
             patterns = numeric_keywords[key]
-            for line in lines:
-                if any(re.search(p, line) for p in patterns):
-                    # Found a keyword match. Extract all numbers on this line.
-                    # e.g., "1,200.50", "14", "90,000"
-                    numbers = re.findall(r'(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?', line)
-                    if not numbers:
-                        continue
-                        
-                    valid_number = None
-                    for num_str in numbers:
-                        clean_num = num_str.replace(",", "")
-                        try:
-                            val = float(clean_num)
-                        except ValueError:
+            valid_number = None
+            
+            # Search entire document for highest priority pattern first
+            for pattern in patterns:
+                for idx, line in enumerate(lines):
+                    if re.search(pattern, line):
+                        # Skip income-tax computation lines that contain 'total income' 
+                        # but are not the P&L total income (e.g., 'Gross Total Income', 'Net Total Income')
+                        if key == "total_revenue" and re.search(r'gross total income|net total income|brought forward loss|deduction under chapter', line):
                             continue
                             
-                        # Filter out likely note numbers (e.g. 1, 14, 2)
-                        # Assume financial values are generally >= 50 or have decimals
-                        if val < 50 and "." not in clean_num:
+                        # Skip Auditor boilerplate lines that cause false positives (e.g. 'less than Rs.50 Crores')
+                        if re.search(r'crores|lakhs|is exempted|notification dated|last audited financial statements|section 197', line):
+                            continue
+
+                        # Restrict 'professional charges' to Related Party Transaction tables only
+                        if key == "rpt_monthly_remun" and "professional" in pattern:
+                            is_rpt_section = False
+                            start_check = max(0, idx - 200)
+                            end_check = min(len(lines), idx + 30)
+                            for check_idx in range(start_check, end_check):
+                                if re.search(r'related part(y|ies)', lines[check_idx]):
+                                    is_rpt_section = True
+                                    break
+                            if not is_rpt_section:
+                                continue
+
+                        # Found a keyword match. Extract all numbers on this line.
+                        search_text = line
+                        
+                        # Strip out quantities of shares to prevent extracting them as currency values
+                        search_text = re.sub(r'\d+(?:,\d+)*\s*(?:equity\s*shares?|preference\s*shares?|shares?)', '', search_text)
+                        
+                        # Look ahead up to 2 lines if this might be a wrapped cell, BUT stop if we hit another table row!
+                        has_numbers = bool(re.findall(r'(-?\s*(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?|\((?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?\))', line))
+                        if not has_numbers and not line.strip().startswith("|"):
+                            for i in range(1, 3):
+                                if idx + i < len(lines):
+                                    next_line = lines[idx + i]
+                                    if next_line.strip().startswith("|"):
+                                        break
+                                    search_text += " " + next_line
+                                    
+                        numbers = re.findall(r'(-?\s*(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?|\((?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?\))', search_text)
+                        if not numbers:
                             continue
                             
-                        valid_number = val
-                        break # Take the first valid number (usually current year)
-                        
+                        for num_idx, num_str in enumerate(numbers):
+                            clean_num = num_str.replace(",", "").replace(" ", "")
+                            try:
+                                if clean_num.startswith("(") and clean_num.endswith(")"):
+                                    val = -float(clean_num[1:-1])
+                                else:
+                                    val = float(clean_num)
+                            except ValueError:
+                                continue
+                                
+                            # Filter out likely note numbers (e.g. 1, 14, 2, 6.1)
+                            if val != 0 and 1 <= val < 100:
+                                if "." not in clean_num and val < 50:
+                                    continue
+                                # If it has a decimal (e.g. 6.1) and is the very first number, check if the next number is 10x larger
+                                if "." in clean_num and num_idx == 0 and len(numbers) > 1:
+                                    next_num_str = numbers[1].replace(",", "").replace(" ", "")
+                                    try:
+                                        next_val = abs(float(next_num_str.strip("()")))
+                                        if next_val > val * 10:
+                                            continue
+                                    except:
+                                        pass
+                                
+                            # Filter out calendar years (1990 to 2035) for financial values (abs handles negative dashes like -2025)
+                            if 1990 <= abs(val) <= 2035 and "." not in clean_num:
+                                continue
+                                
+                            valid_number = val
+                            break # Take the first valid number (usually current year)
+                            
                     if valid_number is not None:
-                        found_data[key] = valid_number
-                        print(f"    -> Found fallback '{key}' = {valid_number}")
-                        break # Move to next key
+                        break # Found a valid number for this pattern, stop line search
                         
+                if valid_number is not None:
+                    found_data[key] = valid_number
+                    print(f"    -> Found fallback '{key}' = {valid_number} (Matched: {pattern})")
+                    break # We found the highest priority pattern match, skip lower priority patterns
+                    
+        found_data["is_subsidiary_or_holding"] = self._evaluate_holding_status(text)
+        found_data["is_ind_as"] = self._evaluate_ind_as_status(text)
         return found_data
+
+    def _evaluate_holding_status(self, full_text: str) -> str:
+        """Analyzes full text to determine holding/subsidiary status."""
+        text = full_text.lower()
+        text = re.sub(r'\s+', ' ', text)
+        
+        # Step 2: High Confidence Check
+        high_conf_phrases = [
+            "holding company", "subsidiary company", "is a subsidiary",
+            "holding company:", "parent company:", "the company is a subsidiary of",
+            "the company is a wholly owned subsidiary", "ultimate holding company",
+            "immediate holding company", "subsidiaries:", "list of subsidiaries"
+        ]
+        for phrase in high_conf_phrases:
+            if phrase in text:
+                print(f"[*] Holding/Subsidiary check: High confidence match on '{phrase}'")
+                return "yes"
+                
+        # Step 3: Ownership Validation Check (>50%)
+        ownership_matches = re.findall(r'(?:ownership|holding|subsidiary|investment).{0,50}?(\d{2,3}(?:\.\d+)?)\s*%', text)
+        for match in ownership_matches:
+            try:
+                if float(match) > 50.0 and float(match) <= 100.0:
+                    print(f"[*] Holding/Subsidiary check: Ownership > 50% match ({match}%)")
+                    return "yes"
+            except ValueError:
+                pass
+                
+        # Step 4: Medium Confidence Accumulation
+        score = 0
+        med_conf_phrases = [
+            "investment in subsidiaries", "investment in associates",
+            "consolidated financial statements comprise",
+            "consolidated financial statements", "schedule of subsidiaries"
+        ]
+        for phrase in med_conf_phrases:
+            if phrase in text:
+                score += 20
+                
+        print(f"[*] Holding/Subsidiary check: Medium confidence score = {score}")
+        if score >= 100:
+            return "yes"
+            
+        return "no"
+
+    def _evaluate_ind_as_status(self, full_text: str) -> str:
+        """Analyzes full text to determine if IND AS applies based on Balance Sheet structure."""
+        text = full_text.lower()
+        
+        # Step 1: Structural Check (Division II vs Division I format)
+        # Strip out common markdown/HTML formatting that might disrupt regex
+        clean_text = re.sub(r'[*_]|<b>|</b>|<br>', '', text)
+        
+        # Search for the first standalone row headers in the Balance Sheet table
+        assets_match = re.search(r'\|\s*(?:[ivx\d\.\-\(\)]*\s*)?assets\s*\|', clean_text)
+        liab_match = re.search(r'\|\s*(?:[ivx\d\.\-\(\)]*\s*)?(?:equity and liabilities|liabilities and equity|equity & liabilities)\s*\|', clean_text)
+        
+        if assets_match and liab_match:
+            if assets_match.start() < liab_match.start():
+                print(f"[*] IND AS check: Structural Match (Assets presented before Liabilities) -> Yes")
+                return "yes"
+            else:
+                print(f"[*] IND AS check: Structural Match (Liabilities presented before Assets) -> No")
+                return "no"
+                
+        # Step 2: Fallback Keyword Check
+        text = re.sub(r'\s+', ' ', text)
+        ind_as_phrases = [
+            "indian accounting standard",
+            "ind as",
+            "companies (indian accounting standards) rules",
+            "ind-as"
+        ]
+        
+        for phrase in ind_as_phrases:
+            # Add word boundaries to avoid matching "kind as" or similar
+            if re.search(r'\b' + re.escape(phrase) + r'\b', text):
+                print(f"[*] IND AS check: Fallback Keyword Match on '{phrase}' -> Yes")
+                return "yes"
+                
+        return "no"
+
+    def _detect_financials_scale(self, full_text: str) -> str:
+        """Detects if the financial numbers are in Crores, Lakhs, Thousands, or Actuals."""
+        if not full_text:
+            return "Actuals"
+        text_lower = full_text.lower()
+        
+        if re.search(r'(?i)(amount.*?in crores?|in crores? indian rupees|\(in crores?\))', text_lower):
+            return "Crores"
+        if re.search(r'(?i)(amount.*?in lakhs?|in lakhs? indian rupees|\(in lakhs?\))', text_lower):
+            return "Lakhs"
+        if re.search(r'(?i)(amount.*?in thousands?|in thousands? indian rupees|\(in thousands?\))', text_lower):
+            return "Thousands"
+        if re.search(r'(?i)(in hundreds?|amounts? (are )?in (?:indian )?rupees hundreds?|in (?:indian )?rupees hundreds?|amounts? (are )?in hundreds?|in hundreds? (of )?indian rupees|\(in hundreds?\))', text_lower):
+            return "Hundreds"
+            
+        return "Actuals"

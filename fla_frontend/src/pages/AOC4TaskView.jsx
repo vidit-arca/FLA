@@ -11,7 +11,8 @@ import ExcelViewer from '../components/ExcelViewer';
 const STEPS = [
   { id: 1, title: 'Common Errors' },
   { id: 2, title: 'Compliance Review' },
-  { id: 3, title: 'RPT & Loans Review' }
+  { id: 3, title: 'RPT & Loans Review' },
+  { id: 4, title: 'Output Excel Data' }
 ];
 
 export default function AOC4TaskView() {
@@ -122,13 +123,6 @@ export default function AOC4TaskView() {
                 <ShieldAlert className="w-6 h-6 text-indigo-400" />
                 AOC4 Compliance Wizard
               </h1>
-              <button 
-                onClick={() => setShowExcelPreview(!showExcelPreview)}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors border ${showExcelPreview ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700 hover:bg-slate-700'}`}
-              >
-                <FileSpreadsheet className="w-4 h-4" />
-                {showExcelPreview ? 'Hide Excel' : 'Preview Excel'}
-              </button>
             </div>
             <p className="text-slate-600 dark:text-slate-400 mt-1 text-sm">Task ID: {taskId} • Reviewing extracted compliance data</p>
           </div>
@@ -189,7 +183,7 @@ export default function AOC4TaskView() {
            >
              Previous Step
            </button>
-           {currentStep < 3 ? (
+           {currentStep < 4 ? (
               <button 
                 onClick={() => {
                    const next = currentStep + 1;
@@ -199,7 +193,7 @@ export default function AOC4TaskView() {
                 }}
                 className="px-4 py-1.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2 bg-indigo-500 text-white hover:bg-indigo-600 shadow-lg shadow-indigo-500/20"
               >
-                {currentStep === 1 ? 'Next Step: Compliance Review' : 'Next Step: RPT & Loans Review'}
+                {currentStep === 1 ? 'Next Step: Compliance Review' : currentStep === 2 ? 'Next Step: RPT & Loans Review' : 'Next Step: Final Excel Output'}
                 <ArrowRight className="w-4 h-4" />
               </button>
             ) : (
@@ -216,7 +210,12 @@ export default function AOC4TaskView() {
         
       </div>
 
-      {/* Main 3-Column Layout */}
+      {currentStep === 4 ? (
+        <div className="flex-1 min-h-0 bg-white dark:bg-[#131B2C] border border-slate-300 dark:border-slate-700/50 rounded-xl shadow-lg overflow-hidden">
+          <ExcelViewer taskId={taskId} />
+        </div>
+      ) : (
+      /* Main 3-Column Layout */
       <div className="flex gap-4 flex-1 min-h-0">
         
         {/* Left Column: Common Errors List */}
@@ -507,6 +506,7 @@ export default function AOC4TaskView() {
         </div>
 
       </div>
+      )}
 
       {/* Bottom KPIs Dashboard */}
       <div className="grid grid-cols-5 gap-4 flex-shrink-0">
