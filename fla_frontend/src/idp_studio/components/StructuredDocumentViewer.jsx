@@ -98,27 +98,51 @@ export default function StructuredDocumentViewer({ pdfFile, onPairExtracted }) {
         }
     };
 
-    const handleTextClick = (textNode, parentNode) => {
-        const text = (textNode.text || '').trim();
-        // Check if sentence/line has key-value delimiter like '2. PAN Number : AALCB0387K'
-        if (text.includes(':') || text.includes(' - ')) {
-            const delimiter = text.includes(':') ? ':' : ' - ';
-            const parts = text.split(delimiter);
-            let rawKey = parts[0].trim();
-            let rawVal = parts.slice(1).join(delimiter).trim();
-            // Clean up leading numbers like "2. PAN Number" -> "PAN Number"
-            rawKey = rawKey.replace(/^[\d\.\-\s]+/, '').trim() || rawKey;
+    const handleTextClick = (e, textNode, parentNode) => {
+        if (e) e.stopPropagation();
+        
+        setTimeout(() => {
+            const selection = window.getSelection();
+            const selectedText = selection.toString().trim();
             
-            if (onPairExtracted && rawKey && rawVal) {
-                onPairExtracted(pdfFile, { key: rawKey, value: rawVal });
+            // If they highlighted specific text, extract it immediately!
+            if (selectedText) {
+                if (onPairExtracted) {
+                    onPairExtracted(pdfFile, { key: selectedText, value: "" });
+                }
+                selection.removeAllRanges();
                 setPendingKeyNode(null);
                 setSuggestedValueNode(null);
                 return;
             }
-        }
+            
+            // Otherwise, it was a regular click. Use the whole node's text.
+            const textToUse = (textNode.text || '').trim();
+            const effectiveNode = {
+                ...textNode,
+                text: textToUse
+            };
 
-        // Fallback to standard 2-click key-value selection
-        handleCellClick(textNode, parentNode);
+            // Check if sentence/line has key-value delimiter like '2. PAN Number : AALCB0387K'
+            if (textToUse.includes(':') || textToUse.includes(' - ')) {
+                const delimiter = textToUse.includes(':') ? ':' : ' - ';
+                const parts = textToUse.split(delimiter);
+                let rawKey = parts[0].trim();
+                let rawVal = parts.slice(1).join(delimiter).trim();
+                // Clean up leading numbers like "2. PAN Number" -> "PAN Number"
+                rawKey = rawKey.replace(/^[\d\.\-\s]+/, '').trim() || rawKey;
+                
+                if (onPairExtracted && rawKey && rawVal) {
+                    onPairExtracted(pdfFile, { key: rawKey, value: rawVal });
+                    setPendingKeyNode(null);
+                    setSuggestedValueNode(null);
+                    return;
+                }
+            }
+
+            // Fallback to standard 2-click key-value selection
+            handleCellClick(effectiveNode, parentNode);
+        }, 10); // Reduced timeout to 10ms to feel more responsive
     };
 
     const renderNode = (node, parentNode = null) => {
@@ -140,12 +164,11 @@ export default function StructuredDocumentViewer({ pdfFile, onPairExtracted }) {
                 return (
                     <HTag 
                         key={node.id} 
-                        className={`text-xl font-bold mt-6 mb-4 cursor-pointer p-2 rounded transition-all duration-200 ${
+                        className={`select-text text-xl font-bold mt-6 mb-4 cursor-pointer p-2 rounded transition-all duration-200 ${
                             isKey ? "bg-indigo-600 text-white" : "text-slate-800 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-white/10"
                         }`}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            handleTextClick(node, parentNode);
+                        onMouseUp={(e) => {
+                            handleTextClick(e, node, parentNode);
                         }}
                     >
                         {node.text}
@@ -155,14 +178,13 @@ export default function StructuredDocumentViewer({ pdfFile, onPairExtracted }) {
                 return (
                     <p 
                         key={node.id} 
-                        className={`mb-3 p-2.5 rounded-lg cursor-pointer font-mono text-sm border border-transparent transition-all duration-200 ${
+                        className={`select-text mb-3 p-2.5 rounded-lg cursor-pointer font-mono text-sm border border-transparent transition-all duration-200 ${
                             isKey 
                                 ? "bg-indigo-600 text-white shadow-md font-semibold" 
                                 : "text-slate-700 dark:text-slate-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 hover:border-indigo-200 dark:hover:border-indigo-500/30"
                         }`}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            handleTextClick(node, parentNode);
+                        onMouseUp={(e) => {
+                            handleTextClick(e, node, parentNode);
                         }}
                         title="Click to extract sentence or pair"
                     >
@@ -223,12 +245,11 @@ export default function StructuredDocumentViewer({ pdfFile, onPairExtracted }) {
                 return (
                     <li 
                         key={node.id} 
-                        className={`mb-1.5 p-2 rounded cursor-pointer transition-all duration-200 ${
+                        className={`select-text mb-1.5 p-2 rounded cursor-pointer transition-all duration-200 ${
                             isKey ? "bg-indigo-600 text-white" : "hover:bg-slate-100 dark:hover:bg-white/10"
                         }`}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            handleTextClick(node, parentNode);
+                        onMouseUp={(e) => {
+                            handleTextClick(e, node, parentNode);
                         }}
                     >
                         {node.text}
