@@ -413,6 +413,28 @@ import os
 import tempfile
 import datetime
 
+def get_custom_temp_dir():
+    candidates = [
+        os.getenv("CUSTOM_TEMP_DIR"),
+        "/data/arcaai/vidit",
+        "/data/aracaai/vidit",
+        os.path.expanduser("~/tmp")
+    ]
+    for target in candidates:
+        if not target:
+            continue
+        try:
+            os.makedirs(target, exist_ok=True)
+            return target
+        except Exception:
+            pass
+    return tempfile.gettempdir()
+
+try:
+    tempfile.tempdir = get_custom_temp_dir()
+except Exception:
+    pass
+
 # ==============================================================================
 # DOM LEARNER HELPERS
 # ==============================================================================
@@ -432,7 +454,7 @@ def _get_dom_query_from_markdown(markdown_text: str):
         from dom_learner.engine.dom_query import DOMQuery
 
         # DOMBuilder expects a file path, so write markdown to a temp file
-        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', delete=False, encoding='utf-8') as tmp:
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.md', dir=get_custom_temp_dir(), delete=False, encoding='utf-8') as tmp:
             tmp.write(markdown_text)
             tmp_path = tmp.name
 
