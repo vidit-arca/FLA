@@ -1253,32 +1253,27 @@ async def extract_batch_documents(
                         if not schema_rules:
                             targeted_fields_instruction = "Extract all relevant key-value pairs from the document."
                         elif pending_items:
+                            import re
                             field_lines = []
                             for pf in pending_items:
-                                field_name = pf["key"]
-                                hint = pf.get("_hint", "")
-                                # Hint is from training doc — describe the FIELD TYPE, not what to copy
-                                if hint:
-                                    field_lines.append(f'- "{field_name}" (e.g. a value similar in nature to: "{hint}" — but find the actual value in THIS document)')
-                                else:
-                                    field_lines.append(f'- "{field_name}"')
+                                raw_key = pf["key"]
+                                clean_name = raw_key.replace("field_", "")
+                                clean_name = re.sub(r'^[0-9]+[a-z]?\s*', '', clean_name)
+                                clean_name = clean_name.replace("_", " ").title()
+                                field_lines.append(f'- Key: "{raw_key}" (Description: {clean_name})')
                             field_list = "\n".join(field_lines)
-                            targeted_fields_instruction = f"""You MUST extract the following specific fields from the document.
-For EACH field, return the EXACT short value found in THIS document (not an example or template value).
-Do NOT copy the hint — use it only to understand what TYPE of value to look for.
-Return ONLY concise values: names, numbers, dates — never full sentences.
-Fields to extract:
-{field_list}"""
+                            targeted_fields_instruction = f"""You MUST extract the following specific fields from the document text:
+{field_list}
+
+CRITICAL RULES:
+1. Return ONLY a valid JSON array of objects.
+2. In each object, the "key" property MUST BE THE EXACT Key string provided above (e.g. "{pending_items[0]['key']}"). Do NOT use the Description as the key.
+3. Extract the actual value from the document text. If a field is not present in the document, return "Unknown" as the value."""
                         else:
                             targeted_fields_instruction = "Extract all relevant key-value pairs from the document."
 
-
                         prompt = f"""You are an advanced Intelligent Document Processing (IDP) extractor.
 {targeted_fields_instruction}
-CRITICAL INSTRUCTION: When you see tables with two years of data (e.g., 2023 and 2024), you MUST distinguish them.
-Append "PY" to the key for the Previous Year and "FY" to the key for the Current/Financial Year.
-Return ONLY a valid JSON array of objects, with each object having exactly two keys: "key" and "value".
-Example: [{{"key": "Total Assets PY", "value": "120000"}}, {{"key": "Total Assets FY", "value": "150000"}}]
 
 Document Text:
 {full_text[:8000]}
@@ -1297,42 +1292,62 @@ Document Text:
                             response.raise_for_status()
                             result = response.json()
                             extracted_text = result.get("response", "[]")
+                            print(f"[LLM] Raw response for '{filename}': {extracted_text[:300]}")
                             
                             import json as python_json
                             raw_data = python_json.loads(extracted_text)
                             llm_fields = _normalize_llm_fields(raw_data)
                         except Exception as ollama_err:
-                            print(f"[!] Ollama LLM call error: {ollama_err}")
+                            print(f"[!] Ollama LLM call error for {filename}: {ollama_err}")
                             llm_fields = []
 
                         if not schema_rules:
                             extracted_fields = llm_fields
                             any_dom_miss = bool(llm_fields)
                         else:
-                            llm_map = {f["key"].lower().strip(): f["value"] for f in llm_fields}
+                            def _clean_alpha(s: str) -> str:
+                                if not s: return ""
+                                s = str(s).lower().strip()
+                                if s.startswith("field_"): s = s[6:]
+                                return "".join(c for c in s if c.isalnum())
+
+                            llm_raw_map = {f["key"]: f["value"] for f in llm_fields if f.get("key") and f.get("value")}
+                            llm_alpha_map = {_clean_alpha(f["key"]): f["value"] for f in llm_fields if f.get("key") and f.get("value")}
+
                             for field in extracted_fields:
                                 if field.get("_source") == "pending_llm":
-                                    form_field_lower = field["key"].lower().strip()
+                                    field_key = field["key"]
+                                    hint = field.get("_hint", "")
                                     matched_val = None
 
                                     # 1. Exact key match
-                                    if form_field_lower in llm_map:
-                                        matched_val = llm_map[form_field_lower]
+                                    if field_key in llm_raw_map:
+                                        matched_val = llm_raw_map[field_key]
 
-                                    # 2. Substring match (form_field contains or is contained in LLM key)
+                                    # 2. Case-insensitive key match
                                     if not matched_val:
-                                        for llm_key, llm_val in llm_map.items():
-                                            if form_field_lower in llm_key or llm_key in form_field_lower:
-                                                matched_val = llm_val
+                                        for k, v in llm_raw_map.items():
+                                            if k.lower().strip() == field_key.lower().strip():
+                                                matched_val = v
                                                 break
 
-                                    # 3. Word-overlap match (at least 2 words in common)
+                                    # 3. Clean Alphanumeric match (ignores field_, underscores, spaces, punctuation)
                                     if not matched_val:
-                                        form_words = set(form_field_lower.split())
-                                        for llm_key, llm_val in llm_map.items():
-                                            llm_words = set(llm_key.split())
-                                            if len(form_words & llm_words) >= 2:
-                                                matched_val = llm_val
+                                        target_alpha = _clean_alpha(field_key)
+                                        if target_alpha in llm_alpha_map:
+                                            matched_val = llm_alpha_map[target_alpha]
+
+                                    # 4. Alphanumeric Substring & Hint match
+                                    if not matched_val:
+                                        target_alpha = _clean_alpha(field_key)
+                                        hint_alpha = _clean_alpha(hint)
+                                        for k, v in llm_raw_map.items():
+                                            k_alpha = _clean_alpha(k)
+                                            if target_alpha and (target_alpha in k_alpha or k_alpha in target_alpha):
+                                                matched_val = v
+                                                break
+                                            if hint_alpha and len(hint_alpha) > 3 and (hint_alpha in k_alpha or k_alpha in hint_alpha):
+                                                matched_val = v
                                                 break
 
                                     field["value"] = matched_val or "Unknown"
