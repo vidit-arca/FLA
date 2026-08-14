@@ -90,6 +90,7 @@ export default function IdpProductionApp() {
           return {
             ...item,
             status: res.status,
+            document_type: res.document_type || 'generic',
             data: res.extracted_fields
           };
         }
@@ -507,9 +508,16 @@ export default function IdpProductionApp() {
                       <FileText className="w-4 h-4 text-slate-500 shrink-0" />
                       <div className="min-w-0">
                         <p className="text-xs font-bold truncate text-slate-900 dark:text-white">{doc.file.name}</p>
-                        <p className="text-[10px] text-slate-500 mt-0.5">
-                          {doc.data ? `${(doc.data || []).filter(item => isFieldMapped(item.value)).length} fields mapped` : 'Pending...'}
-                        </p>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {doc.document_type && doc.document_type !== 'generic' && (
+                            <span className="px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 rounded">
+                              {doc.document_type.replace('_', ' ')}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-slate-500">
+                            {doc.data ? `${(doc.data || []).filter(item => isFieldMapped(item.value)).length} fields mapped` : 'Pending...'}
+                          </span>
+                        </div>
                       </div>
                     </div>
 

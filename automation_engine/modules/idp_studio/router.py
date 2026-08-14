@@ -11,11 +11,12 @@ import io
 import os
 import sys
 
-from .db import get_db, engine
+from .db import get_db, engine, init_db
 from . import models
+from .doc_classifier import classify_document
 
-# Ensure tables are created
-models.Base.metadata.create_all(bind=engine)
+# Ensure tables and migrations are initialized
+init_db()
 
 router = APIRouter()
 
@@ -815,6 +816,11 @@ async def save_rules_batch(
             except Exception as e:
                 print(f"[Batch Save] Error building DOM tree on-the-fly: {e}")
 
+    # Detect document type from file
+    detected_doc_type = "generic"
+    if file and file.filename:
+        detected_doc_type = classify_document(file.filename, "")
+
     for item in mapped_rules:
         form_field = item.get("form_field")
         extracted_key = item.get("extracted_key")
@@ -827,18 +833,20 @@ async def save_rules_batch(
         if spatial_meta:
             spatial_json_str = python_json.dumps(spatial_meta) if isinstance(spatial_meta, dict) else str(spatial_meta)
 
-        # Upsert SchemaAliasRule (spatial rule)
+        # Upsert SchemaAliasRule (spatial rule) with detected_doc_type
         existing_spatial = db.query(models.SchemaAliasRule).filter(
             models.SchemaAliasRule.template_name == template_name,
             models.SchemaAliasRule.form_field == form_field
         ).first()
         if existing_spatial:
+            existing_spatial.document_type = detected_doc_type
             existing_spatial.extracted_key = extracted_key
             existing_spatial.spatial_meta_json = spatial_json_str
         else:
             db.add(models.SchemaAliasRule(
                 rule_id=str(uuid.uuid4()),
                 template_name=template_name,
+                document_type=detected_doc_type,
                 form_field=form_field,
                 extracted_key=extracted_key,
                 spatial_meta_json=spatial_json_str
@@ -897,15 +905,18 @@ async def save_rules_batch(
                         ).first()
                         if existing_dom:
                             existing_dom.dom_path = dom_path_str
+                            existing_dom.document_type = detected_doc_type
                             existing_dom.created_at = datetime.datetime.utcnow()
                         else:
                             db.add(models.DomExtractionRule(
                                 rule_id=str(uuid.uuid4()),
                                 template_name=template_name,
+                                document_type=detected_doc_type,
                                 variable_name=extracted_key,
                                 dom_path=dom_path_str,
                                 success_count=0
                             ))
+                        db.commit()
                         dom_saved_count += 1
             except Exception as dom_err:
                 print(f"[Batch Save] Failed DOM learning for '{extracted_key}': {dom_err}")
@@ -947,6 +958,8 @@ async def save_rule_with_dom(
         db.delete(existing_spatial)
         db.commit()
 
+    detected_doc_type = classify_document(file.filename if file else "", "")
+
     spatial_json_str = None
     if spatial_meta:
         try:
@@ -958,6 +971,7 @@ async def save_rule_with_dom(
     db_rule = models.SchemaAliasRule(
         rule_id=str(uuid.uuid4()),
         template_name=template_name,
+        document_type=detected_doc_type,
         form_field=form_field,
         extracted_key=extracted_key,
         spatial_meta_json=spatial_json_str
@@ -965,7 +979,7 @@ async def save_rule_with_dom(
     db.add(db_rule)
     db.commit()
     db.refresh(db_rule)
-    print(f"[IDP] Spatial rule saved: '{form_field}' → '{extracted_key}' for template '{template_name}'")
+    print(f"[IDP] Spatial rule saved: '{form_field}' → '{extracted_key}' (DocType: {detected_doc_type}) for template '{template_name}'")
 
     # --- Step 2: DOM Learning (only if PDF is provided) ---
     dom_rule_saved = False
@@ -1006,6 +1020,14 @@ async def save_rule_with_dom(
                 if full_markdown.strip():
                     q = _get_dom_query_from_markdown(full_markdown)
 
+            # Refine doc type from full OCR text if available
+            if full_markdown:
+                refined_type = classify_document(file.filename, full_markdown)
+                if refined_type != "generic":
+                    detected_doc_type = refined_type
+                    db_rule.document_type = detected_doc_type
+                    db.commit()
+
             if q:
                 _matches = q.find_row(extracted_key)
                 best_row = _matches[0] if _matches else None
@@ -1021,11 +1043,13 @@ async def save_rule_with_dom(
 
                     if existing_dom:
                         existing_dom.dom_path = dom_path_str
+                        existing_dom.document_type = detected_doc_type
                         existing_dom.created_at = datetime.datetime.utcnow()
                     else:
                         db.add(models.DomExtractionRule(
                             rule_id=str(uuid.uuid4()),
                             template_name=template_name,
+                            document_type=detected_doc_type,
                             variable_name=extracted_key,
                             dom_path=dom_path_str,
                             success_count=0
@@ -1219,6 +1243,7 @@ async def extract_batch_documents(
 
             # Initialize full_text before Tier 1 so Tier 2 LLM always has access to it
             full_text = ""
+            doc_type = "generic"
 
             # --- TIER 1: DOM-based extraction for each mapped form field ---
             if schema_rules:
@@ -1230,12 +1255,23 @@ async def extract_batch_documents(
                 except Exception as ocr_err:
                     print(f"[Batch][DOM] Triton OCR failed: {ocr_err}")
 
+                # Classify document into its specific document type
+                doc_type = classify_document(filename, full_text)
+                print(f"[Batch] Document '{filename}' classified as: '{doc_type}'")
+
+                # Filter rules strictly for this document type
+                scoped_rules = [r for r in schema_rules if getattr(r, 'document_type', 'generic') == doc_type]
+                if not scoped_rules:
+                    scoped_rules = [r for r in schema_rules if getattr(r, 'document_type', 'generic') in [None, 'generic', '']] or schema_rules
+
+                print(f"[Batch] Scoped {len(scoped_rules)} of {len(schema_rules)} total rules for '{filename}' ({doc_type})")
+
                 if full_text:
                     q = _get_dom_query_from_markdown(full_text)
                 else:
                     q = None
 
-                for rule in schema_rules:
+                for rule in scoped_rules:
                     variable_name = rule.extracted_key
                     dom_value = None
 
@@ -1251,13 +1287,12 @@ async def extract_batch_documents(
                         })
                     else:
                         # Mark as needing LLM fallback
-                        # Store extracted_key as a semantic hint (NOT the answer — it's from training doc!)
                         any_dom_miss = True
                         extracted_fields.append({
                             "key": rule.form_field,
                             "value": None,
                             "_source": "pending_llm",
-                            "_hint": rule.extracted_key  # e.g. 'PKF SRIDHAR' from training doc
+                            "_hint": rule.extracted_key
                         })
 
             # --- TIER 2 / 3: LLM fallback for any fields that DOM missed ---
@@ -1267,9 +1302,11 @@ async def extract_batch_documents(
                     if not full_text:
                         print(f"[LLM] No OCR text yet for {filename}, running Triton OCR now...")
                         full_text = _run_triton_ocr_on_pdf_bytes(pdf_bytes)
+                        if doc_type == "generic":
+                            doc_type = classify_document(filename, full_text)
 
                     pending_items = [f for f in extracted_fields if f.get("_source") == "pending_llm"]
-                    print(f"[LLM] Tier 2 starting for '{filename}' — {len(pending_items)} fields need LLM, text length={len(full_text)}")
+                    print(f"[LLM] Tier 2 starting for '{filename}' ({doc_type}) — {len(pending_items)} fields need LLM, text length={len(full_text)}")
 
                     if full_text.strip():
                         if not schema_rules:
@@ -1290,7 +1327,7 @@ async def extract_batch_documents(
 CRITICAL RULES:
 1. Return ONLY a valid JSON array of objects.
 2. In each object, the "key" property MUST BE THE EXACT Key string provided above (e.g. "{pending_items[0]['key']}"). Do NOT use the Description as the key.
-3. Extract the actual value from the document text. If a field is not present in the document, return "Unknown" as the value."""
+3. Extract the actual value from the document text. Be strict: for "Address of Registered Office of the Company", extract ONLY the target Company's address. Do NOT extract an auditor's or service provider's letterhead address. If a field is not present in the document, return "Unknown" as the value."""
                         else:
                             targeted_fields_instruction = "Extract all relevant key-value pairs from the document."
 
@@ -1375,13 +1412,14 @@ Document Text:
                                     field["value"] = matched_val or "Unknown"
                                     field["_source"] = "llm"
 
-                            # Append all extra fields extracted by LLM (e.g., Previous Year PY fields not yet saved in schema_rules)
-                            existing_keys = {f["key"].lower() for f in extracted_fields}
-                            for item in llm_fields:
-                                k = item.get("key", "")
-                                v = item.get("value", "")
-                                if k and k.lower() not in existing_keys and v not in [None, "", "Unknown", "N/A"]:
-                                    extracted_fields.append({"key": k, "value": v, "_source": "llm"})
+                            # Append extra fields ONLY if not strictly scoped to schema_rules
+                            if not schema_rules:
+                                existing_keys = {f["key"].lower() for f in extracted_fields}
+                                for item in llm_fields:
+                                    k = item.get("key", "")
+                                    v = item.get("value", "")
+                                    if k and k.lower() not in existing_keys and v not in [None, "", "Unknown", "N/A"]:
+                                        extracted_fields.append({"key": k, "value": v, "_source": "llm"})
                     else:
                         print(f"[!] No text content available for LLM fallback on {filename}")
                         for field in extracted_fields:
@@ -1408,12 +1446,12 @@ Document Text:
                     cleaned_fields.append(field)
 
             # Determine status badge
-            # Green if ALL fields came from DOM, Yellow if any needed LLM
             llm_used = any_dom_miss
             status_badge = "review" if llm_used else "success"
 
             results.append({
                 "filename": filename,
+                "document_type": doc_type,
                 "status": status_badge,
                 "extracted_fields": cleaned_fields
             })

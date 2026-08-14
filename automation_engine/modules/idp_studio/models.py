@@ -23,6 +23,7 @@ class SchemaAliasRule(Base):
 
     rule_id = Column(String, primary_key=True, index=True)
     template_name = Column(String, index=True) # e.g. "FLA"
+    document_type = Column(String, index=True, default="generic", nullable=True) # e.g. "board_resolution", "consent_letter"
     form_field = Column(String, index=True)    # e.g. "net_worth" (The target field in the UI Form)
     extracted_key = Column(String)             # e.g. "Total Reserves and Surplus" (The key found by the PDF OCR engine)
     spatial_meta_json = Column(Text, nullable=True) # JSON containing anchor_text, dx, dy, width, height
@@ -42,6 +43,7 @@ class DomExtractionRule(Base):
     
     # Context
     template_name = Column(String, index=True)      # e.g., "FLA"
+    document_type = Column(String, index=True, default="generic", nullable=True) # e.g., "board_resolution", "consent_letter"
     variable_name = Column(String, index=True)      # e.g., "Trade payables"
     
     # The actual rule
