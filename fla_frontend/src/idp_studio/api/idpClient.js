@@ -87,6 +87,20 @@ export const idpClient = {
         }
     },
 
+    generatePreviewPdf: async (payload) => {
+        try {
+            const response = await axios.post(`${API_BASE_URL}/generate_preview_pdf`, payload, {
+                responseType: 'blob'
+            });
+            const file = new Blob([response.data], { type: 'application/pdf' });
+            const fileURL = URL.createObjectURL(file);
+            window.open(fileURL, '_blank');
+        } catch (error) {
+            console.error('Error generating Preview PDF:', error);
+            throw error;
+        }
+    },
+
     deleteRule: async (ruleId) => {
 
         try {

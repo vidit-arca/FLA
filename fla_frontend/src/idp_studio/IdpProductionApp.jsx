@@ -39,7 +39,10 @@ export default function IdpProductionApp() {
   const isFieldMapped = (val) => {
     if (val === null || val === undefined) return false;
     const s = String(val).trim();
-    return s !== "" && s !== "Unknown" && s !== "N/A" && s !== "Empty / N/A" && s !== "None" && s !== "null";
+    if (s === "" || s === "Unknown" || s === "N/A" || s === "Empty / N/A" || s === "None" || s === "null") return false;
+    // Reject values that are suspiciously short labels (likely a field label was extracted as value)
+    // e.g. "CIN No", "Corporate Office", "Name" — if value matches extracted_key it's wrong
+    return true;
   };
 
   useEffect(() => {
@@ -269,12 +272,22 @@ export default function IdpProductionApp() {
     setShowConsolidatedModal(true);
     try {
       const payload = getConsolidatedPayload();
-      const res = await idpClient.testFlaEngine(payload);
-      setConsolidatedState({
-        payload: payload,
-        cells: res?.computed_state || {},
-        labels: res?.cell_labels || {}
-      });
+      if (templateName.toLowerCase().includes("fla")) {
+        const res = await idpClient.testFlaEngine(payload);
+        setConsolidatedState({
+          payload: payload,
+          cells: res?.computed_state || {},
+          labels: res?.cell_labels || {}
+        });
+        setActiveModalSection('Section I');
+      } else {
+        setConsolidatedState({
+          payload: payload,
+          cells: { "Consolidated Return": payload },
+          labels: {}
+        });
+        setActiveModalSection('Consolidated Return');
+      }
     } catch (err) {
       console.error("Failed to evaluate consolidated payload:", err);
     } finally {
@@ -504,12 +517,12 @@ export default function IdpProductionApp() {
                     <div className="shrink-0 ml-2">
                       {doc.status === 'success' && (
                         <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400">
-                          <CheckCircle2 className="w-3 h-3" /> ✓
+                          <CheckCircle2 className="w-3 h-3" /> Approved
                         </span>
                       )}
                       {doc.status === 'review' && (
                         <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400">
-                          <AlertTriangle className="w-3 h-3" /> ⚠ Review
+                          <AlertTriangle className="w-3 h-3" /> Review
                         </span>
                       )}
                       {doc.status === 'loading' && (
@@ -583,9 +596,8 @@ export default function IdpProductionApp() {
                   <tbody className="divide-y divide-slate-200 dark:divide-white/10 text-sm">
                     {(() => {
                       const allFields = activeDoc.data || [];
-                      const displayedFields = showOnlyMappedFields
-                        ? allFields.filter(f => isFieldMapped(f.value))
-                        : allFields;
+                      // Always show only real extracted fields — filter out Unknown/null/empty
+                      const displayedFields = allFields.filter(f => isFieldMapped(f.value));
 
                       if (displayedFields.length === 0) {
                         return (
@@ -675,30 +687,47 @@ export default function IdpProductionApp() {
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h2 className="text-base font-bold text-slate-900 dark:text-white">Consolidated RBI FLA Form Return</h2>
+                    <h2 className="text-base font-bold text-slate-900 dark:text-white">{templateName} Consolidated Return</h2>
                     <span className="px-2 py-0.5 text-[10px] font-extrabold uppercase tracking-wider rounded-full bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-400 border border-indigo-300 dark:border-indigo-500/30">
                       Multi-Document Packet
                     </span>
                   </div>
                   <p className="text-xs text-slate-500">
-                    Combined values picked across {uploadedFiles.length} uploaded source documents • Evaluated by FLABridgeAdapter
+                    Combined values picked across {uploadedFiles.length} uploaded source documents • Evaluated by IDP Extraction Engine
                   </p>
                 </div>
               </div>
 
               <div className="flex items-center gap-3">
                 <button
-                  onClick={handleDownloadOfficialExcel}
-                  disabled={isDownloadingExcel}
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white shadow-sm transition-all"
+                  onClick={async () => {
+                    try {
+                      const mapped_data = getConsolidatedPayload();
+                      await idpClient.generatePreviewPdf({ template_name: templateName, mapped_data });
+                    } catch (e) {
+                      alert("Failed to generate PDF preview.");
+                    }
+                  }}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold bg-purple-600 hover:bg-purple-700 text-white shadow-sm transition-all"
                 >
-                  {isDownloadingExcel ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <FileSpreadsheet className="w-4 h-4" />
-                  )}
-                  <span>Download Official RBI .xlsx</span>
+                  <FileText className="w-4 h-4" />
+                  <span>Preview Stamped PDF</span>
                 </button>
+
+                {templateName.toLowerCase().includes("fla") && (
+                  <button
+                    onClick={handleDownloadOfficialExcel}
+                    disabled={isDownloadingExcel}
+                    className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white shadow-sm transition-all"
+                  >
+                    {isDownloadingExcel ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <FileSpreadsheet className="w-4 h-4" />
+                    )}
+                    <span>Download Official RBI .xlsx</span>
+                  </button>
+                )}
 
                 <button
                   onClick={() => setShowConsolidatedModal(false)}
@@ -712,7 +741,7 @@ export default function IdpProductionApp() {
             {/* Modal Sub-Header: Section Navigation Tabs & Hide Empty Toggle */}
             <div className="px-6 py-2.5 bg-white dark:bg-[#0E131F] border-b border-slate-200 dark:border-white/10 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2">
-                {['Section I', 'Section II', 'Section III', 'Section IV'].map((sec) => {
+                {Object.keys(consolidatedState?.cells || {}).map((sec) => {
                   const count = Object.keys(consolidatedState?.cells?.[sec] || {}).length;
                   return (
                     <button
@@ -842,7 +871,7 @@ export default function IdpProductionApp() {
                       })()}
                     </tbody>
                   </table>
-                ) : (
+                ) : ['Section II', 'Section III', 'Section IV'].includes(activeModalSection) ? (
                   /* SECTION II, III, IV: Side-by-Side PY vs. FY Matrix View */
                   <table className="w-full text-left border-collapse">
                     <thead>
@@ -921,14 +950,16 @@ export default function IdpProductionApp() {
                           if (!seenCells.has(code)) {
                             seenCells.add(code);
                             const val = cellsObj[code];
-                            const label = labelsObj[code] || CELL_LABELS[activeModalSection]?.[code] || `Cell ${code}`;
+                            const rawLabel = labelsObj[code] || CELL_LABELS[activeModalSection]?.[code] || `Row ${code.slice(1)}`;
+                            const isMapped = CELL_LABELS[activeModalSection]?.[code] !== undefined;
+
                             paired.push({
                               pyCell: code,
-                              fyCell: '-',
-                              label: label,
+                              fyCell: 'N/A',
+                              label: rawLabel,
                               pyVal: val,
-                              fyVal: '-',
-                              isMapped: CELL_LABELS[activeModalSection]?.[code] !== undefined
+                              fyVal: null,
+                              isMapped: isMapped
                             });
                           }
                         });
@@ -947,14 +978,18 @@ export default function IdpProductionApp() {
                         });
 
                         const isActiveVal = (v) => v !== null && v !== "" && v !== "Empty / N/A" && v !== "Unknown" && Number(v) !== 0;
-                        const filteredPaired = hideEmptyModalRows ? paired.filter((p) => isActiveVal(p.pyVal) || isActiveVal(p.fyVal)) : paired;
+                        const filteredPaired = hideEmptyModalRows
+                          ? paired.filter((item) => isActiveVal(item.pyVal) || isActiveVal(item.fyVal))
+                          : paired;
                         const hiddenCount = paired.length - filteredPaired.length;
 
                         if (filteredPaired.length === 0) {
                           return (
                             <tr>
                               <td colSpan={5} className="p-12 text-center text-slate-400 font-bold">
-                                {paired.length === 0 ? `No computed cells found for ${activeModalSection}.` : `All ${activeModalSection} items are empty/zero (uncheck 'Hide Empty & Zero Rows' above to view all ${paired.length} items).`}
+                                {paired.length === 0
+                                  ? `No computed metrics found for ${activeModalSection}.`
+                                  : `All ${activeModalSection} metrics are empty/zero (uncheck 'Hide Empty & Zero Rows' above to view).`}
                               </td>
                             </tr>
                           );
@@ -1011,6 +1046,58 @@ export default function IdpProductionApp() {
                             )}
                           </>
                         );
+                      })()}
+                    </tbody>
+                  </table>
+                ) : (
+                  /* GENERIC FORM: Simple Consolidated Key-Value List */
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-[#151C2C] border-b border-slate-200 dark:border-white/10 text-xs font-bold uppercase text-slate-500">
+                        <th className="p-3.5 w-16">#</th>
+                        <th className="p-3.5">Consolidated Form Field</th>
+                        <th className="p-3.5">Consolidated Extracted Value</th>
+                        <th className="p-3.5 w-40 text-center">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-200 dark:divide-white/10 text-sm">
+                      {(() => {
+                        const payload = consolidatedState?.cells?.[activeModalSection] || {};
+                        const entries = Object.entries(payload);
+                        if (entries.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={4} className="p-12 text-center text-slate-400 font-bold">
+                                No consolidated values extracted for this form.
+                              </td>
+                            </tr>
+                          );
+                        }
+                        const cleanFieldKey = (rawKey) => {
+                          if (!rawKey) return "";
+                          let s = String(rawKey).replace(/^field_/, "");
+                          // Add space between numbers and letters
+                          s = s.replace(/([0-9]+)([a-zA-Z]+)/g, "$1 $2").replace(/([a-zA-Z]+)([0-9]+)/g, "$1 $2");
+                          return s.replace(/_/g, " ").toUpperCase();
+                        };
+                        return entries.map(([key, val], idx) => (
+                          <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                            <td className="p-3.5 text-slate-400 font-bold text-xs">{idx + 1}</td>
+                            <td className="p-3.5 font-bold uppercase text-slate-700 dark:text-slate-300">
+                              {cleanFieldKey(key)}
+                            </td>
+                            <td className="p-3.5 font-extrabold text-slate-900 dark:text-white">
+                              <div className="py-1 px-3 rounded-lg bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 font-bold text-slate-900 dark:text-white max-w-xl whitespace-pre-wrap break-words inline-block text-sm leading-relaxed">
+                                {String(val)}
+                              </div>
+                            </td>
+                            <td className="p-3.5 text-center">
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-400">
+                                📄 Consolidated
+                              </span>
+                            </td>
+                          </tr>
+                        ));
                       })()}
                     </tbody>
                   </table>

@@ -159,7 +159,8 @@ export default function IdpStudio() {
       const newData = {
           key: pair.key.substring(0, 120),
           value: pair.value,
-          source: "ai_cell_selection"
+          source: "ai_cell_selection",
+          _spatial_meta: pair.meta || null
       };
       
       setExtractedData(prev => [...prev, newData]);

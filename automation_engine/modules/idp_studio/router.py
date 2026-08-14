@@ -144,6 +144,13 @@ async def upload_pdf_template(file: UploadFile = File(...), db: Session = Depend
         template_name = file.filename.replace(".pdf", "").replace(".PDF", "")
         template_id = str(uuid.uuid4())
         
+        # Save the blank PDF to the data/templates folder for future preview generation
+        template_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "templates"))
+        os.makedirs(template_dir, exist_ok=True)
+        template_path = os.path.join(template_dir, f"{template_name}.pdf")
+        with open(template_path, "wb") as out_f:
+            out_f.write(contents)
+        
         db_template = models.IdpTemplate(
             template_id=template_id,
             template_name=template_name,
@@ -153,7 +160,7 @@ async def upload_pdf_template(file: UploadFile = File(...), db: Session = Depend
         db.commit()
         db.refresh(db_template)
         
-        return {"message": "Template created from PDF", "template_id": template_id, "fields": fields}
+        return {"message": "Template created from PDF and saved for previews", "template_id": template_id, "fields": fields}
         
     except Exception as e:
         import traceback
@@ -261,6 +268,100 @@ async def generate_excel_from_idp(payload: Dict[str, Any] = Body(...)):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Excel Generation Error: {str(e)}")
+
+# ==============================================================================
+# NEW: POST /generate_preview_pdf — Generic PDF Preview Generation
+# ==============================================================================
+@router.post("/generate_preview_pdf")
+async def generate_preview_pdf(payload: Dict[str, Any] = Body(...), db: Session = Depends(get_db)):
+    """
+    Takes the mapped dictionary, fetches spatial metadata for the template,
+    and stamps the text onto a blank PDF template.
+    """
+    try:
+        import fitz  # PyMuPDF
+        import json as python_json
+        
+        template_name = payload.get("template_name")
+        mapped_data = payload.get("mapped_data", {})
+        
+        if not template_name:
+            raise HTTPException(status_code=400, detail="Missing template_name in payload")
+            
+        # 1. Fetch schema alias rules for spatial metadata
+        rules = db.query(models.SchemaAliasRule).filter(models.SchemaAliasRule.template_name == template_name).all()
+        spatial_map = {}
+        for r in rules:
+            if r.spatial_meta_json:
+                spatial_map[r.form_field] = python_json.loads(r.spatial_meta_json)
+                
+        # 2. Locate blank template
+        template_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "templates", f"{template_name}.pdf"))
+        
+        if not os.path.exists(template_path):
+            raise FileNotFoundError(f"Blank PDF template not found at: {template_path}. Please place it in data/templates.")
+            
+        # 3. Open PDF
+        doc = fitz.open(template_path)
+        
+        # 4. Stamp mapped_data
+        for key, value in mapped_data.items():
+            if key in spatial_map and value:
+                meta = spatial_map[key]
+                
+                # Check for polygon or bounding_regions (Azure Document Intelligence format)
+                polygon = None
+                if meta.get("bounding_regions") and len(meta["bounding_regions"]) > 0:
+                    polygon = meta["bounding_regions"][0].get("polygon")
+                elif meta.get("polygon"):
+                    polygon = meta["polygon"]
+                
+                if polygon and len(polygon) >= 8:
+                    # polygon is [x1, y1, x2, y2, x3, y3, x4, y4] usually in inches from Azure DI
+                    # fitz uses points (1 inch = 72 points)
+                    # Let's assume Azure DI returns inches and convert to points
+                    # Or if it returns pixels, we need to know the scale. Azure DI usually returns inches.
+                    x0 = min(polygon[0], polygon[2], polygon[4], polygon[6]) * 72
+                    y0 = min(polygon[1], polygon[3], polygon[5], polygon[7]) * 72
+                    x1 = max(polygon[0], polygon[2], polygon[4], polygon[6]) * 72
+                    y1 = max(polygon[1], polygon[3], polygon[5], polygon[7]) * 72
+                    
+                    # 1. Exact bounding box of the original dummy text
+                    erase_rect = fitz.Rect(x0 - 2, y0 - 2, x1 + 2, y1 + 2)
+                    
+                    # 2. Expanded bounding box for writing new text (so it doesn't wrap abruptly)
+                    write_rect = fitz.Rect(x0, y0, x1 + 200, y1 + 15)
+                    
+                    page_num = 0
+                    if meta.get("bounding_regions") and len(meta["bounding_regions"]) > 0:
+                        page_num = meta["bounding_regions"][0].get("pageNumber", 1) - 1
+                        
+                    if 0 <= page_num < len(doc):
+                        page = doc[page_num]
+                        # First, erase the old dummy text by drawing a white rectangle over it
+                        page.draw_rect(erase_rect, color=(1, 1, 1), fill=(1, 1, 1))
+                        
+                        # Then, write the new dynamic data in blue
+                        page.insert_textbox(write_rect, str(value), fontsize=10, color=(0, 0, 0.8))
+                    
+        # 5. Save output
+        output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "output", "previews"))
+        os.makedirs(output_dir, exist_ok=True)
+        output_filename = f"{template_name}_Preview_{uuid.uuid4().hex[:8]}.pdf"
+        output_path = os.path.join(output_dir, output_filename)
+        
+        doc.save(output_path)
+        doc.close()
+        
+        return FileResponse(
+            path=output_path,
+            filename=f"{template_name}_Preview.pdf",
+            media_type="application/pdf"
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"PDF Generation Error: {str(e)}")
 
 @router.get("/rules/{template_name}", response_model=List[SchemaAliasResponse])
 def get_rules_for_template(template_name: str, db: Session = Depends(get_db)):
@@ -413,7 +514,9 @@ def _extract_value_from_dom_node(node, target_col_index: Optional[int] = None) -
         elif len(numeric_tokens) == 1:
             return numeric_tokens[0]
 
-    return text
+    # If it's a raw unstructured paragraph without colons or trailing numbers, 
+    # we MUST return empty to let the LLM extract the exact substring.
+    return ""
 
 
 def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_name: str):
@@ -495,24 +598,7 @@ def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_nam
             except Exception as path_err:
                 print(f"[DOM] Path navigation error: {path_err}")
 
-        # Tier B: Correct Node Search Order (ROW and CELL before PARAGRAPH)
-        if not matched_node:
-            _matches = q.find_row(variable_name) if hasattr(q, 'find_row') else []
-            if _matches:
-                matched_node = _matches[0]
 
-        if not matched_node and hasattr(q, 'find_all'):
-            from dom_learner.models import NodeType
-            # Search order: ROW -> CELL -> PARAGRAPH -> HEADING
-            for n_type in [NodeType.ROW, NodeType.CELL, NodeType.PARAGRAPH, NodeType.HEADING]:
-                nodes = q.find_all(n_type)
-                for n in nodes:
-                    n_text = (getattr(n, 'text', '') or '').lower()
-                    if clean_var in n_text:
-                        matched_node = n
-                        break
-                if matched_node:
-                    break
 
         if not matched_node:
             return None, None
@@ -524,6 +610,22 @@ def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_nam
             value = _extract_value_from_dom_node(matched_node, target_col_index=target_col_index)
 
         if not value:
+            return None, None
+
+        # Guard 1: Reject large paragraph blocks — pass to LLM instead
+        if len(str(value)) > len(str(variable_name)) + 20 and len(str(value).split()) > 5:
+            print(f"[DOM] ❌ Rejected '{variable_name}' — grabbed large paragraph ({len(str(value))} chars). Passing to LLM.")
+            return None, None
+
+        # Guard 2: Reject self-referential extractions (e.g. value == "Corporate Office" when searching for "Corporate Office")
+        if str(value).strip().lower() == str(variable_name).strip().lower():
+            print(f"[DOM] ❌ Rejected '{variable_name}' — value is same as the label (self-referential). Passing to LLM.")
+            return None, None
+
+        # Guard 3: Reject URLs as values (e.g. www.kritilabs.com returned as Corporate Office address)
+        val_stripped = str(value).strip().lower()
+        if val_stripped.startswith("www.") or val_stripped.startswith("http://") or val_stripped.startswith("https://"):
+            print(f"[DOM] ❌ Rejected '{variable_name}' — value is a URL, not a field value. Passing to LLM.")
             return None, None
 
         # Increment success_count on the rule
@@ -939,6 +1041,13 @@ def _normalize_llm_fields(raw_json):
     
     items = []
     if isinstance(raw_json, dict):
+        # Fix: Check if the dict itself is a single item like {"key": "...", "value": "..."}
+        if ("key" in raw_json or "field" in raw_json or "label" in raw_json) and ("value" in raw_json or "val" in raw_json):
+            k = raw_json.get("key") or raw_json.get("field") or raw_json.get("label") or raw_json.get("name")
+            v = raw_json.get("value") or raw_json.get("val") or raw_json.get("amount")
+            if k is not None and v is not None and not isinstance(v, (dict, list)):
+                return [{"key": str(k), "value": str(v)}]
+
         for k, v in raw_json.items():
             if isinstance(v, (dict, list)):
                 continue
@@ -950,6 +1059,10 @@ def _normalize_llm_fields(raw_json):
                 v = item.get("value") or item.get("val") or item.get("amount")
                 if k is not None and v is not None and not isinstance(v, (dict, list)):
                     items.append({"key": str(k), "value": str(v)})
+                else:
+                    for fk, fv in item.items():
+                        if not isinstance(fv, (dict, list)):
+                            items.append({"key": str(fk), "value": str(fv)})
     return items
 
 
@@ -1082,24 +1195,18 @@ async def extract_batch_documents(
                 except Exception as excel_err:
                     print(f"[Batch] Direct Excel/MD parsing error on {filename}: {excel_err}")
 
+            # Initialize full_text before Tier 1 so Tier 2 LLM always has access to it
+            full_text = ""
+
             # --- TIER 1: DOM-based extraction for each mapped form field ---
             if schema_rules:
-                # Get structured text for DOM (pdfplumber digital layer first, then Triton OCR for scanned PDFs)
+                # Always use Full OCR (Triton) to ensure output matches IDP Studio mappings
                 full_text = ""
                 try:
-                    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
-                        full_text = "\n\n".join(
-                            line for p in pdf.pages for line in (p.extract_text() or "").split('\n') if line.strip()
-                        )
-                except Exception:
-                    pass
-
-                if not full_text:
-                    try:
-                        print(f"[Batch][DOM] No digital text in {filename}, running Triton OCR...")
-                        full_text = _run_triton_ocr_on_pdf_bytes(pdf_bytes)
-                    except Exception as ocr_err:
-                        print(f"[Batch][DOM] Triton OCR failed: {ocr_err}")
+                    print(f"[Batch][DOM] Running Full Triton OCR on {filename}...")
+                    full_text = _run_triton_ocr_on_pdf_bytes(pdf_bytes)
+                except Exception as ocr_err:
+                    print(f"[Batch][DOM] Triton OCR failed: {ocr_err}")
 
                 if full_text:
                     q = _get_dom_query_from_markdown(full_text)
@@ -1122,25 +1229,52 @@ async def extract_batch_documents(
                         })
                     else:
                         # Mark as needing LLM fallback
+                        # Store extracted_key as a semantic hint (NOT the answer — it's from training doc!)
                         any_dom_miss = True
                         extracted_fields.append({
                             "key": rule.form_field,
                             "value": None,
-                            "_source": "pending_llm"
+                            "_source": "pending_llm",
+                            "_hint": rule.extracted_key  # e.g. 'PKF SRIDHAR' from training doc
                         })
 
             # --- TIER 2 / 3: LLM fallback for any fields that DOM missed ---
             if True:
                 try:
-                    # Reuse full_text already extracted from digital layer or Triton OCR (never repeat OCR!)
+                    # Ensure we have OCR text — run it now if Tier 1 was skipped
                     if not full_text:
+                        print(f"[LLM] No OCR text yet for {filename}, running Triton OCR now...")
                         full_text = _run_triton_ocr_on_pdf_bytes(pdf_bytes)
 
+                    pending_items = [f for f in extracted_fields if f.get("_source") == "pending_llm"]
+                    print(f"[LLM] Tier 2 starting for '{filename}' — {len(pending_items)} fields need LLM, text length={len(full_text)}")
+
                     if full_text.strip():
-                        # Call local Ollama model directly with cached full_text
-                        prompt = f"""
-You are an advanced Intelligent Document Processing (IDP) extractor.
-Extract all relevant financial and tabular key-value pairs from the following document text.
+                        if not schema_rules:
+                            targeted_fields_instruction = "Extract all relevant key-value pairs from the document."
+                        elif pending_items:
+                            field_lines = []
+                            for pf in pending_items:
+                                field_name = pf["key"]
+                                hint = pf.get("_hint", "")
+                                # Hint is from training doc — describe the FIELD TYPE, not what to copy
+                                if hint:
+                                    field_lines.append(f'- "{field_name}" (e.g. a value similar in nature to: "{hint}" — but find the actual value in THIS document)')
+                                else:
+                                    field_lines.append(f'- "{field_name}"')
+                            field_list = "\n".join(field_lines)
+                            targeted_fields_instruction = f"""You MUST extract the following specific fields from the document.
+For EACH field, return the EXACT short value found in THIS document (not an example or template value).
+Do NOT copy the hint — use it only to understand what TYPE of value to look for.
+Return ONLY concise values: names, numbers, dates — never full sentences.
+Fields to extract:
+{field_list}"""
+                        else:
+                            targeted_fields_instruction = "Extract all relevant key-value pairs from the document."
+
+
+                        prompt = f"""You are an advanced Intelligent Document Processing (IDP) extractor.
+{targeted_fields_instruction}
 CRITICAL INSTRUCTION: When you see tables with two years of data (e.g., 2023 and 2024), you MUST distinguish them.
 Append "PY" to the key for the Previous Year and "FY" to the key for the Current/Financial Year.
 Return ONLY a valid JSON array of objects, with each object having exactly two keys: "key" and "value".
@@ -1175,15 +1309,32 @@ Document Text:
                             extracted_fields = llm_fields
                             any_dom_miss = bool(llm_fields)
                         else:
-                            llm_map = {f["key"].lower(): f["value"] for f in llm_fields}
+                            llm_map = {f["key"].lower().strip(): f["value"] for f in llm_fields}
                             for field in extracted_fields:
                                 if field.get("_source") == "pending_llm":
-                                    key_lower = field["key"].lower()
+                                    form_field_lower = field["key"].lower().strip()
                                     matched_val = None
-                                    for llm_key, llm_val in llm_map.items():
-                                        if key_lower in llm_key or llm_key in key_lower:
-                                            matched_val = llm_val
-                                            break
+
+                                    # 1. Exact key match
+                                    if form_field_lower in llm_map:
+                                        matched_val = llm_map[form_field_lower]
+
+                                    # 2. Substring match (form_field contains or is contained in LLM key)
+                                    if not matched_val:
+                                        for llm_key, llm_val in llm_map.items():
+                                            if form_field_lower in llm_key or llm_key in form_field_lower:
+                                                matched_val = llm_val
+                                                break
+
+                                    # 3. Word-overlap match (at least 2 words in common)
+                                    if not matched_val:
+                                        form_words = set(form_field_lower.split())
+                                        for llm_key, llm_val in llm_map.items():
+                                            llm_words = set(llm_key.split())
+                                            if len(form_words & llm_words) >= 2:
+                                                matched_val = llm_val
+                                                break
+
                                     field["value"] = matched_val or "Unknown"
                                     field["_source"] = "llm"
 
@@ -1209,9 +1360,15 @@ Document Text:
                             field["_source"] = "llm"
 
 
-            # Clean up internal _source metadata
+            # Clean up internal metadata (_source, _hint) and remove any fields with no real value
+            BAD_VALUES = {None, "", "Unknown", "N/A", "Empty / N/A", "None", "null"}
+            cleaned_fields = []
             for field in extracted_fields:
                 field.pop("_source", None)
+                field.pop("_hint", None)
+                val = field.get("value")
+                if str(val).strip() not in BAD_VALUES and val is not None:
+                    cleaned_fields.append(field)
 
             # Determine status badge
             # Green if ALL fields came from DOM, Yellow if any needed LLM
@@ -1221,7 +1378,7 @@ Document Text:
             results.append({
                 "filename": filename,
                 "status": status_badge,
-                "extracted_fields": extracted_fields
+                "extracted_fields": cleaned_fields
             })
 
         except Exception as e:

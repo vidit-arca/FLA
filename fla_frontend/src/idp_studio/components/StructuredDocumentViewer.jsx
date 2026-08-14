@@ -84,14 +84,22 @@ export default function StructuredDocumentViewer({ pdfFile, onPairExtracted }) {
         } else if (pendingKeyNode.id === cellNode.id) {
             // Clicked same key again: Extract without value
             if (onPairExtracted) {
-                onPairExtracted(pdfFile, { key: pendingKeyNode.text, value: "" });
+                onPairExtracted(pdfFile, { 
+                    key: pendingKeyNode.text, 
+                    value: "",
+                    meta: { polygon: pendingKeyNode.polygon, bounding_regions: pendingKeyNode.bounding_regions }
+                });
             }
             setPendingKeyNode(null);
             setSuggestedValueNode(null);
         } else {
             // Second click on different cell: Explicit manual value selection
             if (onPairExtracted) {
-                onPairExtracted(pdfFile, { key: pendingKeyNode.text, value: cellNode.text });
+                onPairExtracted(pdfFile, { 
+                    key: pendingKeyNode.text, 
+                    value: cellNode.text,
+                    meta: { polygon: pendingKeyNode.polygon, bounding_regions: pendingKeyNode.bounding_regions }
+                });
             }
             setPendingKeyNode(null);
             setSuggestedValueNode(null);
@@ -105,10 +113,13 @@ export default function StructuredDocumentViewer({ pdfFile, onPairExtracted }) {
             const selection = window.getSelection();
             const selectedText = selection.toString().trim();
             
-            // If they highlighted specific text, extract it immediately!
             if (selectedText) {
                 if (onPairExtracted) {
-                    onPairExtracted(pdfFile, { key: selectedText, value: "" });
+                    onPairExtracted(pdfFile, { 
+                        key: selectedText, 
+                        value: "",
+                        meta: { polygon: textNode.polygon, bounding_regions: textNode.bounding_regions }
+                    });
                 }
                 selection.removeAllRanges();
                 setPendingKeyNode(null);
@@ -133,7 +144,11 @@ export default function StructuredDocumentViewer({ pdfFile, onPairExtracted }) {
                 rawKey = rawKey.replace(/^[\d\.\-\s]+/, '').trim() || rawKey;
                 
                 if (onPairExtracted && rawKey && rawVal) {
-                    onPairExtracted(pdfFile, { key: rawKey, value: rawVal });
+                    onPairExtracted(pdfFile, { 
+                        key: rawKey, 
+                        value: rawVal,
+                        meta: { polygon: textNode.polygon, bounding_regions: textNode.bounding_regions }
+                    });
                     setPendingKeyNode(null);
                     setSuggestedValueNode(null);
                     return;
