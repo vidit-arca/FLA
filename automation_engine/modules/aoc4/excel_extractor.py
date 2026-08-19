@@ -32,6 +32,7 @@ class AOC4ExcelExtractor:
             "total_revenue": [r"total revenue", r"total income", r"revenue and other income"],
             "turnover": [r"revenue from operations?", r"total turnover", r"sales turnover", r"gross turnover"],
             "prev_turnover": [r"previous year turnover", r"turnover.*previous year"],
+            "authorised_capital": [r"authorised.*capital", r"authorized.*capital", r"authorised share capital", r"authorized share capital"],
             "paid_up_capital": [r"paid.?up capital", r"paid.?up share capital", r"subscribed and paid.?up", r"equity share capital", r"preference share capital", r"share capital"],
             "net_worth": [r"net worth", r"total equity", r"capital.*reserve.*surplus"],
             "prev_net_worth": [r"previous year net worth", r"net worth.*previous year"],
@@ -42,7 +43,7 @@ class AOC4ExcelExtractor:
             "operating_profit": [r"operating profit", r"profit before interest", r"ebitda"],
             "net_profit_before_tax": [r"profit before tax", r"profit before exceptional items", r"pbt", r"profit.*?before.*?tax", r"profit/\s*\(loss\)\s*before\s*tax"],
             "net_profit_after_tax": [r"profit after tax", r"profit for the period", r"\bpat\b", r"profit.*?after.*?tax", r"profit/\s*\(loss\)\s*for the year"],
-            "loan_given_by_company": [r"loans given by company", r"loan given by company", r"loans to related parties", r"inter company loan", r"inter corporate deposit.*given", r"icd given", r"long.?term loans.*advances", r"short.?term loans.*advances"],
+            "loan_given_by_company": [r"loans given by company", r"loan given by company", r"loans to related parties", r"inter company loan", r"inter corporate deposit.*given", r"icd given"],
             "investments_made": [r"investments made by company", r"investment made by company", r"non.current investments", r"non current investments", r"current investments", r"investment in subsidiaries", r"investment in associates", r"investments"],
             "total_loans_investments_given": [r"total loans.*given", r"loans and advances given"],
             "rpt_sale_goods": [r"sale of goods.*related party", r"sale of goods"],
@@ -162,6 +163,8 @@ class AOC4ExcelExtractor:
             return 1000000.0
             
         # 4. Crores
+        if re.search(r'(?i)(amount.*?in thousands?|in thousands? indian rupees|\(in thousands?\)|in [\'’]?000)', text_lower):
+            return 1000.0
         if re.search(r'(?i)(in crores?|amount(s)? (are )?in crores?|in crores? (of )?indian rupees|\(in crores?\))', text_lower):
             return 10000000.0
             
@@ -377,6 +380,7 @@ class AOC4ExcelExtractor:
                 
         full_text = " ".join(full_text_blocks)
         data["is_subsidiary_or_holding"] = self._evaluate_holding_status(full_text)
+        data["is_holding_company"] = self._evaluate_is_holding_company(full_text)
         
         # Apply Unit Scale Multiplier
         scale = self.detect_financials_scale(full_text)
@@ -393,16 +397,26 @@ class AOC4ExcelExtractor:
         text = re.sub(r'\s+', ' ', text)
         
         # Step 2: High Confidence Check
-        high_conf_phrases = [
-            "holding company", "subsidiary company", "is a subsidiary",
-            "holding company:", "parent company:", "the company is a subsidiary of",
-            "the company is a wholly owned subsidiary", "ultimate holding company",
+        holding_phrases = [
+            "holding company", "holding company:", "parent company:", "ultimate holding company",
             "immediate holding company", "subsidiaries:", "list of subsidiaries"
         ]
-        for phrase in high_conf_phrases:
+        sub_phrases = [
+            "subsidiary company", "is a subsidiary", "the company is a subsidiary of",
+            "the company is a wholly owned subsidiary"
+        ]
+        
+        # Check holding first
+        for phrase in holding_phrases:
             if phrase in text:
-                print(f"    -> Holding/Subsidiary check: High confidence match on '{phrase}'")
-                return "yes"
+                print(f"    -> Holding/Subsidiary check: High confidence match on '{phrase}' (Holding)")
+                return "holding"
+        
+        # Then check subsidiary
+        for phrase in sub_phrases:
+            if phrase in text:
+                print(f"    -> Holding/Subsidiary check: High confidence match on '{phrase}' (Subsidiary)")
+                return "subsidiary"
                 
         # Step 3: Ownership Validation Check (>50%)
         ownership_matches = re.findall(r'(?:ownership|holding|subsidiary|investment).{0,50}?(\d{2,3}(?:\.\d+)?)\s*%', text)
@@ -410,7 +424,7 @@ class AOC4ExcelExtractor:
             try:
                 if float(match) > 50.0 and float(match) <= 100.0:
                     print(f"    -> Holding/Subsidiary check: Ownership > 50% match ({match}%)")
-                    return "yes"
+                    return "holding"
             except ValueError:
                 pass
                 
@@ -427,8 +441,26 @@ class AOC4ExcelExtractor:
                 
         print(f"    -> Holding/Subsidiary check: Medium confidence score = {score}")
         if score >= 100:
-            return "yes"
+            return "holding"
             
+        return "no"
+
+    def _evaluate_is_holding_company(self, full_text: str) -> str:
+        text = full_text.lower()
+        text = re.sub(r'\s+', ' ', text)
+        
+        # High Confidence Check for Holding
+        high_conf_phrases = [
+            "subsidiaries:", "list of subsidiaries", 
+            "investment in subsidiaries", "schedule of subsidiaries",
+            "consolidated financial statements comprise",
+            "consolidated financial statements"
+        ]
+        for phrase in high_conf_phrases:
+            if phrase in text:
+                print(f"    -> Is Holding Company check: High confidence match on '{phrase}'")
+                return "yes"
+                
         return "no"
 
     def _detect_financials_scale(self, full_text: str) -> str:
@@ -441,7 +473,7 @@ class AOC4ExcelExtractor:
             return "Crores"
         if re.search(r'(?i)(amount.*?in lakhs?|in lakhs? indian rupees|\(in lakhs?\))', text_lower):
             return "Lakhs"
-        if re.search(r'(?i)(amount.*?in thousands?|in thousands? indian rupees|\(in thousands?\))', text_lower):
+        if re.search(r'(?i)(amount.*?in thousands?|in thousands? indian rupees|\(in thousands?\)|in [\'’]?000)', text_lower):
             return "Thousands"
         if re.search(r'(?i)(amount.*?in hundreds?|in hundreds? indian rupees|\(in hundreds?\))', text_lower):
             return "Hundreds"

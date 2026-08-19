@@ -183,9 +183,17 @@ class AOC4RuleEngine:
 
                         if cy_key == "has_corporate_shareholders":
                             val = 1 if str(val).lower() == "yes" else (val if isinstance(val, (int, float)) else 0)
-                        elif isinstance(val, bool): val = "Yes" if val else "No"
-                        elif str(val).lower() == "yes": val = "Yes"
-                        elif str(val).lower() == "no": val = "No"
+                        elif isinstance(val, bool):
+                            if not val and cy_key == "is_subsidiary_or_holding":
+                                val = "Not a Subsidiary company"
+                            else:
+                                val = "Yes" if val else "No"
+                        elif str(val).lower() in ["yes", "holding", "subsidiary"]: val = "Yes"
+                        elif str(val).lower() == "no":
+                            if cy_key == "is_subsidiary_or_holding":
+                                val = "Not a Subsidiary company"
+                            else:
+                                val = "No"
                         target_cells["compliance for Private "][f"D{matched_row}"] = val
                     
                     if py_key and extracted_data.get(py_key) is not None:

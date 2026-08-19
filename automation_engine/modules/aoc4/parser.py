@@ -122,6 +122,7 @@ class AOC4Parser:
             "total_revenue": [r"total revenue", r"total income", r"revenue and other income"],
             "turnover": [r"revenue from operation", r"total turnover", r"sales turnover", r"gross turnover", r"turnover"],
             "prev_turnover": [r"previous year turnover", r"turnover.*previous year"],
+            "authorised_capital": [r"authorised.*capital", r"authorized.*capital", r"authorised share capital", r"authorized share capital", r"\bauthorised\b", r"\bauthorized\b"],
             "paid_up_capital": [r"paid.?up.*capital", r"paid up share capital", r"subscribed and paid up", r"equity share capital", r"preference share capital", r"share capital"],
             "net_worth": [r"net worth", r"total equity", r"capital.*reserve.*surplus", r"reserves & surplus"],
             "prev_net_worth": [r"previous year net worth", r"net worth.*previous year"],
@@ -132,20 +133,22 @@ class AOC4Parser:
             "loan_from_directors": [r"loan from directors", r"loan from director", r"loan from shareholders", r"unsecured loan from director", r"unsecured loan taken", r"due to directors", r"loans from relatives of directors"],
             "unsecured_loan": [r"unsecured loan", r"unsecured borrowings"],
             "advance_from_customers": [r"advance from customers", r"advance from shareholders", r"security deposits"],
-            "dues_to_msme": [r"dues to msme", r"micro and small enterprises", r"dues to micro"],
+            # Removed dues_to_msme from text fallback because OCR consistently hallucinates numbers 
+            # from the 'Trade Payables - Others' column onto the MSME line due to table merging/swapping.
+            # "dues_to_msme": [r"dues to msme", r"micro and small enterprises", r"dues to micro"],
             "operating_profit": [r"operating profit", r"profit before interest", r"ebitda"],
             "net_profit_before_tax": [r"profit before tax", r"profit before exceptional items", r"pbt", r"profit.*?before.*?tax", r"profit/\s*\(loss\)\s*before\s*tax"],
             "net_profit_after_tax": [r"profit after tax", r"profit for the period", r"\bpat\b", r"profit.*?after.*?tax", r"profit/.*?\(loss\).*?for the year"],
             "rpt_monthly_remun": [r"remuneration paid to directors", r"directors remuneration", r"remuneration to directors", r"managerial remuneration", r"remuneration.*director", r"monthly remuneration", r"annual remuneration", r"appointment to any office", r"salary", r"director remuneration", r"professional charges", r"professional fees"],
             "rpt_lease": [r"lease", r"rent"],
-            "rpt_sale_goods": [r"sale of goods", r"sale of material"],
+            "rpt_sale_goods": [r"sale of goods", r"sale of material", r"sales"],
             "rpt_purchase_goods": [r"purchase of goods", r"purchase of material"],
-            "loan_given_by_company": [r"loans given by company", r"loan given by company", r"loans to related parties", r"inter company loan", r"inter corporate deposit.*given", r"icd given", r"long.?term loans.*advances", r"short.?term loans.*advances"],
+            "loan_given_by_company": [r"loans given by company", r"loan given by company", r"loans to related parties", r"inter company loan", r"inter corporate deposit.*given", r"icd given"],
             "investments_made": [r"investments made by company", r"investment made by company", r"non.current investments", r"non current investments", r"current investments", r"investment in subsidiaries", r"investment in associates"],
             "total_loans_investments_given": [r"total loans.*given", r"loans and advances given"],
             "borrowing_defaults": [r"default in repayment", r"borrowing default"],
             "has_corporate_shareholders": [r"corporate shareholder", r"holding more than 10%", r"shareholding pattern"],
-            "export_sales": [r"export sales", r"export turnover", r"revenue from export", r"fob value of exports"],
+            "export_sales": [r"export of services", r"export services", r"export of service", r"exports"],
             "sitting_fees": [r"sitting fee", r"directors sitting fee", r"director sitting fee", r"sitting fees to directors"]
         }
         
@@ -171,6 +174,10 @@ class AOC4Parser:
                         # Skip Auditor boilerplate lines that cause false positives (e.g. 'less than Rs.50 Crores')
                         if re.search(r'crores|lakhs|is exempted|notification dated|last audited financial statements|section 197', line):
                             continue
+                            
+                        # Skip cash flow lines for borrowings to prevent extracting 'Proceeds from borrowings'
+                        if key in ["borrowings", "long_term_borrowings", "short_term_borrowings"] and re.search(r'proceeds from|repayment of|cash flow', line):
+                            continue
 
                         # Restrict 'professional charges' to Related Party Transaction tables only
                         if key == "rpt_monthly_remun" and "professional" in pattern:
@@ -184,22 +191,55 @@ class AOC4Parser:
                             if not is_rpt_section:
                                 continue
 
-                        # Found a keyword match. Extract all numbers on this line.
-                        search_text = line
+                        # Found a keyword match. Extract all numbers on this line AFTER the keyword.
+                        match_obj = re.search(pattern, line)
+                        search_text = line[match_obj.start():]
+                        
+                        # In single-line OCR layouts, a line may contain multiple labels and values (e.g., "(a) Label 1 (b) Label 2 100 200").
+                        # If we matched Label 1, we must NOT pick up Label 2's values. Truncate search_text if we hit a new label marker.
+                        after_kw = search_text[len(match_obj.group()):]
+                        next_label_match = re.search(r'\s\([a-z]\)\s|\s\((?:i|ii|iii|iv|v|vi|vii|viii|ix|x)\)\s|\s\d+\.\s', after_kw)
+                        if next_label_match:
+                            search_text = search_text[:len(match_obj.group()) + next_label_match.start()]
                         
                         # Strip out quantities of shares to prevent extracting them as currency values
                         search_text = re.sub(r'\d+(?:,\d+)*\s*(?:equity\s*shares?|preference\s*shares?|shares?)', '', search_text)
                         
-                        # Look ahead up to 2 lines if this might be a wrapped cell, BUT stop if we hit another table row!
+                        # Look ahead up to 2 lines ONLY for multi-line wrapped cells (e.g. P&L items).
+                        # For balance sheet row items (where the label appears on a standalone line with
+                        # no value, meaning the item is NIL/zero), do NOT look ahead - it would
+                        # incorrectly pick up the next row's value!
                         has_numbers = bool(re.findall(r'(-?\s*(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?|\((?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?\))', line))
-                        if not has_numbers and not line.strip().startswith("|"):
+                        
+                        # Detect balance-sheet style rows: line contains a letter like (a), (b), (c)
+                        # followed by label but no number — this means value is blank/nil in the table.
+                        is_bs_row_no_value = bool(re.match(r'^\s*\(?[a-z]\)?[.)\s]', line)) and not has_numbers
+                        
+                        if not has_numbers and not is_bs_row_no_value and not line.strip().startswith("|"):
                             for i in range(1, 3):
                                 if idx + i < len(lines):
                                     next_line = lines[idx + i]
                                     if next_line.strip().startswith("|"):
                                         break
                                     search_text += " " + next_line
+                        
+                        # If it's a blank balance sheet row, record 0 and move on
+                        if is_bs_row_no_value:
+                            valid_number = 0.0
+                            print(f"    -> Found fallback '{key}' = 0.0 (Blank/Nil row: '{pattern}')")
+                            break
                                     
+                        # Convert standalone dashes that are table cell values (between | pipes) to '0'
+                        # Only replace dashes surrounded by pipes: | - | → | 0 |
+                        # This avoids replacing mathematical dashes like in 'Profit before tax (VII - VIII)'
+                        search_text = re.sub(r'(?<=\|)\s*-\s*(?=\|)', ' 0 ', search_text)
+                        # Also convert 'Nil' / 'NIL' to 0
+                        search_text = re.sub(r'\bNil\b|\bNIL\b', ' 0 ', search_text)
+                        
+                        # Fix OCR artifact: Indian numbers with dots instead of commas
+                        # e.g. '3.27.991' should be '3,27,991' — pattern: digit.2digits.3digits
+                        search_text = re.sub(r'(\d+)\.(\d{2})\.(\d{3})', r'\1,\2,\3', search_text)
+                        
                         numbers = re.findall(r'(-?\s*(?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?|\((?:\d{1,3}(?:,\d{2,3})+|\d+)(?:\.\d+)?\))', search_text)
                         if not numbers:
                             continue
@@ -231,6 +271,18 @@ class AOC4Parser:
                             # Filter out calendar years (1990 to 2035) for financial values (abs handles negative dashes like -2025)
                             if 1990 <= abs(val) <= 2035 and "." not in clean_num:
                                 continue
+
+                            # Skip zero if non-zero numbers appear later in the list
+                            # (handles note-column '| - |' converted to 0 appearing before the actual value)
+                            if val == 0:
+                                remaining = numbers[num_idx + 1:]
+                                has_nonzero_ahead = any(
+                                    float(n.replace(",", "").replace(" ", "").strip("()")) != 0
+                                    for n in remaining
+                                    if n.replace(",", "").replace(" ", "").strip("()")
+                                )
+                                if has_nonzero_ahead:
+                                    continue
                                 
                             valid_number = val
                             break # Take the first valid number (usually current year)
@@ -253,16 +305,26 @@ class AOC4Parser:
         text = re.sub(r'\s+', ' ', text)
         
         # Step 2: High Confidence Check
-        high_conf_phrases = [
-            "holding company", "subsidiary company", "is a subsidiary",
-            "holding company:", "parent company:", "the company is a subsidiary of",
-            "the company is a wholly owned subsidiary", "ultimate holding company",
+        holding_phrases = [
+            "holding company", "holding company:", "parent company:", "ultimate holding company",
             "immediate holding company", "subsidiaries:", "list of subsidiaries"
         ]
-        for phrase in high_conf_phrases:
+        sub_phrases = [
+            "subsidiary company", "is a subsidiary", "the company is a subsidiary of",
+            "the company is a wholly owned subsidiary"
+        ]
+        
+        # Check holding first
+        for phrase in holding_phrases:
             if phrase in text:
-                print(f"[*] Holding/Subsidiary check: High confidence match on '{phrase}'")
-                return "yes"
+                print(f"[*] Holding/Subsidiary check: High confidence match on '{phrase}' (Holding)")
+                return "holding"
+        
+        # Then check subsidiary
+        for phrase in sub_phrases:
+            if phrase in text:
+                print(f"[*] Holding/Subsidiary check: High confidence match on '{phrase}' (Subsidiary)")
+                return "subsidiary"
                 
         # Step 3: Ownership Validation Check (>50%)
         ownership_matches = re.findall(r'(?:ownership|holding|subsidiary|investment).{0,50}?(\d{2,3}(?:\.\d+)?)\s*%', text)
@@ -270,7 +332,7 @@ class AOC4Parser:
             try:
                 if float(match) > 50.0 and float(match) <= 100.0:
                     print(f"[*] Holding/Subsidiary check: Ownership > 50% match ({match}%)")
-                    return "yes"
+                    return "holding" # Usually means it holds an investment > 50%
             except ValueError:
                 pass
                 
@@ -287,7 +349,7 @@ class AOC4Parser:
                 
         print(f"[*] Holding/Subsidiary check: Medium confidence score = {score}")
         if score >= 100:
-            return "yes"
+            return "holding"
             
         return "no"
 
@@ -338,7 +400,7 @@ class AOC4Parser:
             return "Crores"
         if re.search(r'(?i)(amount.*?in lakhs?|in lakhs? indian rupees|\(in lakhs?\))', text_lower):
             return "Lakhs"
-        if re.search(r'(?i)(amount.*?in thousands?|in thousands? indian rupees|\(in thousands?\))', text_lower):
+        if re.search(r'(?i)(amount.*?in thousands?|in thousands? indian rupees|\(in thousands?\)|in [\'’]?000)', text_lower):
             return "Thousands"
         if re.search(r'(?i)(in hundreds?|amounts? (are )?in (?:indian )?rupees hundreds?|in (?:indian )?rupees hundreds?|amounts? (are )?in hundreds?|in hundreds? (of )?indian rupees|\(in hundreds?\))', text_lower):
             return "Hundreds"

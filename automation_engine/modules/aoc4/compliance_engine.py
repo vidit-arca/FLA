@@ -37,7 +37,8 @@ class PrivateComplianceEngine:
         borrowings = self._parse_numeric(input_data.get("borrowings")) or 0.0
         net_profit = self._parse_numeric(input_data.get("net_profit_before_tax")) or 0.0
         
-        is_subsidiary_or_holding = str(input_data.get("is_subsidiary_or_holding", "no")).lower() == "yes"
+        raw_holding = str(input_data.get("is_subsidiary_or_holding", "no")).lower()
+        is_subsidiary_or_holding = raw_holding in ["holding", "subsidiary", "yes"]
         is_listed = str(input_data.get("is_listed", "no")).lower() == "yes"
         is_ind_as = str(input_data.get("is_ind_as", "no")).lower() == "yes"
         company_type = str(input_data.get("company_type", "private limited company")).lower()
@@ -47,6 +48,10 @@ class PrivateComplianceEngine:
         loan_from_directors = self._parse_numeric(input_data.get("loan_from_directors")) or 0.0
         advance_from_customers = self._parse_numeric(input_data.get("advance_from_customers")) or 0.0
         dues_to_msme = self._parse_numeric(input_data.get("dues_to_msme")) or 0.0
+        
+        loan_given_by_company = self._parse_numeric(input_data.get("loan_given_by_company")) or 0.0
+        investments_made = self._parse_numeric(input_data.get("investments_made")) or 0.0
+        total_loans_investments_given = self._parse_numeric(input_data.get("total_loans_investments_given")) or 0.0
         
         has_corporate_shareholders = input_data.get("has_corporate_shareholders")
         if isinstance(has_corporate_shareholders, str):
@@ -58,7 +63,13 @@ class PrivateComplianceEngine:
         total_rpt_value = rpt_sale_goods + rpt_purchase_goods + rpt_monthly_remun
         
         # 1. Is it a Small Company?
-        if turnover is None or puc is None:
+        mca_small_company = input_data.get("mca_small_company")
+        if mca_small_company is not None and str(mca_small_company).strip().lower() in ["yes", "no"]:
+            is_small = str(mca_small_company).strip().lower() == "yes"
+            reason_str = "Master Data Match: Explicitly defined as Small Company in Validation Sheet." if is_small else "Master Data Match: Explicitly defined as NOT a Small Company in Validation Sheet."
+            flags.append({"id": "COMP_SMALL_CO", "particulars": "Is it a Small Company?", "status": "Passed" if is_small else "Failed", "user_value": "Yes" if is_small else "No", "rationale": reason_str, "source": "Compliance Engine"})
+            is_small_company = is_small
+        elif turnover is None or puc is None:
             flags.append({"id": "COMP_SMALL_CO", "particulars": "Is it a Small Company?", "status": "Manual", "user_value": "Missing Data", "rationale": "Missing Turnover or PUC data.", "source": "Compliance Engine"})
             is_small_company = False
         elif turnover < (100 * CR) and puc < (10 * CR) and not is_subsidiary_or_holding:
@@ -180,8 +191,10 @@ class PrivateComplianceEngine:
             flags.append({"id": "COMP_KMP", "particulars": "KMP appointment", "status": "Passed", "user_value": "Not Applicable", "rationale": f"PUC ({puc/CR:.2f} Cr) < 10 Cr.", "source": "Compliance Engine"})
 
         # 14. Loan Investment Guarantee - 186
-        has_loans = str(input_data.get("has_loans_investments_guarantees", "no")).lower() == "yes"
-        if has_loans:
+        has_loans_text = str(input_data.get("has_loans_investments_guarantees", "no")).lower() == "yes"
+        has_loans_numeric = loan_given_by_company > 0 or investments_made > 0 or total_loans_investments_given > 0
+        
+        if has_loans_text or has_loans_numeric:
             flags.append({"id": "COMP_LOAN_186", "particulars": "Loan Investment Guarantee - 186", "status": "Failed", "user_value": "Applicable", "rationale": "Found loans, investments, or guarantees in financials.", "source": "Compliance Engine"})
         else:
             flags.append({"id": "COMP_LOAN_186", "particulars": "Loan Investment Guarantee - 186", "status": "Passed", "user_value": "Not Applicable", "rationale": "No relevant loans, investments, or guarantees detected.", "source": "Compliance Engine"})
@@ -202,10 +215,13 @@ class PrivateComplianceEngine:
             flags.append({"id": "COMP_CHARGE_FORM", "particulars": "Charge form", "status": "Passed", "user_value": "Not Applicable", "rationale": "Secured Loan = 0.", "source": "Compliance Engine"})
             
         # 18. AOC 1
-        if is_subsidiary_or_holding:
-            flags.append({"id": "COMP_AOC_1", "particulars": "AOC 1", "status": "Failed", "user_value": "Applicable", "rationale": "Company is identified as a Holding or Subsidiary.", "source": "Compliance Engine"})
+        is_holding_company = str(input_data.get("is_holding_company", "no")).lower() == "yes"
+        is_subsidiary_or_holding = str(input_data.get("is_subsidiary_or_holding", "no")).lower()
+        
+        if is_holding_company or is_subsidiary_or_holding == "holding":
+            flags.append({"id": "COMP_AOC_1", "particulars": "AOC 1", "status": "Failed", "user_value": "Applicable", "rationale": "Company evaluated as Holding Company.", "source": "Compliance Engine"})
         else:
-            flags.append({"id": "COMP_AOC_1", "particulars": "AOC 1", "status": "Passed", "user_value": "Not Applicable", "reason": "Not Applicable", "source": "Compliance Engine"})
+            flags.append({"id": "COMP_AOC_1", "particulars": "AOC 1", "status": "Passed", "user_value": "Not Applicable", "rationale": "Not Applicable", "source": "Compliance Engine"})
             
         # 19. AOC 2 & RPT Resolution
         if total_rpt_value > 0:

@@ -93,8 +93,24 @@ class AOC4CommonErrorEngine:
                 clean_text = re.sub(r'[^a-z0-9 ]', ' ', full_text_lower)
                 clean_text = re.sub(r'\s+', ' ', clean_text)
                 
-                if "companies auditor s report order" in clean_text or "caro" in clean_text:
-                    extracted_value = "Yes"
+                if "companies auditor s report order" in clean_text or "caro " in clean_text or " caro" in clean_text:
+                    import re
+                    # Look for "not applicable" within ~100 characters of CARO keywords
+                    is_na = False
+                    for kw in ["companies auditor s report order", "caro"]:
+                        for m in re.finditer(r'\b' + kw + r'\b', clean_text):
+                            window = clean_text[max(0, m.start() - 150):min(len(clean_text), m.end() + 150)]
+                            if "not applicable" in window:
+                                is_na = True
+                                break
+                        if is_na:
+                            break
+                            
+                    if is_na:
+                        extracted_value = "Not Applicable"
+                        extracted_reason = "Auditor's report explicitly states CARO is not applicable."
+                    else:
+                        extracted_value = "Yes"
                 else:
                     extracted_value = "No"
                     extracted_reason = "Missing keywords: 'CARO' or 'Companies Auditor's Report Order'"
@@ -112,13 +128,17 @@ class AOC4CommonErrorEngine:
             elif "cin number" in particulars.lower() or "din of the director" in particulars.lower():
                 found_cin = "cin" in full_text_lower or "corporate identity number" in full_text_lower
                 found_din = "din" in full_text_lower
-                if found_cin and found_din:
+                # Check for address keyword
+                found_address = "address" in full_text_lower or "registered office" in full_text_lower
+                
+                if found_cin and found_din and found_address:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
                     missing = []
                     if not found_cin: missing.append("CIN")
                     if not found_din: missing.append("DIN")
+                    if not found_address: missing.append("Address")
                     extracted_reason = f"Missing fields: {', '.join(missing)}"
                     
             # Row 5: Previous year figures
@@ -166,19 +186,15 @@ class AOC4CommonErrorEngine:
                     
             # Row 6: Share capital notes
             elif "shareholding more than 5%" in particulars.lower():
-                if "5%" in full_text_lower and ("shareholder" in full_text_lower or "holding" in full_text_lower or "promoter" in full_text_lower):
+                if ("5%" in full_text_lower or "5 percent" in full_text_lower) and ("shareholder" in full_text_lower or "holding" in full_text_lower or "promoter" in full_text_lower):
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
-                    extracted_reason = "Missing keywords: '5%' combined with 'shareholder' or 'promoter'"
+                    extracted_reason = "Missing keywords: '5%' or '5 percent' combined with 'shareholder', 'holding' or 'promoter'"
             
             elif "statutory register" in particulars.lower():
-                # Usually manual, default to No unless statutory register is explicitly mentioned
-                if "statutory register" in full_text_lower:
-                    extracted_value = "Yes"
-                else:
-                    extracted_value = "No"
-                    extracted_reason = "Missing keyword: 'statutory register'"
+                extracted_value = "No"
+                extracted_reason = "Manual Check Required: Please verify Shareholding with Statutory Register."
                     
             elif "authorised capital is mentioned correctly" in particulars.lower():
                 import re
@@ -189,20 +205,19 @@ class AOC4CommonErrorEngine:
                 
                 if mca_auth is not None and doc_auth is not None:
                     try:
-                        if float(mca_auth) == float(doc_auth):
+                        v1 = float(mca_auth)
+                        v2 = float(doc_auth)
+                        if abs(v1 - v2) <= max(1000.0, v1 * 0.01):
                             extracted_value = "Yes"
+                            extracted_reason = f"Numerical Match: FS ({v2}) closely matches MCA ({v1})"
                         else:
                             extracted_value = "No"
-                            extracted_reason = f"Authorised Capital in FS ({doc_auth}) does not match MCA Master Data ({mca_auth})"
+                            extracted_reason = f"Authorised Capital in FS ({v2}) does not match MCA Master Data ({v1})"
                     except (ValueError, TypeError):
                         extracted_value = "Yes" if has_keywords else "No"
-                elif has_keywords and (re.search(r'\b(authorised|authorized)\b.{0,100}?\d', full_text_lower) or "face value" in full_text_lower):
-                    extracted_value = "Yes"
-                elif has_keywords:
-                    extracted_value = "Yes"
                 else:
-                    extracted_value = "No"
-                    extracted_reason = "Missing keywords: 'authorised capital'"
+                    extracted_value = "Missing Data"
+                    extracted_reason = "Missing MCA Master Data to cross-verify against."
                     
             elif "paid up capital" in particulars.lower() and "mentioned correctly" in particulars.lower():
                 import re
@@ -213,20 +228,19 @@ class AOC4CommonErrorEngine:
                 
                 if mca_puc is not None and doc_puc is not None:
                     try:
-                        if float(mca_puc) == float(doc_puc):
+                        v1 = float(mca_puc)
+                        v2 = float(doc_puc)
+                        if abs(v1 - v2) <= max(1000.0, v1 * 0.01):
                             extracted_value = "Yes"
+                            extracted_reason = f"Numerical Match: FS ({v2}) closely matches MCA ({v1})"
                         else:
                             extracted_value = "No"
-                            extracted_reason = f"Paid Up Capital in FS ({doc_puc}) does not match MCA Master Data ({mca_puc})"
+                            extracted_reason = f"Paid Up Capital in FS ({v2}) does not match MCA Master Data ({v1})"
                     except (ValueError, TypeError):
                         extracted_value = "Yes" if has_keywords else "No"
-                elif has_keywords and (re.search(r'\bpaid\s*[-_]?\s*up\b.{0,100}?\d', full_text_lower) or "face value" in full_text_lower):
-                    extracted_value = "Yes"
-                elif has_keywords:
-                    extracted_value = "Yes"
                 else:
-                    extracted_value = "No"
-                    extracted_reason = "Missing keywords: 'paid up capital'"
+                    extracted_value = "Missing Data"
+                    extracted_reason = "Missing MCA Master Data to cross-verify against."
                     
             elif "reconciliation  of shares" in particulars.lower() or "reconciliation of shares" in particulars.lower():
                 keywords = [
@@ -314,11 +328,11 @@ class AOC4CommonErrorEngine:
                 has_text_signatures = "director" in full_text_lower and ("auditor" in full_text_lower or "partner" in full_text_lower or "chartered accountant" in full_text_lower)
                 has_image_seal = bool(re.search(r'!\[.*?\]\(.*?\)', full_text_lower))
                 
-                if has_text_signatures or has_image_seal:
+                if has_text_signatures and has_image_seal:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
-                    extracted_reason = "Missing keywords for signatures AND no visual seal/image found"
+                    extracted_reason = "Missing either text signatures (Director + Auditor) OR visual seal/image"
             
             # Row 11: Check for UDIN
             elif "udin" in particulars.lower():
@@ -336,14 +350,14 @@ class AOC4CommonErrorEngine:
             # Row 12: Seal of the auditor
             elif "seal of the auditor" in particulars.lower():
                 import re
-                has_auditor_text = "firm registration number" in full_text_lower or "frn" in full_text_lower or "seal" in full_text_lower or "membership no" in full_text_lower
+                has_auditor_text = "seal" in full_text_lower or "stamp" in full_text_lower
                 has_image_seal = bool(re.search(r'!\[.*?\]\(.*?\)', full_text_lower))
                 
                 if has_auditor_text or has_image_seal:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
-                    extracted_reason = "Missing auditor seal keywords AND no visual seal/image found"
+                    extracted_reason = "Missing auditor seal/stamp keywords AND no visual image found"
                     
             # Row 13 & 14: RPT and Forex
             elif "rpt transaction" in particulars.lower() or "forex and rpt" in particulars.lower():
@@ -388,20 +402,30 @@ class AOC4CommonErrorEngine:
                         extracted_value = "No"
                         extracted_reason = "Missing Forex/RPT keywords in Notes to Accounts"
                 else:
-                    rpt_keywords = [
-                        "related party",
-                        "rpt",
-                        "loan to directors",
-                        "loan from directors",
-                        "remuneration to kmp"
-                    ]
-                    matched_rpt = [kw for kw in rpt_keywords if kw in full_text_lower]
-                    if matched_rpt:
-                        extracted_value = "Yes"
-                    else:
-                        extracted_value = "No"
-                        extracted_reason = "Missing RPT keywords (e.g. 'loan to directors', 'related party')"
+                    export_sales = input_data.get("export_sales")
+                    rpt_sales = input_data.get("rpt_sale_goods")
                     
+                    if export_sales is not None and rpt_sales is not None and (float(export_sales) > 0 or float(rpt_sales) > 0):
+                        if float(export_sales) == float(rpt_sales):
+                            extracted_value = "Yes"
+                            extracted_reason = f"Numerical Match: Export Services ({export_sales}) == RPT Sales ({rpt_sales})"
+                        else:
+                            extracted_value = "No"
+                            extracted_reason = f"Mismatch: Export Services/Exports ({export_sales}) does not match RPT Sales ({rpt_sales})"
+                    else:
+                        rpt_keywords = [
+                            "related party",
+                            "rpt",
+                            "loan to directors",
+                            "loan from directors",
+                            "remuneration to kmp"
+                        ]
+                        matched_rpt = [kw for kw in rpt_keywords if kw in full_text_lower]
+                        if matched_rpt:
+                            extracted_value = "Yes"
+                        else:
+                            extracted_value = "No"
+                            extracted_reason = "Missing RPT keywords (e.g. 'loan to directors', 'related party')"
             # Audit Trail Rules — Main Header
             elif "audit trail features" in particulars.lower() or "accounting software" in particulars.lower():
                 audit_keywords = [
@@ -582,9 +606,9 @@ class AOC4CommonErrorEngine:
                     "rule_id": rule["id"],
                     "particulars": particulars,
                     "source": rule["source"],
-                    "status": "Passed",
+                    "status": "Passed" if extracted_value == "Yes" else "Failed",
                     "user_value": extracted_value,
-                    "reason": "Rule text matched in document"
+                    "reason": extracted_reason if extracted_reason else "Rule text matched in document"
                 })
                 
         return flags
