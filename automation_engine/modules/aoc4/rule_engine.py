@@ -14,8 +14,12 @@ class AOC4RuleEngine:
             self.config = json.load(f)
             
         base_dir = os.path.dirname(config_path)
-        self.excel_path = os.path.join(base_dir, "excel", "ANNFIL COMMONERROR .xlsx")
-        self.output_skeletal_path = os.path.join(os.path.dirname(__file__), "excel", "ANNFIL COMMONERROR .xlsx")
+        # Default to the clean Annual Filing common error Output.xlsx template
+        self.excel_path = os.path.join(base_dir, "excel", "Annual Filing common error Output.xlsx")
+        if not os.path.exists(self.excel_path):
+            self.excel_path = os.path.join(base_dir, "excel", "ANNFIL COMMONERROR .xlsx")
+            
+        self.output_skeletal_path = self.excel_path
         self.checker = AOC4CommonErrorEngine(self.excel_path)
         self.compliance_engine = PrivateComplianceEngine()
         self.rpt_loans_engine = RPTLoansEngine()
@@ -28,8 +32,6 @@ class AOC4RuleEngine:
 
     def evaluate_all(self, extracted_data: dict) -> dict:
         print("[*] AOC 4 Rule Engine: Evaluating common errors...")
-        
-
         print("[*] AOC 4 Rule Engine: Evaluating private compliance...")
         # 1. Run Excel Extractor on the original docs to pull structured financial metrics
         docs = extracted_data.get("docs", {})
@@ -42,9 +44,6 @@ class AOC4RuleEngine:
         # If any numeric fields are missing, try extracting from raw Markdown (PDFs)
         if missing_keys and "full_text" in extracted_data:
             from automation_engine.modules.aoc4.parser import AOC4Parser
-            # The parser logic is now in AOC4Parser. We need an instance.
-            # But wait, self doesn't have an instance of AOC4Parser readily available here, 
-            # so we instantiate one temporarily or call it statically.
             temp_parser = AOC4Parser(self.config_path)
             fallback_data = temp_parser.extract_financials_from_text(extracted_data["full_text"], missing_keys)
             
@@ -69,13 +68,15 @@ class AOC4RuleEngine:
             found_count = sum(1 for req in required_headers if req in text_lower or req.replace("'", "") in text_lower)
             if found_count >= 5:
                 financial_data["has_schedule_iii_format"] = "yes"
-                
-        # Merge all processed financial metrics back into the main extracted_data for Excel mapping
+            else:
+                financial_data["has_schedule_iii_format"] = "no"
+
+        # Merge extracted financial data back into extracted_data
         for k, v in financial_data.items():
-            if v is not None or k not in extracted_data:
+            if k not in extracted_data or extracted_data[k] is None:
                 extracted_data[k] = v
-        
-        # 1. Run the Compliance Engine with the populated numerical data
+                
+        # 1. Run private compliance engine
         compliance_flags = self.compliance_engine.execute(extracted_data)
         
         # 2. Run common error checker so it has access to the updated extracted_data (e.g. is_small_company)
@@ -89,7 +90,6 @@ class AOC4RuleEngine:
         
         target_cells = {
             "Common Error": {},
-            "compliance for Private ": {},
             "RPT and loans to Director": {}
         }
         
@@ -100,6 +100,18 @@ class AOC4RuleEngine:
             return target_cells
             
         wb = openpyxl.load_workbook(self.output_skeletal_path, data_only=True)
+        
+        # Detect Private Compliance Sheet Name
+        priv_sheet_name = None
+        for sname in wb.sheetnames:
+            if "private" in sname.lower() and "compliance" in sname.lower():
+                priv_sheet_name = sname
+                break
+                
+        if priv_sheet_name:
+            target_cells[priv_sheet_name] = {}
+        
+        # Map Common Error sheet
         if "Common Error" in wb.sheetnames:
             sheet = wb["Common Error"]
             # Build a map of Particulars -> Row Number
@@ -122,16 +134,29 @@ class AOC4RuleEngine:
                 else:
                     print(f"[!] Could not find dynamic mapping for rule in Excel: {flag['particulars'][:50]}...")
                     
-        # We can also map compliance flags to 'compliance for Private ' if needed
-        if "compliance for Private " in wb.sheetnames:
-            sheet_comp = wb["compliance for Private "]
+        # Map Private Compliance sheet
+        if priv_sheet_name and priv_sheet_name in wb.sheetnames:
+            sheet_comp = wb[priv_sheet_name]
+            
+            # Check if particulars are in Col 1 (A) or Col 3 (C)
+            part_col_idx = 1
+            for r in range(4, 15):
+                val_c = sheet_comp.cell(row=r, column=3).value
+                if val_c and any(k in str(val_c).lower() for k in ["paidup", "reserves", "borrowings"]):
+                    part_col_idx = 3
+                    break
+                    
             row_map_comp = {}
             for row in range(2, sheet_comp.max_row + 1):
-                # Requirement is in Column C (3)
-                particulars = sheet_comp.cell(row=row, column=3).value
+                particulars = sheet_comp.cell(row=row, column=part_col_idx).value
                 if particulars:
                     norm = self._normalize_string(particulars)
                     row_map_comp[norm] = row
+            
+            cy_col = "B" if part_col_idx == 1 else "D"
+            py_col = "D" if part_col_idx == 1 else "F"
+            app_col = "B" if part_col_idx == 1 else "D"
+            rat_col = "C" if part_col_idx == 1 else "E"
             
             raw_data_map = {
                 "Paidup capital": ("paid_up_capital", "prev_paid_up_capital"),
@@ -194,16 +219,41 @@ class AOC4RuleEngine:
                                 val = "Not a Subsidiary company"
                             else:
                                 val = "No"
-                        target_cells["compliance for Private "][f"D{matched_row}"] = val
+                        target_cells[priv_sheet_name][f"{cy_col}{matched_row}"] = val
                     
                     if py_key and extracted_data.get(py_key) is not None:
                         val_py = extracted_data[py_key]
-                        target_cells["compliance for Private "][f"F{matched_row}"] = val_py
+                        target_cells[priv_sheet_name][f"{py_col}{matched_row}"] = val_py
                         
-            # Dynamically map the evaluated Python compliance flags into Rows 35-59 by explicit rule ID!
-            # This ensures every compliance check lands on the exact matching template row,
-            # and clears out any legacy cached ExcelJet links or unused Previous Year formulas.
-            id_to_row = {
+            # Map compliance flags by normalized particular string, or explicit rule ID fallback
+            id_to_row_clean = {
+                "COMP_SMALL_CO": 37,
+                "COMP_CARO": 38,
+                "COMP_ROTATION": 39,
+                "COMP_IND_AS": 40,
+                "COMP_XBRL": 41,
+                "COMP_VIGIL": 42,
+                "COMP_IFC": 43,
+                "COMP_INT_AUDIT": 44,
+                "COMP_SEC_AUDIT": 45,
+                "COMP_KMP": 46,
+                "COMP_LOAN_186": 47,
+                "COMP_LOAN_DIRECTOR": 48,
+                "COMP_COST_AUDIT": 49,
+                "COMP_CHARGE_FORM": 50,
+                "COMP_AOC_1": 51,
+                "COMP_AOC_2": 52,
+                "COMP_RPT_OMNIBUS": 53,
+                "COMP_CSR": 54,
+                "COMP_CSR_COMMITTEE": 55,
+                "COMP_DEPOSIT_DEC": 56,
+                "COMP_DPT_3": 57,
+                "COMP_MSME": 58,
+                "COMP_BEN_2": 59,
+                "COMP_MGT_8": 60,
+                "COMP_MGT_7_CERT": 61
+            }
+            id_to_row_legacy = {
                 "COMP_SMALL_CO": 35,
                 "COMP_CARO": 36,
                 "COMP_ROTATION": 37,
@@ -230,19 +280,28 @@ class AOC4RuleEngine:
                 "COMP_MGT_8": 58,
                 "COMP_MGT_7_CERT": 59
             }
+            active_id_map = id_to_row_clean if part_col_idx == 1 else id_to_row_legacy
+
             for flag in compliance_flags:
-                row = id_to_row.get(flag.get("id"))
-                if row:
-                    target_cells["compliance for Private "][f"C{row}"] = flag["particulars"]
-                    target_cells["compliance for Private "][f"D{row}"] = flag.get("user_value", "")
-                    target_cells["compliance for Private "][f"E{row}"] = flag.get("rationale", "")
-                    target_cells["compliance for Private "][f"F{row}"] = ""
-                    target_cells["compliance for Private "][f"G{row}"] = ""
+                norm_p = self._normalize_string(flag["particulars"])
+                matched_row = row_map_comp.get(norm_p)
+                if not matched_row:
+                    matched_row = active_id_map.get(flag.get("id"))
+                
+                if matched_row:
+                    if part_col_idx == 3:
+                        target_cells[priv_sheet_name][f"C{matched_row}"] = flag["particulars"]
+                    target_cells[priv_sheet_name][f"{app_col}{matched_row}"] = flag.get("user_value", "")
+                    target_cells[priv_sheet_name][f"{rat_col}{matched_row}"] = flag.get("rationale", "")
+                    if part_col_idx == 3:
+                        target_cells[priv_sheet_name][f"F{matched_row}"] = ""
+                        target_cells[priv_sheet_name][f"G{matched_row}"] = ""
+
+        # Map RPT sheet
         if "RPT and loans to Director" in wb.sheetnames:
             sheet_rpt = wb["RPT and loans to Director"]
             row_map_rpt = {}
             for row in range(2, sheet_rpt.max_row + 1):
-                # Search cols 1, 2, and 3 for particulars (some are in C like "Has the Company give loan...")
                 particulars = sheet_rpt.cell(row=row, column=1).value or sheet_rpt.cell(row=row, column=2).value or sheet_rpt.cell(row=row, column=3).value
                 if particulars:
                     norm = self._normalize_string(particulars)

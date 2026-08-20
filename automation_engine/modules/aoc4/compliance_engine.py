@@ -72,11 +72,11 @@ class PrivateComplianceEngine:
         elif turnover is None or puc is None:
             flags.append({"id": "COMP_SMALL_CO", "particulars": "Is it a Small Company?", "status": "Manual", "user_value": "Missing Data", "rationale": "Missing Turnover or PUC data.", "source": "Compliance Engine"})
             is_small_company = False
-        elif turnover < (100 * CR) and puc < (10 * CR) and not is_subsidiary_or_holding:
-            flags.append({"id": "COMP_SMALL_CO", "particulars": "Is it a Small Company?", "status": "Passed", "user_value": "Yes", "rationale": f"Turnover ({turnover/CR:.2f} Cr) < 100 Cr AND PUC ({puc/CR:.2f} Cr) < 10 Cr AND Not Holding/Sub.", "source": "Compliance Engine"})
+        elif turnover <= (100 * CR) and puc <= (10 * CR) and not is_subsidiary_or_holding:
+            flags.append({"id": "COMP_SMALL_CO", "particulars": "Is it a Small Company?", "status": "Passed", "user_value": "Yes", "rationale": f"Turnover ({turnover/CR:.2f} Cr) <= 100 Cr AND PUC ({puc/CR:.2f} Cr) <= 10 Cr AND Not Holding/Sub.", "source": "Compliance Engine"})
             is_small_company = True
         else:
-            reason_str = f"Limits Exceeded: Turnover ({turnover/CR:.2f} Cr), PUC ({puc/CR:.2f} Cr), or Holding/Sub ({is_subsidiary_or_holding})"
+            reason_str = f"Limits Exceeded: Turnover ({turnover/CR:.2f} Cr) > 100 Cr OR PUC ({puc/CR:.2f} Cr) > 10 Cr OR Holding/Sub ({is_subsidiary_or_holding})"
             flags.append({"id": "COMP_SMALL_CO", "particulars": "Is it a Small Company?", "status": "Failed", "user_value": "No", "rationale": reason_str, "source": "Compliance Engine"})
             is_small_company = False
             

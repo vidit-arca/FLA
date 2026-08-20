@@ -13,7 +13,7 @@ def main():
     os.makedirs(out_dir, exist_ok=True)
     
     # The actual skeletal file according to the aoc4 module
-    skeletal_path = "/Users/apple/Desktop/FLA/automation_engine/modules/aoc4/excel/ANNFIL COMMONERROR .xlsx"
+    skeletal_path = "/Users/apple/Desktop/FLA/automation_engine/modules/aoc4/excel/Annual Filing common error Output.xlsx"
     
     for filename in os.listdir(ocr_dir):
         if not filename.endswith(".md"):

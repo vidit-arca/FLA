@@ -5,10 +5,15 @@ import pdfplumber
 import re
 
 class AOC4Parser:
-    def __init__(self, config_path: str):
+    def __init__(self, config_path: str = None):
+        if config_path is None:
+            config_path = os.path.join(os.path.dirname(__file__), "rules_config.json")
         self.config_path = config_path
-        with open(config_path, "r") as f:
-            self.config = json.load(f)
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                self.config = json.load(f)
+        else:
+            self.config = {}
 
     def extract_docx_text(self, path: str) -> str:
         """Extracts text from a native .docx file."""
@@ -123,7 +128,7 @@ class AOC4Parser:
             "turnover": [r"revenue from operation", r"total turnover", r"sales turnover", r"gross turnover", r"turnover"],
             "prev_turnover": [r"previous year turnover", r"turnover.*previous year"],
             "authorised_capital": [r"authorised.*capital", r"authorized.*capital", r"authorised share capital", r"authorized share capital", r"\bauthorised\b", r"\bauthorized\b"],
-            "paid_up_capital": [r"paid.?up.*capital", r"paid up share capital", r"subscribed and paid up", r"equity share capital", r"preference share capital", r"share capital"],
+            "paid_up_capital": [r"share capital", r"paid.?up.*capital", r"paid up share capital", r"subscribed and paid up", r"equity share capital", r"preference share capital"],
             "net_worth": [r"net worth", r"total equity", r"capital.*reserve.*surplus", r"reserves & surplus"],
             "prev_net_worth": [r"previous year net worth", r"net worth.*previous year"],
             "reserves_and_surplus": [r"reserves and surplus", r"reserves & surplus", r"other equity", r"retained earnings", r"reserves\s*&\s*surplus"],
@@ -138,7 +143,7 @@ class AOC4Parser:
             # "dues_to_msme": [r"dues to msme", r"micro and small enterprises", r"dues to micro"],
             "operating_profit": [r"operating profit", r"profit before interest", r"ebitda"],
             "net_profit_before_tax": [r"profit before tax", r"profit before exceptional items", r"pbt", r"profit.*?before.*?tax", r"profit/\s*\(loss\)\s*before\s*tax"],
-            "net_profit_after_tax": [r"profit after tax", r"profit for the period", r"\bpat\b", r"profit.*?after.*?tax", r"profit/.*?\(loss\).*?for the year"],
+            "net_profit_after_tax": [r"total profit.*?for the period", r"profit.*?\(loss\)\s*for the period", r"profit for the period", r"profit.*?for the year from continuing operations", r"profit.*?\(loss\).*?for the year from continuing", r"profit for the year", r"profit after tax", r"profit/.*?\(loss\).*?for the year", r"profit.*?after.*?tax"],
             "rpt_monthly_remun": [r"remuneration paid to directors", r"directors remuneration", r"remuneration to directors", r"managerial remuneration", r"remuneration.*director", r"monthly remuneration", r"annual remuneration", r"appointment to any office", r"salary", r"director remuneration", r"professional charges", r"professional fees"],
             "rpt_lease": [r"lease", r"rent"],
             "rpt_sale_goods": [r"sale of goods", r"sale of material", r"sales"],
@@ -148,12 +153,22 @@ class AOC4Parser:
             "total_loans_investments_given": [r"total loans.*given", r"loans and advances given"],
             "borrowing_defaults": [r"default in repayment", r"borrowing default"],
             "has_corporate_shareholders": [r"corporate shareholder", r"holding more than 10%", r"shareholding pattern"],
-            "export_sales": [r"export of services", r"export services", r"export of service", r"exports"],
+            "export_sales": [r"export turnover", r"revenue from export", r"fob value of exports", r"export of services", r"export services", r"export of service", r"exports", r"earnings in foreign exchange", r"earnings in foreign currency", r"foreign currency", r"foreign exchange", r"forex"],
             "sitting_fees": [r"sitting fee", r"directors sitting fee", r"director sitting fee", r"sitting fees to directors"]
         }
         
         found_data = {}
         lines = text.lower().split("\n")
+        
+        # Pre-compute board report sections so we can quickly check if a line is inside one
+        in_board_report_lines = [False] * len(lines)
+        in_br = False
+        for i, line in enumerate(lines):
+            if re.search(r'^(#+\s*)?(board(\'s)? report|directors?\'? report)', line):
+                in_br = True
+            elif re.search(r'^(#+\s*)?(independent auditor\'s report|notes to the financial statements|balance sheet|statement of profit)', line):
+                in_br = False
+            in_board_report_lines[i] = in_br
         
         for key in missing_keys:
             if key not in numeric_keywords:
@@ -165,6 +180,10 @@ class AOC4Parser:
             # Search entire document for highest priority pattern first
             for pattern in patterns:
                 for idx, line in enumerate(lines):
+                    # Strictly enforce Financial Statements as the only input source for all compliance fields
+                    if in_board_report_lines[idx]:
+                        continue
+                        
                     if re.search(pattern, line):
                         # Skip income-tax computation lines that contain 'total income' 
                         # but are not the P&L total income (e.g., 'Gross Total Income', 'Net Total Income')
@@ -176,12 +195,22 @@ class AOC4Parser:
                             continue
                             
                         # Skip cash flow lines for borrowings to prevent extracting 'Proceeds from borrowings'
-                        if key in ["borrowings", "long_term_borrowings", "short_term_borrowings"] and re.search(r'proceeds from|repayment of|cash flow', line):
+                        if key in ["borrowings", "long_term_borrowings", "short_term_borrowings"] and re.search(r'proceeds from|repayment of|cash flow|borrowing cost', line):
                             continue
 
-                        # Restrict 'professional charges' to Related Party Transaction tables only
-                        if key == "rpt_monthly_remun" and "professional" in pattern:
-                            is_rpt_section = False
+                        # Skip financial ratio table rows for PAT — they contain ':1' or '0.0x:1' values
+                        # e.g. "Return on equity ratio | Profit for the year | 31.55:1" must not be picked as PAT
+                        if key == "net_profit_after_tax" and re.search(r'\bratios?\b|:\s*\d+|return on|average total|per share|eps|\bbasic\b|\bdiluted\b', line):
+                            continue
+
+                        # Restrict 'professional charges' and generic 'salary' to Related Party Transaction tables only
+                        if key == "rpt_monthly_remun":
+                            # Block actuarial/employee benefit assumptions
+                            if re.search(r'growth|actuarial|discount rate|mortality|employee benefit|gratuity|leave encashment', line):
+                                continue
+                            
+                            if "professional" in pattern or pattern == "salary":
+                                is_rpt_section = False
                             start_check = max(0, idx - 200)
                             end_check = min(len(lines), idx + 30)
                             for check_idx in range(start_check, end_check):
@@ -204,6 +233,9 @@ class AOC4Parser:
                         
                         # Strip out quantities of shares to prevent extracting them as currency values
                         search_text = re.sub(r'\d+(?:,\d+)*\s*(?:equity\s*shares?|preference\s*shares?|shares?)', '', search_text)
+                        
+                        # Strip out percentages (e.g. 7.00%, 15%) to prevent extracting them as currency amounts
+                        search_text = re.sub(r'\(?\d+(?:,\d+)*(?:\.\d+)?\)?\s*%', '', search_text)
                         
                         # Look ahead up to 2 lines ONLY for multi-line wrapped cells (e.g. P&L items).
                         # For balance sheet row items (where the label appears on a standalone line with
@@ -228,6 +260,10 @@ class AOC4Parser:
                             valid_number = 0.0
                             print(f"    -> Found fallback '{key}' = 0.0 (Blank/Nil row: '{pattern}')")
                             break
+                            
+                        # CRITICAL: Never extract Authorized capital as Paid Up Capital
+                        if key == "paid_up_capital" and re.search(r'authori[sz]ed', search_text.lower()):
+                            continue
                                     
                         # Convert standalone dashes that are table cell values (between | pipes) to '0'
                         # Only replace dashes surrounded by pipes: | - | → | 0 |
@@ -285,6 +321,28 @@ class AOC4Parser:
                                     continue
                                 
                             valid_number = val
+                            
+                            # Also look for previous year comparative figure on the same table row
+                            if not key.startswith("prev_"):
+                                prev_valid_number = None
+                                for next_num_str in numbers[num_idx + 1:]:
+                                    next_clean = next_num_str.replace(",", "").replace(" ", "")
+                                    try:
+                                        if next_clean.startswith("(") and next_clean.endswith(")"):
+                                            n_val = -float(next_clean[1:-1])
+                                        else:
+                                            n_val = float(next_clean)
+                                    except ValueError:
+                                        continue
+                                    if 1990 <= abs(n_val) <= 2035 and "." not in next_clean:
+                                        continue
+                                    prev_valid_number = n_val
+                                    break
+                                
+                                if prev_valid_number is not None:
+                                    prev_key = f"prev_{key}"
+                                    found_data[prev_key] = prev_valid_number
+                                    
                             break # Take the first valid number (usually current year)
                             
                     if valid_number is not None:
@@ -295,12 +353,16 @@ class AOC4Parser:
                     print(f"    -> Found fallback '{key}' = {valid_number} (Matched: {pattern})")
                     break # We found the highest priority pattern match, skip lower priority patterns
                     
-        found_data["is_subsidiary_or_holding"] = self._evaluate_holding_status(text)
-        found_data["is_ind_as"] = self._evaluate_ind_as_status(text)
+        # Filter out Board Report sections so holding and IND-AS checks are solely based on Financial Statements
+        fs_lines = [line for idx, line in enumerate(lines) if not in_board_report_lines[idx]]
+        fs_text = "\n".join(fs_lines)
+
+        found_data["is_subsidiary_or_holding"] = self._evaluate_holding_status(fs_text)
+        found_data["is_ind_as"] = self._evaluate_ind_as_status(fs_text)
         return found_data
 
     def _evaluate_holding_status(self, full_text: str) -> str:
-        """Analyzes full text to determine holding/subsidiary status."""
+        """Analyzes financial statements text to determine holding/subsidiary status."""
         text = full_text.lower()
         text = re.sub(r'\s+', ' ', text)
         

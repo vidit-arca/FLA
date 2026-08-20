@@ -22,11 +22,12 @@ class AOC4CommonErrorEngine:
             if not particulars or particulars == 'nan':
                 continue
                 
+            # Skip specific headers that might get parsed as rules
+            if particulars.lower() == "share capital notes":
+                continue
+                
             if source == 'nan':
-                if "share capital notes" in particulars.lower():
-                    source = "financials - Balance sheet - Liabilities"
-                else:
-                    source = ""
+                source = ""
                 
             self.rules.append({
                 "id": f"RULE_{idx}",
@@ -141,44 +142,12 @@ class AOC4CommonErrorEngine:
                     if not found_address: missing.append("Address")
                     extracted_reason = f"Missing fields: {', '.join(missing)}"
                     
-            # Row 5: Previous year figures
+            # Row 5: Previous year figures in Balance Sheet, PL
             elif "previous year figures" in particulars.lower():
                 import re
                 has_prev_column = "previous year" in full_text_lower or "prior year" in full_text_lower or bool(re.search(r"31st march 20\d\d", full_text_lower)) or bool(re.search(r"31\.03\.20\d\d", full_text_lower))
                 
-                prev_file = input_data.get("previous_fla_file") or input_data.get("prev_year_financials")
-                
-                # Financial metrics to tally for BS & PL
-                metrics_to_check = [
-                    ("Turnover/Revenue", input_data.get("prev_turnover"), input_data.get("last_year_turnover")),
-                    ("Paid Up Capital", input_data.get("prev_paid_up_capital"), input_data.get("last_year_paid_up_capital")),
-                    ("Net Worth", input_data.get("prev_net_worth"), input_data.get("last_year_net_worth")),
-                    ("Net Profit", input_data.get("prev_net_profit_after_tax"), input_data.get("last_year_net_profit"))
-                ]
-                
-                mismatches = []
-                compared_count = 0
-                
-                if prev_file:
-                    for label, fy_prev_val, py_val in metrics_to_check:
-                        if fy_prev_val is not None and py_val is not None:
-                            try:
-                                v1 = float(fy_prev_val)
-                                v2 = float(py_val)
-                                compared_count += 1
-                                # Rounding tolerance (e.g. within 1 unit or 0.1%)
-                                if abs(v1 - v2) > max(1.0, abs(v2) * 0.01):
-                                    mismatches.append(f"{label} (FY PY Col: {v1} vs PY Doc: {v2})")
-                            except (ValueError, TypeError):
-                                pass
-                                
-                if prev_file and compared_count > 0:
-                    if not mismatches:
-                        extracted_value = "Yes"
-                    else:
-                        extracted_value = "No"
-                        extracted_reason = f"Previous year figures in BS/PL do not tally with last year's filed financials: {', '.join(mismatches)}"
-                elif has_prev_column:
+                if has_prev_column:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
@@ -487,8 +456,9 @@ class AOC4CommonErrorEngine:
                 else:
                     extracted_value = "Yes"
 
-            # CSR Rules (Rows 30-37)
+            # CSR Rules (Rows 29-37)
             elif any(csr_phrase in particulars.lower() for csr_phrase in [
+                "to check only if csr is applicable",
                 "amount required to be spent",
                 "expenditure incurred",
                 "shortfall at the end",
@@ -499,50 +469,73 @@ class AOC4CommonErrorEngine:
                 "contractual obligation"
             ]):
                 is_csr_applicable = input_data.get("is_csr_applicable_calculated", False)
+                p_lower = particulars.lower()
                 
-                if not is_csr_applicable:
+                # Master Header Rule
+                if "to check only if csr is applicable" in p_lower:
+                    if is_csr_applicable:
+                        extracted_value = "Applicable"
+                        extracted_reason = "CSR is Applicable based on compliance criteria (Net Worth >= 500Cr OR Turnover >= 1000Cr OR PBT >= 5Cr)"
+                    else:
+                        extracted_value = "Not Applicable"
+                        extracted_reason = "CSR is Not Applicable based on compliance criteria (Net Worth < 500Cr, Turnover < 1000Cr, PBT < 5Cr)"
+                elif not is_csr_applicable:
                     extracted_value = "Not Applicable"
                     extracted_reason = "CSR is Not Applicable based on compliance criteria (Net Worth < 500Cr, Turnover < 1000Cr, PBT < 5Cr)"
                 else:
-                    p_lower = particulars.lower()
+                    # Filter text to strictly include Financial Statements and Auditor's Report only (exclude Board Report / Directors' Report)
+                    import re
+                    lines = full_text.split("\n")
+                    filtered_lines = []
+                    in_br = False
+                    for line in lines:
+                        l_clean = line.lower().strip()
+                        if re.search(r'^(#+\s*)?(board(\'s)? report|directors?\'? report)', l_clean):
+                            in_br = True
+                        elif re.search(r'^(#+\s*)?(independent auditor\'s report|auditor\'s report|notes to the financial statements|notes to accounts|balance sheet|statement of profit)', l_clean):
+                            in_br = False
+                        
+                        if not in_br:
+                            filtered_lines.append(line)
+                            
+                    csr_search_text = "\n".join(filtered_lines).lower()
+                    
                     if "amount required to be spent" in p_lower:
                         kws = ["amount required to be spent", "required to be spent"]
                     elif "expenditure incurred" in p_lower:
-                        kws = ["expenditure incurred", "amount of expenditure"]
+                        kws = ["expenditure incurred on csr", "csr expenditure incurred", "amount of expenditure incurred", "expenditure incurred"]
                     elif "shortfall at the end" in p_lower:
-                        kws = ["shortfall at the end", "shortfall"]
+                        kws = ["shortfall at the end of the year", "csr shortfall", "shortfall at the end", "shortfall"]
                     elif "previous years shortfall" in p_lower:
                         kws = ["previous years shortfall", "previous year shortfall"]
                     elif "reason for shortfall" in p_lower:
-                        kws = ["reason for shortfall"]
+                        kws = ["reason for shortfall", "reasons for shortfall"]
                     elif "nature of csr activities" in p_lower:
-                        kws = ["nature of csr", "csr activities", "contribution towards"]
+                        kws = ["nature of csr activities", "nature of csr", "csr activities"]
                     elif "contribution to a trust" in p_lower or "related party transactions" in p_lower:
-                        kws = ["related party transactions", "contribution to a trust", "trust"]
+                        kws = ["contribution to a trust", "trust controlled by the company", "csr trust"]
                     elif "contractual obligation" in p_lower or "liability incurred" in p_lower:
-                        kws = ["contractual obligation", "provision is made", "liability incurred"]
+                        kws = ["contractual obligation", "provision is made with respect to a liability", "liability incurred"]
                     else:
-                        kws = ["csr", "corporate social responsibility"]
+                        kws = ["corporate social responsibility", "csr"]
                         
                     found_kw = None
                     for kw in kws:
-                        if kw in full_text_lower:
+                        if kw in csr_search_text:
                             found_kw = kw
                             break
                             
                     if found_kw:
-                        import re
                         has_numbers = False
-                        
                         start_idx = 0
                         while True:
-                            idx = full_text_lower.find(found_kw, start_idx)
+                            idx = csr_search_text.find(found_kw, start_idx)
                             if idx == -1:
                                 break
                                 
                             window_start = max(0, idx - 150)
-                            window_end = min(len(full_text_lower), idx + len(found_kw) + 150)
-                            window_text = full_text_lower[window_start:window_end]
+                            window_end = min(len(csr_search_text), idx + len(found_kw) + 150)
+                            window_text = csr_search_text[window_start:window_end]
                             
                             if re.search(r'\d', window_text):
                                 has_numbers = True
@@ -554,10 +547,10 @@ class AOC4CommonErrorEngine:
                             extracted_value = "Yes"
                         else:
                             extracted_value = "No"
-                            extracted_reason = f"Keyword '{found_kw}' found, but no figures/numbers present near it"
+                            extracted_reason = f"Keyword '{found_kw}' found in Financials/Audit report, but no figures/numbers present near it"
                     else:
                         extracted_value = "No"
-                        extracted_reason = f"Missing keywords for CSR disclosure item: '{kws[0]}'"
+                        extracted_reason = f"Missing CSR disclosure keywords in Financials/Audit report: '{kws[0]}'"
                     
             # Row 17 & 18: Manual Team Checks
             elif "board resolutions was issued" in particulars.lower() or "directors were abroad" in particulars.lower():
