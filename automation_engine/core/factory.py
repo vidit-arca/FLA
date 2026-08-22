@@ -35,7 +35,10 @@ class ModuleFactory:
                 "validator": AOC4Validator,
                 "config_path": os.path.join(base_dir, "modules", "aoc4", "rules_config.json"),
                 "excel_dir": os.path.join(base_dir, "modules", "aoc4", "excel"),
-                "skeletal_file": "ANNFIL COMMONERROR .xlsx"
+                # FIX: Match the priority order that rule_engine.py uses (Lines 18-20)
+                # Primary: "Annual Filing common error Output.xlsx"
+                # Fallback: "ANNFIL COMMONERROR .xlsx"
+                "skeletal_file": "Annual Filing common error Output.xlsx"
             }
         else:
             raise ValueError(f"Unknown module type: {module_name}")
