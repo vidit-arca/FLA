@@ -18,6 +18,7 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { idpClient } from './api/idpClient';
+import FilledFormViewer from './components/FilledFormViewer';
 
 export default function IdpProductionApp() {
   const [templates, setTemplates] = useState([]);
@@ -684,8 +685,8 @@ export default function IdpProductionApp() {
 
       {/* 3. Consolidated RBI FLA Form Return Preview Modal */}
       {showConsolidatedModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-[#111726] border border-slate-200 dark:border-white/10 rounded-2xl w-full max-w-5xl h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-[#111726] border border-slate-200 dark:border-white/10 rounded-2xl w-full max-w-7xl h-[92vh] flex flex-col shadow-2xl overflow-hidden">
             
             {/* Modal Header */}
             <div className="px-6 py-4 border-b border-slate-200 dark:border-white/10 flex items-center justify-between shrink-0 bg-slate-50 dark:bg-[#151C2C]">
@@ -790,12 +791,46 @@ export default function IdpProductionApp() {
               </label>
             </div>
 
-            {/* Modal Body: Table of Cells for Active Section */}
-            <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 dark:bg-[#0B0F19]">
-              <div className="border border-slate-200 dark:border-white/10 rounded-xl bg-white dark:bg-[#111726] shadow-sm overflow-hidden">
-                {activeModalSection === 'Section I' ? (
-                  /* SECTION I: 4-Column List View */
-                  <table className="w-full text-left border-collapse">
+            {/* Modal Body */}
+            {!templateName.toLowerCase().includes("fla") ? (
+              /* TARGET / CUSTOM FORM: Full-Height Clean Filled Form & PDF Viewer */
+              <div className="flex-1 h-full min-h-0 flex flex-col overflow-hidden">
+                <FilledFormViewer
+                  templateName={templateName}
+                  extractedData={consolidatedState?.cells?.[activeModalSection] || consolidatedState?.payload || {}}
+                  hideEmptyRows={hideEmptyModalRows}
+                  onFieldChange={(key, newVal) => {
+                    setConsolidatedState(prev => {
+                      const updated = { ...prev };
+                      const currentSec = activeModalSection;
+                      if (updated.cells && updated.cells[currentSec]) {
+                        updated.cells[currentSec] = { ...updated.cells[currentSec], [key]: newVal };
+                      }
+                      if (updated.payload) {
+                        updated.payload = { ...updated.payload, [key]: newVal };
+                      }
+                      return updated;
+                    });
+                  }}
+                  onDownloadStampedPdf={async () => {
+                    try {
+                      const mapped_data = getConsolidatedPayload();
+                      await idpClient.generatePreviewPdf({ template_name: templateName, mapped_data });
+                    } catch (e) {
+                      alert("Failed to generate PDF preview.");
+                    }
+                  }}
+                  onDownloadExcel={null}
+                  isDownloadingExcel={isDownloadingExcel}
+                />
+              </div>
+            ) : (
+              /* RBI FLA 4-SECTION RETURN VIEW */
+              <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50 dark:bg-[#0B0F19]">
+                <div className="border border-slate-200 dark:border-white/10 rounded-xl bg-white dark:bg-[#111726] shadow-sm overflow-hidden">
+                  {activeModalSection === 'Section I' ? (
+                    /* SECTION I: 4-Column List View */
+                    <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-slate-50 dark:bg-[#151C2C] border-b border-slate-200 dark:border-white/10 text-xs font-bold uppercase text-slate-500">
                         <th className="p-3.5 w-28">RBI Excel Cell</th>
@@ -1057,61 +1092,10 @@ export default function IdpProductionApp() {
                       })()}
                     </tbody>
                   </table>
-                ) : (
-                  /* GENERIC FORM: Simple Consolidated Key-Value List */
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 dark:bg-[#151C2C] border-b border-slate-200 dark:border-white/10 text-xs font-bold uppercase text-slate-500">
-                        <th className="p-3.5 w-16">#</th>
-                        <th className="p-3.5">Consolidated Form Field</th>
-                        <th className="p-3.5">Consolidated Extracted Value</th>
-                        <th className="p-3.5 w-40 text-center">Status</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-200 dark:divide-white/10 text-sm">
-                      {(() => {
-                        const payload = consolidatedState?.cells?.[activeModalSection] || {};
-                        const entries = Object.entries(payload);
-                        if (entries.length === 0) {
-                          return (
-                            <tr>
-                              <td colSpan={4} className="p-12 text-center text-slate-400 font-bold">
-                                No consolidated values extracted for this form.
-                              </td>
-                            </tr>
-                          );
-                        }
-                        const cleanFieldKey = (rawKey) => {
-                          if (!rawKey) return "";
-                          let s = String(rawKey).replace(/^field_/, "");
-                          // Add space between numbers and letters
-                          s = s.replace(/([0-9]+)([a-zA-Z]+)/g, "$1 $2").replace(/([a-zA-Z]+)([0-9]+)/g, "$1 $2");
-                          return s.replace(/_/g, " ").toUpperCase();
-                        };
-                        return entries.map(([key, val], idx) => (
-                          <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
-                            <td className="p-3.5 text-slate-400 font-bold text-xs">{idx + 1}</td>
-                            <td className="p-3.5 font-bold uppercase text-slate-700 dark:text-slate-300">
-                              {cleanFieldKey(key)}
-                            </td>
-                            <td className="p-3.5 font-extrabold text-slate-900 dark:text-white">
-                              <div className="py-1 px-3 rounded-lg bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 font-bold text-slate-900 dark:text-white max-w-xl whitespace-pre-wrap break-words inline-block text-sm leading-relaxed">
-                                {String(val)}
-                              </div>
-                            </td>
-                            <td className="p-3.5 text-center">
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-400">
-                                📄 Consolidated
-                              </span>
-                            </td>
-                          </tr>
-                        ));
-                      })()}
-                    </tbody>
-                  </table>
-                )}
+                ) : null}
               </div>
             </div>
+          )}
 
           </div>
         </div>

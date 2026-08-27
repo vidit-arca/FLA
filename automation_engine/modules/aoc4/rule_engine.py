@@ -97,6 +97,7 @@ class AOC4RuleEngine:
                 
         # 1. Run private compliance engine
         compliance_flags = self.compliance_engine.execute(extracted_data)
+        extracted_data["compliance_flags"] = compliance_flags
         
         # 2. Run common error checker so it has access to the updated extracted_data (e.g. is_small_company)
         common_flags = self.checker.execute(extracted_data)
@@ -357,8 +358,9 @@ class AOC4RuleEngine:
                             target_cells["RPT and loans to Director"][f"F{matched_row}"] = flag.get("actual_value")
                         target_cells["RPT and loans to Director"][f"G{matched_row}"] = flag.get("user_value")
                     elif flag_id == "COMP_SEC_185_APPLICABILITY":
-                        # Write applicability to Col D
-                        target_cells["RPT and loans to Director"][f"D{matched_row}"] = flag.get("user_value")
+                        # Row 25 is a standard section header ("PROHIBITION | Loans to directors... | APPLICABILITY | Section 185")
+                        # Keep standard header intact without overwriting
+                        pass
                     else:
                         # For Section 185 and Section 186 (Rows 26-54), verdicts and limits go to Col D
                         target_cells["RPT and loans to Director"][f"D{matched_row}"] = flag.get("user_value")

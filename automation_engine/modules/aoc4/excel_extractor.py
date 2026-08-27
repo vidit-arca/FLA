@@ -203,6 +203,21 @@ class AOC4ExcelExtractor:
         if not sheets_to_scan:
             sheets_to_scan = xls.sheet_names
         
+        # Scan DIR 12 / Director designation sheets in company input workbook
+        for sheet_name in xls.sheet_names:
+            s_low = sheet_name.lower()
+            if any(kw in s_low for kw in ["dir 12", "dir12", "director", "kmp"]):
+                try:
+                    df_dir = pd.read_excel(xls, sheet_name=sheet_name)
+                    for _, d_row in df_dir.iterrows():
+                        row_str = " ".join([str(v) for v in d_row.values if pd.notna(v)]).lower()
+                        if any(kw in row_str for kw in ["managing director", "whole-time", "whole time", "wtd", "executive director", "professional/ed"]):
+                            data["has_md_wtd"] = "yes"
+                            data["director_designation"] = "Managing Director / WTD"
+                            break
+                except Exception:
+                    pass
+
         full_text_blocks = []
         for sheet_name in sheets_to_scan:
             try:

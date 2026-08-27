@@ -31,9 +31,43 @@ class AOC4PreviousYearReconciler:
         except ValueError:
             return None
 
+    def _clean_spelling(self, title: str) -> str:
+        """Corrects OCR drop-letter typos and formatting noise in financial line item titles."""
+        t = title.strip()
+        typos = {
+            r'^fotal\b': 'Total',
+            r'^rade receivables': 'Trade receivables',
+            r'^ash and cash equivalents': 'Cash and cash equivalents',
+            r'^hort-term loans and advances': 'Short-term loans and advances',
+            r'^ther current assets': 'Other current assets',
+            r'^urrent assets': 'Current assets',
+            r'^re capital at the beginning of the period': 'Share capital at the beginning of the period',
+            r'^apital at the end of the period': 'Share capital at the end of the period',
+            r'^eave encashment': 'Leave Encashment',
+            r'^epreciation of property': 'Depreciation of Property, Plant and Equipment',
+            r'^mortization of intangible': 'Amortization of Intangible assets',
+            r'^npairment of goodwill': 'Impairment of goodwill',
+            r'^rofessional charges': 'Professional Charges',
+            r'^ncility costs.*': 'Facility Costs, Repairs & Maintenance',
+            r'^ates and taxes': 'Rates and Taxes',
+            r'^ecruitment and hiring charges': 'Recruitment and hiring charges',
+            r'^elephone & internet charges': 'Telephone & Internet Charges',
+            r'^fice expenses': 'Office Expenses',
+            r'^гах expense': 'Tax expense',
+            r'^arnings per equity share': 'Earnings per equity share',
+            r'^ignificant accounting policies': 'Significant accounting policies'
+        }
+        for pat, rep in typos.items():
+            if re.search(pat, t, re.IGNORECASE):
+                t = re.sub(pat, rep, t, flags=re.IGNORECASE)
+                break
+        t = t.replace('\n', ' ').replace('**', '').replace('__', '').strip()
+        return t
+
     def _normalize_title(self, title: str) -> str:
         """Normalizes line item title for robust matching."""
-        t = title.lower()
+        clean = self._clean_spelling(title)
+        t = clean.lower()
         t = re.sub(r'^\s*\(?[a-z0-9ivx]+\)?[.)\s]*', '', t) # remove numbering like (a), 1., etc.
         t = re.sub(r'[^a-z0-9 ]', ' ', t)
         t = re.sub(r'\s+', ' ', t).strip()
@@ -41,20 +75,20 @@ class AOC4PreviousYearReconciler:
 
     def _extract_table_rows(self, text: str, scale: float = 1.0) -> list:
         """
-        Extracts all financial statement table rows containing particulars and figures.
-        Returns list of dicts: {'particulars': str, 'norm_title': str, 'cy_val': float, 'py_val': float, 'section': str}
+        Extracts all financial statement table rows containing particulars and figures
+        with table-header column awareness and OCR spelling corrections.
         """
-        rows = []
         lines = text.split("\n")
-        
-        current_section = "Financial Statements"
+        tables = []
+        curr_table = []
+        curr_section = "Financial Statements"
         in_board_report = False
-
+        
         for idx, line in enumerate(lines):
             line_clean = line.strip()
             line_lower = line_clean.lower()
             
-            # Track sections
+            # Track and exclude Board Report sections
             if re.search(r'^(#+\s*)?(board(\'s)? report|directors?\'? report)', line_lower):
                 in_board_report = True
                 continue
@@ -63,72 +97,108 @@ class AOC4PreviousYearReconciler:
                 
             if in_board_report:
                 continue
-
+                
             if "balance sheet" in line_lower:
-                current_section = "Balance Sheet"
+                curr_section = "Balance Sheet"
             elif "statement of profit" in line_lower or "profit and loss" in line_lower:
-                current_section = "Statement of Profit and Loss"
+                curr_section = "Statement of Profit and Loss"
+            elif "cash flow" in line_lower:
+                curr_section = "Cash Flow Statement"
             elif line_lower.startswith("note") or "notes to" in line_lower:
-                current_section = f"Notes ({line_clean[:40]})"
-
-            # Check for markdown table row
+                curr_section = f"Notes ({line_clean[:40]})"
+                
             if line_clean.startswith("|") and line_clean.endswith("|"):
-                cells = [c.strip() for c in line_clean.strip("|").split("|")]
-                if len(cells) < 2:
-                    continue
-
-                # Skip header separator rows
+                curr_table.append((curr_section, line_clean))
+            else:
+                if len(curr_table) > 1:
+                    tables.append(curr_table)
+                curr_table = []
+        if len(curr_table) > 1:
+            tables.append(curr_table)
+            
+        extracted_rows = []
+        for tbl in tables:
+            sec = tbl[0][0]
+            header_rows = []
+            data_rows = []
+            for s, row_str in tbl:
+                cells = [c.strip() for c in row_str.strip("|").split("|")]
+                # Skip markdown separator rows like |---|---|
                 if all(re.match(r'^[-:\s]+$', c) for c in cells if c):
                     continue
-
-                # Header rows like "Particulars | Note | As at..."
-                if any(h in cells[0].lower() for h in ["particulars", "description", "statement of", "balance sheet as at", "for the year ended"]):
-                    continue
-
-                # Check if first cell is a valid line item title
-                title = cells[0].strip()
-                if not title or len(title) < 2:
-                    continue
-
-                # Filter out pure date or noise headers
-                if re.match(r'^(as at|for the year|inr|amount in|\d+&?\d*)$', title.lower()):
-                    continue
-
-                # Find numerical values in remaining cells
-                numbers = []
-                for cell in cells[1:]:
-                    num = self._clean_number(cell)
-                    if num is not None:
-                        numbers.append(num)
-
-                # Skip rows with no numerical values
-                if not numbers:
-                    continue
-
-                # Filter out single small integers that are likely Note numbers (e.g. Note 3, Note 15)
-                filtered_nums = []
-                for n_idx, n in enumerate(numbers):
-                    # If first number is integer < 50 and there are subsequent numbers, it's a note number
-                    if n_idx == 0 and len(numbers) > 1 and n.is_integer() and 1 <= n < 50:
-                        continue
-                    # Skip calendar years
-                    if 1990 <= abs(n) <= 2035 and n.is_integer():
-                        continue
-                    filtered_nums.append(n * scale)
-
-                if filtered_nums:
-                    cy_val = filtered_nums[0] if len(filtered_nums) >= 1 else None
-                    py_val = filtered_nums[1] if len(filtered_nums) >= 2 else None
+                if not data_rows and any(h in cells[0].lower() for h in ["particulars", "description", "related party", "name of", "statement of", "balance sheet as at", "for the year ended"]):
+                    header_rows.append(cells)
+                else:
+                    data_rows.append(cells)
                     
-                    rows.append({
-                        "particulars": title,
-                        "norm_title": self._normalize_title(title),
-                        "cy_val": cy_val,
-                        "py_val": py_val,
-                        "section": current_section
+            # Determine column positions from header
+            cy_col = None
+            py_col = None
+            part_cols = [0]
+            
+            if header_rows:
+                hdr = header_rows[-1]
+                hdr_lower = [c.lower() for c in hdr]
+                for c_idx, c_name in enumerate(hdr_lower):
+                    if any(cy_kw in c_name for cy_kw in ["current year", "2025", "2024", "31st march,2025", "31st march, 2024", "31st march,2024"]):
+                        if cy_col is None:
+                            cy_col = c_idx
+                        elif py_col is None:
+                            py_col = c_idx
+                    elif any(py_kw in c_name for py_kw in ["previous year", "2024", "2023", "31st march, 2024", "31st march, 2023"]):
+                        if py_col is None and c_idx != cy_col:
+                            py_col = c_idx
+                if "nature" in hdr_lower:
+                    part_cols = [0, hdr_lower.index("nature")]
+                    
+            for cells in data_rows:
+                if len(cells) < 2:
+                    continue
+                raw_title = cells[0].strip()
+                if not raw_title or len(raw_title) < 2:
+                    continue
+                if re.match(r'^(as at|for the year|inr|amount in|\d+&?\d*)$', raw_title.lower()):
+                    continue
+                    
+                if len(part_cols) > 1 and len(cells) > part_cols[1] and cells[part_cols[1]]:
+                    raw_title = f"{raw_title} - {cells[part_cols[1]].strip()}"
+                    
+                clean_title = self._clean_spelling(raw_title)
+                
+                # Determine CY and PY values based on identified columns or cell count
+                cy_val = None
+                py_val = None
+                
+                if cy_col is not None and len(cells) > cy_col:
+                    cy_val = self._clean_number(cells[cy_col])
+                    if py_col is not None and len(cells) > py_col:
+                        py_val = self._clean_number(cells[py_col])
+                else:
+                    # Fallback: inspect numerical cells
+                    num_cells = []
+                    for c_idx, c in enumerate(cells[1:], 1):
+                        num = self._clean_number(c)
+                        if num is not None:
+                            # Skip standalone small integer note numbers (e.g. Note 3, 15)
+                            if c_idx == 1 and len(cells) >= 4 and num.is_integer() and 1 <= num <= 50 and "." not in c:
+                                continue
+                            num_cells.append(num)
+                    if len(num_cells) >= 2:
+                        cy_val = num_cells[0]
+                        py_val = num_cells[1]
+                    elif len(num_cells) == 1:
+                        cy_val = num_cells[0]
+                        
+                if cy_val is not None or py_val is not None:
+                    extracted_rows.append({
+                        "section": sec,
+                        "particulars": clean_title,
+                        "norm_title": self._normalize_title(clean_title),
+                        "cy_val": cy_val * scale if cy_val is not None else None,
+                        "py_val": py_val * scale if py_val is not None else None
                     })
-
-        return rows
+                    
+        return extracted_rows
 
     def reconcile(self, cy_text_or_data, py_text_or_data) -> dict:
         """

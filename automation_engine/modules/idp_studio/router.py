@@ -282,6 +282,9 @@ async def generate_preview_pdf(payload: Dict[str, Any] = Body(...), db: Session 
     try:
         import fitz  # PyMuPDF
         import json as python_json
+        import re
+        import os
+        import uuid
         
         template_name = payload.get("template_name")
         mapped_data = payload.get("mapped_data", {})
@@ -296,21 +299,107 @@ async def generate_preview_pdf(payload: Dict[str, Any] = Body(...), db: Session 
             if r.spatial_meta_json:
                 spatial_map[r.form_field] = python_json.loads(r.spatial_meta_json)
                 
-        # 2. Locate blank template
-        template_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "templates", f"{template_name}.pdf"))
+        # 2. Locate blank template with case-insensitive fallback
+        clean_tname = template_name.replace(".pdf", "").replace(".PDF", "").strip()
+        template_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "templates"))
+        template_path = os.path.join(template_dir, f"{clean_tname}.pdf")
         
+        if not os.path.exists(template_path) and os.path.exists(template_dir):
+            for fname in os.listdir(template_dir):
+                if fname.lower() == f"{clean_tname.lower()}.pdf" or clean_tname.lower() in fname.lower():
+                    template_path = os.path.join(template_dir, fname)
+                    break
+                    
         if not os.path.exists(template_path):
-            raise FileNotFoundError(f"Blank PDF template not found at: {template_path}. Please place it in data/templates.")
+            raise FileNotFoundError(f"Blank PDF template not found for '{template_name}' in {template_dir}. Please upload the template PDF.")
             
         # 3. Open PDF
         doc = fitz.open(template_path)
         
-        # 4. Stamp mapped_data
+        # 4. STEP 1: WIPE old pre-filled sample data ONLY from the interior of input boxes
+        # Preserves the black vector line borders at x=391.0 and x=574.5 intact!
+        for page in doc:
+            words = page.get_text("words")
+            for w in words:
+                x0, y0, x1, y1, text, bno, lno, wno = w
+                # Only erase if inside the fillable box zone (between x=391.0 and x=575.0)
+                if x0 >= 390.0 and x1 <= 580.0:
+                    lower = text.lower()
+                    if not any(k in lower for k in ['page', 'english', 'hindi', 'yes', 'no', 'auditor\'s', 'individual']):
+                        # Inset 1.5pt from border lines so borders remain crisp and unbroken
+                        erase_box = fitz.Rect(max(392.5, x0 - 1), y0 - 1, min(573.5, x1 + 1), y1 + 1)
+                        page.draw_rect(erase_box, color=(1, 1, 1), fill=(1, 1, 1))
+
+        # Helper: Stamp Radio Button / Toggle Option Dot
+        def stamp_radio_button(doc_ref, label_targets, chosen_val, possible_options=["Yes", "No"]):
+            if not chosen_val:
+                return False
+            val_norm = str(chosen_val).strip()
+            
+            for p in doc_ref:
+                for target in label_targets:
+                    lbl_rects = p.search_for(target)
+                    if lbl_rects:
+                        lr = lbl_rects[0]
+                        # 1. Clear existing marks from all options on this line
+                        for opt in possible_options:
+                            for mr in p.search_for(opt):
+                                if abs(mr.y0 - lr.y0) < 18:
+                                    cx = mr.x0 - 8.5
+                                    cy = (mr.y0 + mr.y1) / 2.0
+                                    p.draw_circle((cx, cy), radius=3.2, color=(1, 1, 1), fill=(1, 1, 1))
+                                    p.draw_circle((cx, cy), radius=4.5, color=(0.2, 0.2, 0.2), fill=None, width=0.75)
+                        
+                        # 2. Find selected option and stamp filled dot
+                        target_opt = None
+                        for opt in possible_options:
+                            if opt.lower() == val_norm.lower() or val_norm.lower() in opt.lower() or opt.lower() in val_norm.lower():
+                                target_opt = opt
+                                break
+                        
+                        if target_opt:
+                            for mr in p.search_for(target_opt):
+                                if abs(mr.y0 - lr.y0) < 18:
+                                    cx = mr.x0 - 8.5
+                                    cy = (mr.y0 + mr.y1) / 2.0
+                                    p.draw_circle((cx, cy), radius=2.5, color=(0, 0, 0), fill=(0, 0, 0))
+                                    return True
+            return False
+
+        # 5. STEP 2: STAMP newly extracted data (text boxes & radio buttons)
         for key, value in mapped_data.items():
-            if key in spatial_map and value:
-                meta = spatial_map[key]
+            if not value or str(value).strip() in ["", "None", "null", "N/A", "Unknown", "Empty / N/A"]:
+                continue
                 
-                # Check for polygon or bounding_regions (Azure Document Intelligence format)
+            val_str = str(value).strip()
+            meta = spatial_map.get(key)
+            stamped = False
+            lower_key = key.lower()
+
+            # Radio & Toggle Check
+            if any(k in lower_key for k in ["class_of_companies", "139_2", "139(2)", "falling under"]):
+                stamped = stamp_radio_button(doc, ["falling under any class of companies", "section 139(2)"], val_str, ["Yes", "No"])
+            elif any(k in lower_key for k in ["nature_of_appointment", "nature of appointment", "appointment_type"]):
+                stamped = stamp_radio_button(doc, ["*Nature of appointment", "Nature of appointment"], val_str, [
+                    "First auditor by Board of directors", "Appointment of Auditors in AGM", "Re-appointment of Auditors in AGM",
+                    "Appointment/ Re-appointment by C&AG", "Auditor appointed in case of casual vacancy",
+                    "Auditor appointed in case of non-re-appointment/ removal", "Auditor appointed by Central Government",
+                    "Auditor appointed by the Tribunal", "Others"
+                ])
+            elif any(k in lower_key for k in ["appointed_in_agm", "annual general meeting", "agm"]):
+                stamped = stamp_radio_button(doc, ["annual general meeting (AGM)", "appointed in the annual general meeting"], val_str, ["Yes", "No"])
+            elif any(k in lower_key for k in ["joint_auditor", "joint auditors"]):
+                stamped = stamp_radio_button(doc, ["joint auditors have been appointed"], val_str, ["Yes", "No"])
+            elif any(k in lower_key for k in ["audit_committee", "recommendation of the audit"]):
+                stamped = stamp_radio_button(doc, ["recommendation of the Audit Committee constituted", "Audit Committee constituted"], val_str, ["Yes", "No", "Not Applicable"])
+            elif lower_key in ["language", "form_language"]:
+                stamped = stamp_radio_button(doc, ["English", "Hindi"], val_str, ["English", "Hindi"])
+
+            if stamped:
+                continue
+            
+            # Method A: Use exact spatial metadata if present
+            if meta:
                 polygon = None
                 if meta.get("bounding_regions") and len(meta["bounding_regions"]) > 0:
                     polygon = meta["bounding_regions"][0].get("polygon")
@@ -318,20 +407,13 @@ async def generate_preview_pdf(payload: Dict[str, Any] = Body(...), db: Session 
                     polygon = meta["polygon"]
                 
                 if polygon and len(polygon) >= 8:
-                    # polygon is [x1, y1, x2, y2, x3, y3, x4, y4] usually in inches from Azure DI
-                    # fitz uses points (1 inch = 72 points)
-                    # Let's assume Azure DI returns inches and convert to points
-                    # Or if it returns pixels, we need to know the scale. Azure DI usually returns inches.
                     x0 = min(polygon[0], polygon[2], polygon[4], polygon[6]) * 72
                     y0 = min(polygon[1], polygon[3], polygon[5], polygon[7]) * 72
                     x1 = max(polygon[0], polygon[2], polygon[4], polygon[6]) * 72
                     y1 = max(polygon[1], polygon[3], polygon[5], polygon[7]) * 72
                     
-                    # 1. Exact bounding box of the original dummy text
-                    erase_rect = fitz.Rect(x0 - 2, y0 - 2, x1 + 2, y1 + 2)
-                    
-                    # 2. Expanded bounding box for writing new text (so it doesn't wrap abruptly)
-                    write_rect = fitz.Rect(x0, y0, x1 + 200, y1 + 15)
+                    erase_rect = fitz.Rect(max(392.5, x0 + 1), y0 + 1, min(573.5, x1 - 1), y1 - 1)
+                    write_rect = fitz.Rect(max(395.0, x0 + 3), y0 + 2, min(571.0, x1 - 2), y1 - 1)
                     
                     page_num = 0
                     if meta.get("bounding_regions") and len(meta["bounding_regions"]) > 0:
@@ -339,13 +421,69 @@ async def generate_preview_pdf(payload: Dict[str, Any] = Body(...), db: Session 
                         
                     if 0 <= page_num < len(doc):
                         page = doc[page_num]
-                        # First, erase the old dummy text by drawing a white rectangle over it
                         page.draw_rect(erase_rect, color=(1, 1, 1), fill=(1, 1, 1))
+                        page.insert_textbox(write_rect, val_str, fontsize=9.0, color=(0, 0, 0.75), fontname="helv")
+                        stamped = True
                         
-                        # Then, write the new dynamic data in blue
-                        page.insert_textbox(write_rect, str(value), fontsize=10, color=(0, 0, 0.8))
+            # Method B: Smart targeted search for official form field labels
+            if not stamped:
+                targets = []
+                is_address = 'address' in lower_key
+                
+                if 'cin' in lower_key or 'identity' in lower_key:
+                    targets = ['Corporate Identity Number', 'CIN', 'identity number']
+                elif 'company' in lower_key and 'name' in lower_key:
+                    targets = ['Name of the company', 'Name of the Company']
+                elif is_address:
+                    targets = ['Address of the registered office of the company', 'Address of the registered office', 'Address Line 1', 'Address Line 2']
+                elif 'email' in lower_key:
+                    targets = ['Email ID of the company', 'Email ID', '*Email ID']
+                elif 'date' in lower_key and 'appointment' in lower_key:
+                    targets = ['Date of appointment', 'appointment (DD/MM/YYYY)', 'appointment']
+                elif 'auditor' in lower_key and ('firm' in lower_key or 'name' in lower_key):
+                    targets = ["Name of the Auditor's Firm", "Name of the auditor", "Name of the Auditor", "Auditor's Firm"]
+                elif 'membership' in lower_key:
+                    targets = ['*Membership Number of Auditor', 'Membership Number']
+                elif 'firm registration' in lower_key or 'frn' in lower_key:
+                    targets = ['Firm Registration Number']
+                elif 'financial year' in lower_key and 'number' in lower_key:
+                    targets = ['*Number of financial year(s)', 'Number of financial year']
+                elif 's. no' in lower_key or 's.no' in lower_key:
+                    targets = ['*S. no.', 'S. no.']
+                elif 'financial year start' in lower_key:
+                    targets = ['*Financial Year Start Date', 'Financial Year Start Date (DD/MM/YYYY)']
+                elif 'financial year end' in lower_key:
+                    targets = ['*Financial Year End Date', 'Financial Year End Date (DD/MM/YYYY)']
+                elif 'pan' in lower_key:
+                    targets = ['permanent account number', 'Income Tax permanent account number', 'PAN']
+                else:
+                    clean_search = re.sub(r"^field_", "", key).lower()
+                    clean_search = re.sub(r"^[0-9]+[a-z]?\s*", "", clean_search)
+                    kws = [w for w in re.split(r"[_\s]+", clean_search) if len(w) >= 3 and w not in ["the", "and", "for", "with", "from"]]
+                    targets = [" ".join(kws[:3]), " ".join(kws[:2]), kws[0] if kws else ""]
+
+                for page in doc:
+                    if stamped:
+                        break
+                    for phrase in targets:
+                        if not phrase or len(phrase) < 3:
+                            continue
+                        rects = page.search_for(phrase)
+                        if rects:
+                            r = rects[0]
+                            box_h = 42.0 if is_address else 16.0
+                            font_sz = 8.0 if is_address else 9.0
+                            
+                            # Place text precisely within the black box margins (x=395 to 571)
+                            erase_box = fitz.Rect(392.5, r.y0 - 2, 573.5, r.y0 + box_h)
+                            text_box = fitz.Rect(395.0, r.y0, 571.0, r.y0 + box_h)
+                            
+                            page.draw_rect(erase_box, color=(1, 1, 1), fill=(1, 1, 1))
+                            page.insert_textbox(text_box, val_str, fontsize=font_sz, color=(0, 0, 0.75), fontname="helv")
+                            stamped = True
+                            break
                     
-        # 5. Save output
+        # 6. Save output
         output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "output", "previews"))
         os.makedirs(output_dir, exist_ok=True)
         output_filename = f"{template_name}_Preview_{uuid.uuid4().hex[:8]}.pdf"
