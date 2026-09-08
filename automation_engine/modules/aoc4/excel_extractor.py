@@ -30,13 +30,14 @@ class AOC4ExcelExtractor:
         # Maps metric names to regex keywords to match in the row headers
         self.numeric_keywords = {
             "total_revenue": [r"total revenue", r"total income", r"revenue and other income"],
+            "prev_total_revenue": [r"previous year total revenue", r"total revenue.*previous year"],
             "turnover": [r"revenue from operations?", r"total turnover", r"sales turnover", r"gross turnover"],
             "prev_turnover": [r"previous year turnover", r"turnover.*previous year"],
             "authorised_capital": [r"authorised.*capital", r"authorized.*capital", r"authorised share capital", r"authorized share capital"],
-            "paid_up_capital": [r"paid.?up capital", r"paid.?up share capital", r"subscribed and paid.?up", r"equity share capital", r"preference share capital", r"share capital"],
-            "net_worth": [r"net worth", r"total equity", r"capital.*reserve.*surplus"],
-            "prev_net_worth": [r"previous year net worth", r"net worth.*previous year"],
-            "reserves_and_surplus": [r"reserves\s*&\s*surplus", r"reserves and surplus", r"other equity"],
+            "paid_up_capital": [r"(?<!authorised\s)(?<!authorized\s)share capital", r"paid.?up capital", r"paid.?up share capital", r"subscribed and paid.?up", r"issued,?\s*subscribed", r"equity share capital", r"preference share capital"],
+            "prev_paid_up_capital": [r"previous year share capital", r"share capital.*previous year"],
+            "reserves_and_surplus": [r"reserves?\s*(?:and|&)\s*surplus", r"other equity"],
+            "prev_reserves_and_surplus": [r"previous year reserve", r"reserves?.*previous year"],
             "borrowings": [r"total borrowing", r"total borrowings", r"^borrowing$", r"^borrowings$", r"long.?term borrowing", r"short.?term borrowing", r"loan from bank", r"secured loan", r"unsecured loan"],
             "long_term_borrowings": [r"long.?term borrowing", r"long.?term borrowings"],
             "short_term_borrowings": [r"short.?term borrowing", r"short.?term borrowings"],
@@ -46,17 +47,18 @@ class AOC4ExcelExtractor:
             "loan_given_by_company": [r"loans given by company", r"loan given by company", r"loans to related parties", r"inter company loan", r"inter corporate deposit.*given", r"icd given"],
             "investments_made": [r"investments made by company", r"investment made by company", r"non.current investments", r"non current investments", r"current investments", r"investment in subsidiaries", r"investment in associates", r"investments"],
             "total_loans_investments_given": [r"total loans.*given", r"loans and advances given"],
-            "rpt_sale_goods": [r"sale of goods.*related party", r"sale of goods"],
-            "rpt_purchase_goods": [r"purchase of goods.*related party", r"purchase or supply of goods"],
-            "rpt_sale_property": [r"sale of property.*related party", r"sale of property"],
-            "rpt_purchase_property": [r"purchase of property.*related party", r"purchase of property"],
-            "rpt_dispose_property": [r"dispose of property", r"disposal of property"],
-            "rpt_availing_service": [r"availing of service", r"availing.*service"],
-            "rpt_rendering_service": [r"rendering of service", r"rendering.*service"],
-            "rpt_lease": [r"lease.*related party", r"^lease$", r"rent"],
-            "rpt_monthly_remun": [r"remuneration paid to directors", r"directors remuneration", r"remuneration to directors", r"managerial remuneration", r"remuneration.*director", r"monthly remuneration", r"annual remuneration", r"appointment to any office", r"salary", r"professional charges", r"professional fees"],
+            "corporate_guarantees": [r"corporate guarantees? given", r"guarantees? given by company", r"guarantees? given", r"guarantees"],
+            "rpt_sale_goods": [r"sale of goods.*related party", r"sale of goods", r"sale of materials?", r"supply of goods", r"sales to related part(?:y|ies)", r"sale of products?"],
+            "rpt_purchase_goods": [r"purchase of goods.*related party", r"purchase of goods", r"purchase of materials?", r"purchase or supply of goods", r"supply of materials?", r"purchases from related part(?:y|ies)", r"purchase of raw materials?"],
+            "rpt_sale_property": [r"sale of property.*related party", r"sale of property", r"sale of fixed assets?", r"sale of immovable property", r"sale of assets?", r"sale of land", r"sale of building"],
+            "rpt_purchase_property": [r"purchase of property.*related party", r"purchase of property", r"purchase of fixed assets?", r"purchase of immovable property", r"purchase of assets?", r"purchase of land", r"purchase of building"],
+            "rpt_dispose_property": [r"dispos(?:al|e) of property", r"transfer of property", r"dispos(?:al|e) of assets?", r"dispos(?:al|e) of fixed assets?", r"transfer of assets?"],
+            "rpt_availing_service": [r"availing of services?", r"services? availed", r"service charges paid", r"charges for availing services?", r"charges paid for services?", r"receiving of services?", r"receiving services?", r"availing.*service"],
+            "rpt_rendering_service": [r"rendering of services?", r"services? rendered", r"service charges received", r"charges for rendering services?", r"charges received for services?", r"providing of services?", r"providing services?", r"rendering.*service"],
+            "rpt_lease": [r"lease.*related party", r"^lease$", r"\brent\b", r"rental", r"lease rent", r"lease payments", r"premises rent", r"office rent"],
+            "rpt_monthly_remun": [r"remuneration paid to directors", r"directors remuneration", r"director remuneration", r"remuneration to directors", r"managerial remuneration", r"remuneration.*director", r"monthly remuneration", r"annual remuneration", r"appointment to any office", r"salary"],
             "rpt_monthly_remun_2": [r"remuneration.*director.*2", r"second director.*remuneration", r"wtd.*remuneration", r"salary.*wtd"],
-            "rpt_remuneration_underwriting": [r"remuneration for underwriting", r"underwriting.*subscription"],
+            "rpt_remuneration_underwriting": [r"remuneration for underwriting", r"underwriting commission", r"underwriting remuneration", r"underwriting.*subscription", r"underwriting of securities"],
             "loan_to_directors_assets": [r"loans given by company to directors", r"loan given by company to directors", r"loangiven by company to directors", r"loan given by company to director", r"loan to directors"],
             "secured_loan": [r"^secured$", r"\bsecured\b", r"\bsecured loan", r"\bsecured borrowings", r"term loan taken during the year", r"^term loans?$"],
             "loan_from_directors": [r"loan from directors", r"loan from shareholders", r"unsecured loan from director", r"unsecured loan taken"],
@@ -74,7 +76,8 @@ class AOC4ExcelExtractor:
             "body_corporate_investors": [r"body corporate has invested", r"invested in its share capital"],
             "borrowing_defaults": [r"default in repayment", r"borrowing default"],
             "has_bribe": [r"bribe", r"corrupt practices"],
-            "has_internal_audit": [r"internal audit applicable", r"internal audit"]
+            "has_internal_audit": [r"internal audit applicable", r"internal audit"],
+            "has_corporate_shareholders": [r"body corporate|corporate shareholder|invested in share capital"]
         }
         
     def extract_from_docs(self, docs: dict) -> dict:
@@ -122,6 +125,11 @@ class AOC4ExcelExtractor:
             if val.startswith("(") and val.endswith(")"):
                 is_negative = True
                 
+            # Guard against extracting numbers from descriptive sentences (e.g. "Within limits (Limit available upto 12.19 crores)")
+            alpha_count = sum(c.isalpha() for c in val)
+            if alpha_count > 15:
+                return None
+                
         clean_str = re.sub(r'[^\d.-]', '', str(val))
         try:
             parsed = float(clean_str) if clean_str else None
@@ -149,30 +157,50 @@ class AOC4ExcelExtractor:
         if not full_text:
             return 1.0
         text_lower = full_text.lower()
-        
-        # 1. Lakhs
+
+        # Check Balance Sheet / P&L header region first for exact unit
+        bs_pl_match = re.search(r'(?:balance\s+sheet|statement\s+of\s+profit).*?(?:as\s+at|for\s+the\s+year|₹\s*in|\(in\s+).*?\n', text_lower, re.DOTALL)
+        if bs_pl_match:
+            header_snippet = bs_pl_match.group(0)
+            if re.search(r'in\s+rupees?|amount\s*in\s*₹|in\s*₹\s*rupees?|amount\s*in\s*rs\.?|in\s*rs\.?|\(in\s*rs\.?\)|amount\s*in\s*inr', header_snippet):
+                return 1.0
+            if re.search(r'in\s+hundreds?', header_snippet):
+                return 100.0
+            if re.search(r'in\s+thousands?', header_snippet):
+                return 1000.0
+            if re.search(r'in\s+lakhs?', header_snippet):
+                return 100000.0
+            if re.search(r'in\s+crores?', header_snippet):
+                return 10000000.0
+
+        # General text checks:
+        # 1. Crores
+        if re.search(r'(?i)(in crores?|amount(s)? (are )?in crores?|in crores? (of )?indian rupees|\(in crores?\))', text_lower):
+            return 10000000.0
+
+        # 2. Lakhs
         if re.search(r'(?i)(in lakhs?|amount(s)? (are )?in lakhs?|in lakhs? (of )?indian rupees|\(in lakhs?\))', text_lower):
             return 100000.0
-            
-        # 2. Thousands
-        if re.search(r'(?i)(in thousands?|amount(s)? (are )?in thousands?|in thousands? (of )?indian rupees|\(in thousands?\))', text_lower):
-            return 1000.0
-            
+
         # 3. Millions
         if re.search(r'(?i)(in millions?|amount(s)? (are )?in millions?|in millions? (of )?indian rupees|\(in millions?\))', text_lower):
             return 1000000.0
-            
-        # 4. Crores
-        if re.search(r'(?i)(amount.*?in thousands?|in thousands? indian rupees|\(in thousands?\)|in [\'’]?000)', text_lower):
-            return 1000.0
-        if re.search(r'(?i)(in crores?|amount(s)? (are )?in crores?|in crores? (of )?indian rupees|\(in crores?\))', text_lower):
-            return 10000000.0
-            
-        # 5. Hundreds
+
+        # 4. Hundreds
         if re.search(r'(?i)(in hundreds?|amounts? (are )?in (?:indian )?rupees hundreds?|in (?:indian )?rupees hundreds?|amounts? (are )?in hundreds?|in hundreds? (of )?indian rupees|\(in hundreds?\))', text_lower):
             return 100.0
-            
+
+        # 5. Actuals — explicit "amount in Rs" or "amount in INR" signals raw rupees, return early
+        if re.search(r'(?i)(amount\s*in\s*rs\.?|amount\s*in\s*inr|in\s*rs\.?\s*$|\(in\s*rs\.?\)|amount\s*in\s*rupees?)', text_lower):
+            return 1.0
+
+        # 6. Thousands (only if not explicit rupees elsewhere in BS/PL)
+        if re.search(r'(?i)(amount(s)? (are )?in thousands?|in thousands? (of )?indian rupees|\(in thousands?\))', text_lower):
+            if not re.search(r'(?i)(in rupees?|amount in ₹|₹ in rupees)', text_lower):
+                return 1000.0
+
         return 1.0 # Default fallback (Actuals)
+
             
     def _process_excel(self, path: str) -> dict:
         """Processes a single Excel workbook and searches targeted sheets for keywords."""
@@ -187,36 +215,53 @@ class AOC4ExcelExtractor:
             "current liabilities", "assets", "non-current assets", "current assets"
         }
         
-        target_sheet_keywords = [
-            "balance sheet", "p&l", "pandl", "pl", "profit and loss", "statement of profit", "profit", "loss",
-            "notes", "note", "nt ", "related party", "rpt", "revenue", "share capital", "financials", "bs", "cfs"
+        # Explicitly exclude non-financial checklist / questionnaire / administrative sheets
+        excluded_sheet_keywords = [
+            "validation", "caro", "mgt", "meeting", "bm control", "vpd", "index of charges", 
+            "din", "view signatory", "signatory", "185", "188", "adt", "dir", "common error", 
+            "format sheet", "for rbca", "list of forms", "control sheet", "checklist"
         ]
         
-        # Filter sheets to avoid false positives on summary or irrelevant sheets
+        # Scan ALL sheets in the workbook — skip only explicit admin/checklist sheets.
+        # This ensures sheets with non-standard names (e.g. "Financial Statements",
+        # "Sub Schedule BS") are never silently missed.
         sheets_to_scan = []
         for sheet_name in xls.sheet_names:
-            sheet_lower = sheet_name.lower()
-            if any(keyword in sheet_lower for keyword in target_sheet_keywords):
-                sheets_to_scan.append(sheet_name)
-                
-        # Fallback: If no sheets matched our target names, scan them all
-        if not sheets_to_scan:
-            sheets_to_scan = xls.sheet_names
+            sheet_lower = sheet_name.lower().strip()
+            if any(ex in sheet_lower for ex in excluded_sheet_keywords):
+                print(f"[~] Skipping admin/checklist sheet: '{sheet_name}'")
+                continue
+            sheets_to_scan.append(sheet_name)
+        print(f"[*] Sheets to scan ({len(sheets_to_scan)}): {sheets_to_scan}")
         
-        # Scan DIR 12 / Director designation sheets in company input workbook
+        # Scan Master Sheet / Basic Details in company input workbook
         for sheet_name in xls.sheet_names:
             s_low = sheet_name.lower()
-            if any(kw in s_low for kw in ["dir 12", "dir12", "director", "kmp"]):
+            if any(kw in s_low for kw in ["master", "basic details", "company info"]):
                 try:
-                    df_dir = pd.read_excel(xls, sheet_name=sheet_name)
-                    for _, d_row in df_dir.iterrows():
-                        row_str = " ".join([str(v) for v in d_row.values if pd.notna(v)]).lower()
-                        if any(kw in row_str for kw in ["managing director", "whole-time", "whole time", "wtd", "executive director", "professional/ed"]):
-                            data["has_md_wtd"] = "yes"
-                            data["director_designation"] = "Managing Director / WTD"
-                            break
-                except Exception:
-                    pass
+                    df_master = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+                    for _, m_row in df_master.iterrows():
+                        row_vals = [str(v).strip() for v in m_row.values if pd.notna(v)]
+                        row_str = " ".join(row_vals).lower()
+                        
+                        if "cin" in row_str:
+                            for cell in row_vals:
+                                cin_m = re.search(r'\b([LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6})\b', cell, re.I)
+                                if cin_m:
+                                    data["cin_number"] = cin_m.group(1).upper()
+                                    data["is_listed"] = "yes" if data["cin_number"].startswith("L") else "no"
+                                    print(f"[*] Excel Master Sheet: Found CIN = {data['cin_number']}")
+                                    break
+                                    
+                        if "company name" in row_str and len(row_vals) >= 2:
+                            data["company_name"] = row_vals[-1]
+                            print(f"[*] Excel Master Sheet: Found Company Name = {data['company_name']}")
+                            
+                        if "incorporation" in row_str and len(row_vals) >= 2:
+                            data["date_of_incorporation"] = row_vals[-1]
+                            print(f"[*] Excel Master Sheet: Found Date of Inc = {data['date_of_incorporation']}")
+                except Exception as e:
+                    print(f"[!] Error parsing Master Sheet in Excel: {e}")
 
         full_text_blocks = []
         for sheet_name in sheets_to_scan:
@@ -339,6 +384,7 @@ class AOC4ExcelExtractor:
                                                         target_row_values = next_row
                                                         break
                                         
+                                        row_nums = []
                                         for right_idx in range(col_idx + 1, len(target_row_values)):
                                             if right_idx == note_col_idx:
                                                 continue # Skip the Note No column entirely
@@ -357,11 +403,26 @@ class AOC4ExcelExtractor:
                                                             break
                                                     if not has_larger_next:
                                                         continue
-                                                print(f"    -> Found '{metric}' = {val} in sheet '{sheet_name}' (Priority {p_idx}: {pattern})")
-                                                best_matches[metric]["value"] = val
-                                                best_matches[metric]["priority"] = p_idx
-                                                data[metric] = val # Keep data[metric] populated for fallback logic
-                                                break
+                                                row_nums.append(val)
+                                                
+                                        if row_nums:
+                                            cy_val = row_nums[0]
+                                            print(f"    -> Found '{metric}' = {cy_val} in sheet '{sheet_name}' (Priority {p_idx}: {pattern})")
+                                            best_matches[metric]["value"] = cy_val
+                                            best_matches[metric]["priority"] = p_idx
+                                            data[metric] = cy_val # Keep data[metric] populated for fallback logic
+                                            
+                                            # If a second number exists in comparative column, record as previous year value
+                                            if len(row_nums) > 1:
+                                                prev_key = f"prev_{metric}"
+                                                if prev_key in self.numeric_keywords and data.get(prev_key) is None:
+                                                    py_val = row_nums[1]
+                                                    data[prev_key] = py_val
+                                                    if prev_key in best_matches:
+                                                        best_matches[prev_key]["value"] = py_val
+                                                        best_matches[prev_key]["priority"] = p_idx
+                                                    print(f"    -> Found '{prev_key}' = {py_val} in sheet '{sheet_name}' (from comparative col)")
+                                            break
                                         break
                                         
                             # Check boolean metrics

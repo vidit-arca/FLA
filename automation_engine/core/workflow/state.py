@@ -15,6 +15,9 @@ class WorkflowState(TypedDict):
     extracted_data: Dict[str, Any]
     target_cells: Dict[str, Any]
     comparison_results: List[Dict[str, Any]]
+    comparison_summary: Dict[str, Any]
+    cy_source: Any
+    py_source: Any
     
     # Final Outputs
     output_excel: str

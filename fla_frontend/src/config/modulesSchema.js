@@ -27,12 +27,13 @@ export const MODULES_SCHEMA = {
     description: 'Manage, extract, and review MCA AOC 4 financial statements',
     themeColor: 'emerald',
     uploadRequirements: [
-      { name: 'Financials', type: 'PDF/Excel', mandatory: true },
-      { name: 'Auditor Report', type: 'PDF', mandatory: true },
-      { name: 'Company Input Sheet', type: 'Excel', mandatory: true }
+      { name: 'Financials (Current Year)', type: 'PDF/Excel/MD', mandatory: true },
+      { name: 'Auditor & Board Report', type: 'PDF/MD', mandatory: false },
+      { name: 'Company Input / Validation Sheet', type: 'Excel', mandatory: false },
+      { name: 'Prior Year Financials (Optional for Variance Reconciliation)', type: 'PDF/Excel/MD', mandatory: false }
     ],
     features: {
-      hasPreviousYearComparison: false,
+      hasPreviousYearComparison: true,
       hasCommonErrorCheck: true,
     },
     uiEngine: 'wizard',

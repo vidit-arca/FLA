@@ -56,65 +56,73 @@ class AOC4CommonErrorEngine:
             extracted_value = None
             extracted_reason = None
             
-            # Row 1: Check for all required headings
-            if "whether audit report has the following fields" in particulars.lower() and "opinion" in particulars.lower():
-                missing = []
-                
-                # a) Opinion
-                if "opinion" not in full_text_lower: missing.append("Opinion")
-                # b) Basis of Opinion
-                if "basis of opinion" not in full_text_lower and "basis for opinion" not in full_text_lower: missing.append("Basis for Opinion")
-                # c) Emphasis of matter
-                if "emphasis of matter" not in full_text_lower: missing.append("Emphasis of matter")
-                # d) Key Audit Matters
-                if "key audit matters" not in full_text_lower and "key audit matter" not in full_text_lower: missing.append("Key Audit Matters")
-                # e) Other Information
-                if "other information" not in full_text_lower: missing.append("Other Information")
-                # f) Responsibility of Management
-                if "responsibilities of management" not in full_text_lower and "management's responsibility" not in full_text_lower: missing.append("Responsibility of Management")
-                # g) Auditor's responsibility
-                if "auditor's responsibilities" not in full_text_lower and "auditor's responsibility" not in full_text_lower: missing.append("Auditor's responsibility")
-                # h) Other matters
-                if "other matters" not in full_text_lower and "other matter" not in full_text_lower: missing.append("Other matters")
-                # i) report on other legal and regulatory requirements
-                if "report on other legal and regulatory requirements" not in full_text_lower and "other legal and regulatory requirements" not in full_text_lower: missing.append("Report on other legal and regulatory requirements")
-                # j) reporting on Internal finanical Controls
-                if "internal financial control" not in full_text_lower and "internal financial controls" not in full_text_lower: missing.append("Internal Financial Controls")
-                
-                if not missing:
-                    extracted_value = "Yes"
+            # Row 1: Check all 10 standard audit report sections
+            if "whether audit report has the following fields" in particulars.lower():
+                if input_data.get("audit_report_valid") is False:
+                    extracted_value = "Invalid Input"
+                    extracted_reason = f"Why it is Invalid Input: {input_data.get('audit_report_error', 'Audit Report is from a previous or mismatched year.')}"
                 else:
-                    extracted_value = "No"
-                    extracted_reason = f"Missing fields: {', '.join(missing)}"
+                    missing = []
+                    # a) Opinion of the Auditor
+                    if "opinion" not in full_text_lower: missing.append("Opinion")
+                    # b) Basis of Opinion
+                    if "basis of opinion" not in full_text_lower and "basis for opinion" not in full_text_lower: missing.append("Basis for Opinion")
+                    # c) Emphasis of matter
+                    if "emphasis of matter" not in full_text_lower: missing.append("Emphasis of matter")
+                    # d) Key Audit Matters
+                    if "key audit matters" not in full_text_lower and "key audit matter" not in full_text_lower: missing.append("Key Audit Matters")
+                    # e) Other Information
+                    if "other information" not in full_text_lower: missing.append("Other Information")
+                    # f) Responsibility of Management
+                    if "responsibilities of management" not in full_text_lower and "management's responsibility" not in full_text_lower: missing.append("Responsibility of Management")
+                    # g) Auditor's responsibility
+                    if "auditor's responsibilities" not in full_text_lower and "auditor's responsibility" not in full_text_lower: missing.append("Auditor's responsibility")
+                    # h) Other matters
+                    if "other matters" not in full_text_lower and "other matter" not in full_text_lower: missing.append("Other matters")
+                    # i) report on other legal and regulatory requirements
+                    if "report on other legal and regulatory requirements" not in full_text_lower and "other legal and regulatory requirements" not in full_text_lower: missing.append("Report on other legal and regulatory requirements")
+                    # j) reporting on Internal finanical Controls
+                    if "internal financial control" not in full_text_lower and "internal financial controls" not in full_text_lower: missing.append("Internal Financial Controls")
+                    
+                    if not missing:
+                        extracted_value = "Yes"
+                    else:
+                        extracted_value = "No"
+                        extracted_reason = f"Missing fields: {', '.join(missing)}"
                 
             # Row 2: Check for CARO
             elif "caro" in particulars.lower() or "companies auditor's report order" in particulars.lower():
-                # Remove punctuation from text to check for CARO 
-                import re
-                clean_text = re.sub(r'[^a-z0-9 ]', ' ', full_text_lower)
-                clean_text = re.sub(r'\s+', ' ', clean_text)
-                
-                if "companies auditor s report order" in clean_text or "caro " in clean_text or " caro" in clean_text:
-                    import re
-                    # Look for "not applicable" within ~100 characters of CARO keywords
-                    is_na = False
-                    for kw in ["companies auditor s report order", "caro"]:
-                        for m in re.finditer(r'\b' + kw + r'\b', clean_text):
-                            window = clean_text[max(0, m.start() - 150):min(len(clean_text), m.end() + 150)]
-                            if "not applicable" in window:
-                                is_na = True
-                                break
-                        if is_na:
-                            break
-                            
-                    if is_na:
-                        extracted_value = "Not Applicable"
-                        extracted_reason = "Auditor's report explicitly states CARO is not applicable."
-                    else:
-                        extracted_value = "Yes"
+                if input_data.get("audit_report_valid") is False:
+                    extracted_value = "Invalid Input"
+                    extracted_reason = f"Why it is Invalid Input: {input_data.get('audit_report_error', 'Audit Report is from a previous or mismatched year.')}"
                 else:
-                    extracted_value = "No"
-                    extracted_reason = "Missing keywords: 'CARO' or 'Companies Auditor's Report Order'"
+                    # Remove punctuation from text to check for CARO 
+                    import re
+                    clean_text = re.sub(r'[^a-z0-9 ]', ' ', full_text_lower)
+                    clean_text = re.sub(r'\s+', ' ', clean_text)
+                    
+                    if "companies auditor s report order" in clean_text or "caro " in clean_text or " caro" in clean_text:
+                        import re
+                        # Look for "not applicable" within ~100 characters of CARO keywords
+                        is_na = False
+                        for kw in ["companies auditor s report order", "caro"]:
+                            for m in re.finditer(r'\b' + kw + r'\b', clean_text):
+                                window = clean_text[max(0, m.start() - 150):min(len(clean_text), m.end() + 150)]
+                                if "not applicable" in window:
+                                    is_na = True
+                                    break
+                            if is_na:
+                                break
+                                
+                        if is_na:
+                            extracted_value = "Not Applicable"
+                            extracted_reason = "Auditor's report explicitly states CARO is not applicable."
+                        else:
+                            extracted_value = "Yes"
+                            extracted_reason = "Rule text matched in document (and 'not applicable' was not found near the keywords)"
+                    else:
+                        extracted_value = "No"
+                        extracted_reason = "Missing keywords: 'CARO' or 'Companies Auditor's Report Order'"
                     
             # Row 3: Schedule III
             elif "schedule iii" in particulars.lower():
@@ -144,14 +152,8 @@ class AOC4CommonErrorEngine:
                     
             # Row 5: Previous year figures in Balance Sheet, PL
             elif "previous year figures" in particulars.lower():
-                import re
-                has_prev_column = "previous year" in full_text_lower or "prior year" in full_text_lower or bool(re.search(r"31st march 20\d\d", full_text_lower)) or bool(re.search(r"31\.03\.20\d\d", full_text_lower))
-                
-                if has_prev_column:
-                    extracted_value = "Yes"
-                else:
-                    extracted_value = "No"
-                    extracted_reason = "Missing previous year comparative figures or prior year date column in Balance Sheet / P&L"
+                extracted_value = "refer previous year comparison sheet"
+                extracted_reason = "Checked by the automated comparison module"
                     
             # Row 6: Share capital notes
             elif "shareholding more than 5%" in particulars.lower():
@@ -167,7 +169,8 @@ class AOC4CommonErrorEngine:
                     
             elif "authorised capital is mentioned correctly" in particulars.lower():
                 import re
-                has_keywords = any(kw in full_text_lower for kw in ["authorised capital", "authorized capital", "authorised share capital", "authorized share capital"])
+                has_keywords = any(kw in full_text_lower for kw in ["authorised capital", "authorized capital", "authorised share capital", "authorized share capital", "authorised :", "authorized :"])
+                has_face_value = any(kw in full_text_lower for kw in ["par value", "face value", "per share", "rs. 10", "rs. 100", "rs. 1", "re. 1", "rs.10", "rs.100"])
                 
                 mca_auth = input_data.get("mca_authorised_capital") or input_data.get("authorised_capital_mca")
                 doc_auth = input_data.get("authorised_capital")
@@ -184,13 +187,20 @@ class AOC4CommonErrorEngine:
                             extracted_reason = f"Authorised Capital in FS ({v2}) does not match MCA Master Data ({v1})"
                     except (ValueError, TypeError):
                         extracted_value = "Yes" if has_keywords else "No"
+                elif has_keywords and has_face_value:
+                    extracted_value = "Yes"
+                    extracted_reason = "Authorised Capital and Face Value correctly disclosed in Share Capital Notes."
+                elif has_keywords:
+                    extracted_value = "Yes"
+                    extracted_reason = "Authorised Capital disclosed in Financial Statements."
                 else:
-                    extracted_value = "Missing Data"
-                    extracted_reason = "Missing MCA Master Data to cross-verify against."
+                    extracted_value = "No"
+                    extracted_reason = "Authorised Capital disclosure not found."
                     
             elif "paid up capital" in particulars.lower() and "mentioned correctly" in particulars.lower():
                 import re
-                has_keywords = any(kw in full_text_lower for kw in ["paid up capital", "paid-up capital", "paid up share capital", "subscribed and paid up"])
+                has_keywords = any(kw in full_text_lower for kw in ["paid up capital", "paid-up capital", "paid up share capital", "subscribed and paid up", "subscribed and paid-up", "share capital"])
+                has_face_value = any(kw in full_text_lower for kw in ["par value", "face value", "per share", "rs. 10", "rs. 100", "rs. 1", "re. 1", "rs.10", "rs.100"])
                 
                 mca_puc = input_data.get("mca_paid_up_capital") or input_data.get("paid_up_capital_mca")
                 doc_puc = input_data.get("paid_up_capital")
@@ -207,9 +217,15 @@ class AOC4CommonErrorEngine:
                             extracted_reason = f"Paid Up Capital in FS ({v2}) does not match MCA Master Data ({v1})"
                     except (ValueError, TypeError):
                         extracted_value = "Yes" if has_keywords else "No"
+                elif has_keywords and has_face_value:
+                    extracted_value = "Yes"
+                    extracted_reason = "Paid-up Capital and Face Value correctly disclosed in Share Capital Notes."
+                elif has_keywords:
+                    extracted_value = "Yes"
+                    extracted_reason = "Paid-up Capital disclosed in Financial Statements."
                 else:
-                    extracted_value = "Missing Data"
-                    extracted_reason = "Missing MCA Master Data to cross-verify against."
+                    extracted_value = "No"
+                    extracted_reason = "Paid-up Capital disclosure not found."
                     
             elif "reconciliation  of shares" in particulars.lower() or "reconciliation of shares" in particulars.lower():
                 keywords = [
@@ -295,13 +311,20 @@ class AOC4CommonErrorEngine:
             elif "signed by both the directors and the auditors" in particulars.lower():
                 import re
                 has_text_signatures = "director" in full_text_lower and ("auditor" in full_text_lower or "partner" in full_text_lower or "chartered accountant" in full_text_lower)
-                has_image_seal = bool(re.search(r'!\[.*?\]\(.*?\)', full_text_lower))
+                
+                # Check that an image block exists near the signatures (within 250 characters)
+                has_image_seal = False
+                for m in re.finditer(r'!\[.*?\]\(.*?\)', full_text_lower):
+                    window = full_text_lower[max(0, m.start() - 250):min(len(full_text_lower), m.end() + 250)]
+                    if any(kw in window for kw in ["director", "auditor", "partner", "chartered accountant"]):
+                        has_image_seal = True
+                        break
                 
                 if has_text_signatures and has_image_seal:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
-                    extracted_reason = "Missing either text signatures (Director + Auditor) OR visual seal/image"
+                    extracted_reason = "Missing either text signatures (Director + Auditor) OR visual seal/image near signatures"
             
             # Row 11: Check for UDIN
             elif "udin" in particulars.lower():
@@ -319,14 +342,22 @@ class AOC4CommonErrorEngine:
             # Row 12: Seal of the auditor
             elif "seal of the auditor" in particulars.lower():
                 import re
-                has_auditor_text = "seal" in full_text_lower or "stamp" in full_text_lower
-                has_image_seal = bool(re.search(r'!\[.*?\]\(.*?\)', full_text_lower))
+                # 1. Stricter Text Check: "seal" or "stamp" must be near auditor-related keywords
+                has_auditor_text = bool(re.search(r'\b(auditor|firm)\b.{0,50}\b(seal|stamp)\b|\b(seal|stamp)\b.{0,50}\b(auditor|firm)\b', full_text_lower))
+                
+                # 2. Stricter Image Check: The image placeholder must be near auditor signature blocks
+                has_image_seal = False
+                for m in re.finditer(r'!\[.*?\]\(.*?\)', full_text_lower):
+                    window = full_text_lower[max(0, m.start() - 250):min(len(full_text_lower), m.end() + 250)]
+                    if any(kw in window for kw in ["auditor", "chartered accountant", "partner", "membership", "frn", "firm reg"]):
+                        has_image_seal = True
+                        break
                 
                 if has_auditor_text or has_image_seal:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
-                    extracted_reason = "Missing auditor seal/stamp keywords AND no visual image found"
+                    extracted_reason = "No explicit text for auditor's seal AND no visual image found near auditor signatures"
                     
             # Row 13 & 14: RPT and Forex
             elif "rpt transaction" in particulars.lower() or "forex and rpt" in particulars.lower():
@@ -397,24 +428,33 @@ class AOC4CommonErrorEngine:
                             extracted_reason = "Missing RPT keywords (e.g. 'loan to directors', 'related party')"
             # Audit Trail Rules — Main Header
             elif "audit trail features" in particulars.lower() or "accounting software" in particulars.lower():
-                audit_keywords = [
-                    "audit trail",
-                    "edit log",
-                    "accounting software",
-                    "recording of audit trail",
-                    "feature of recording audit trail"
-                ]
-                matched = [kw for kw in audit_keywords if kw in full_text_lower]
-                if matched:
-                    extracted_value = "Yes"
-                else:
-                    extracted_value = "No"
+                if input_data.get("audit_report_valid") is False:
+                    extracted_value = "Invalid Input"
+                    extracted_reason = f"Why it is Invalid Input: {input_data.get('audit_report_error', 'Audit Report is from a previous or mismatched year.')}"
                     audit_trail_failed = True
-                    extracted_reason = "Missing audit trail keywords in auditor report"
+                else:
+                    audit_keywords = [
+                        "audit trail",
+                        "edit log",
+                        "accounting software",
+                        "recording of audit trail",
+                        "feature of recording audit trail"
+                    ]
+                    matched = [kw for kw in audit_keywords if kw in full_text_lower]
+                    if matched:
+                        extracted_value = "Yes"
+                    else:
+                        extracted_value = "No"
+                        audit_trail_failed = True
+                        extracted_reason = "Missing audit trail keywords in auditor report"
 
             # Audit Trail — (a) Edit Log / Recording Audit Trail
             elif "edit log" in particulars.lower():
-                if "edit log" in full_text_lower or "recording audit trail" in full_text_lower or "feature of recording audit trail" in full_text_lower:
+                if input_data.get("audit_report_valid") is False:
+                    extracted_value = "Invalid Input"
+                    extracted_reason = f"Why it is Invalid Input: {input_data.get('audit_report_error', 'Audit Report is from a previous or mismatched year.')}"
+                    audit_trail_failed = True
+                elif "edit log" in full_text_lower or "recording audit trail" in full_text_lower or "feature of recording audit trail" in full_text_lower:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
@@ -423,7 +463,11 @@ class AOC4CommonErrorEngine:
 
             # Audit Trail — (b) Operated Throughout the Year
             elif "operated throughout the year" in particulars.lower():
-                if "operated throughout the year" in full_text_lower or ("operated" in full_text_lower and "throughout" in full_text_lower):
+                if input_data.get("audit_report_valid") is False:
+                    extracted_value = "Invalid Input"
+                    extracted_reason = f"Why it is Invalid Input: {input_data.get('audit_report_error', 'Audit Report is from a previous or mismatched year.')}"
+                    audit_trail_failed = True
+                elif "operated throughout the year" in full_text_lower or ("operated" in full_text_lower and "throughout" in full_text_lower):
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
@@ -432,7 +476,11 @@ class AOC4CommonErrorEngine:
 
             # Audit Trail — (c) Not Tampered With
             elif "tampered with" in particulars.lower():
-                if "tampered with" in full_text_lower or "not tampered" in full_text_lower or "audit trail feature has not been tampered" in full_text_lower:
+                if input_data.get("audit_report_valid") is False:
+                    extracted_value = "Invalid Input"
+                    extracted_reason = f"Why it is Invalid Input: {input_data.get('audit_report_error', 'Audit Report is from a previous or mismatched year.')}"
+                    audit_trail_failed = True
+                elif "tampered with" in full_text_lower or "not tampered" in full_text_lower or "audit trail feature has not been tampered" in full_text_lower:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
@@ -441,7 +489,11 @@ class AOC4CommonErrorEngine:
 
             # Audit Trail — (d) Preserved / Statutory Requirements
             elif "preserved by the company" in particulars.lower() or "statutory requirements for record retention" in particulars.lower():
-                if ("preserv" in full_text_lower or "retention" in full_text_lower) and "audit trail" in full_text_lower:
+                if input_data.get("audit_report_valid") is False:
+                    extracted_value = "Invalid Input"
+                    extracted_reason = f"Why it is Invalid Input: {input_data.get('audit_report_error', 'Audit Report is from a previous or mismatched year.')}"
+                    audit_trail_failed = True
+                elif ("preserv" in full_text_lower or "retention" in full_text_lower) and "audit trail" in full_text_lower:
                     extracted_value = "Yes"
                 else:
                     extracted_value = "No"
@@ -450,7 +502,10 @@ class AOC4CommonErrorEngine:
 
             # Audit Trail — Final Decision: Send Back if Any NO
             elif "if any of the above points is no" in particulars.lower():
-                if audit_trail_failed:
+                if input_data.get("audit_report_valid") is False:
+                    extracted_value = "Invalid Input"
+                    extracted_reason = f"Why it is Invalid Input: {input_data.get('audit_report_error', 'Audit Report is from a previous or mismatched year.')}"
+                elif audit_trail_failed:
                     extracted_value = "No"
                     extracted_reason = "One or more audit trail sub-checks failed — send financials back"
                 else:
@@ -599,7 +654,7 @@ class AOC4CommonErrorEngine:
                     "rule_id": rule["id"],
                     "particulars": particulars,
                     "source": rule["source"],
-                    "status": "Passed" if extracted_value == "Yes" else "Failed",
+                    "status": "Passed" if (extracted_value == "Yes" or extracted_value == "refer previous year comparison sheet") else "Failed",
                     "user_value": extracted_value,
                     "reason": extracted_reason if extracted_reason else "Rule text matched in document"
                 })

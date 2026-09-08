@@ -12,7 +12,8 @@ const STEPS = [
   { id: 1, title: 'Common Errors' },
   { id: 2, title: 'Compliance Review' },
   { id: 3, title: 'RPT & Loans Review' },
-  { id: 4, title: 'Output Excel Data' }
+  { id: 4, title: 'Previous Year Variance' },
+  { id: 5, title: 'Output Excel Data' }
 ];
 
 export default function AOC4TaskView() {
@@ -28,6 +29,10 @@ export default function AOC4TaskView() {
   const [activeFlagId, setActiveFlagId] = useState(null);
   const [resolvedFlags, setResolvedFlags] = useState({});
   const [showExcelPreview, setShowExcelPreview] = useState(false);
+
+  // PY Comparison state
+  const [pySearchTerm, setPySearchTerm] = useState('');
+  const [pyFilter, setPyFilter] = useState('ALL');
 
   useEffect(() => {
     let interval = null;
@@ -102,6 +107,24 @@ export default function AOC4TaskView() {
   // Get unique sources
   const uniqueSources = [...new Set(allFlags.map(f => f.source))].length;
 
+  // Comparison Results
+  const comparisonResults = task?.extracted_data?.comparison_results || [];
+  const comparisonSummary = task?.extracted_data?.comparison_summary || {
+    total_compared: comparisonResults.length,
+    matched: comparisonResults.filter(r => r.status === 'MATCHED').length,
+    mismatches: comparisonResults.filter(r => r.status !== 'MATCHED').length
+  };
+
+  const filteredComparison = comparisonResults.filter(item => {
+    const matchesSearch = !pySearchTerm || 
+      (item.line_item && item.line_item.toLowerCase().includes(pySearchTerm.toLowerCase())) ||
+      (item.section && item.section.toLowerCase().includes(pySearchTerm.toLowerCase()));
+    
+    if (pyFilter === 'MATCHED') return matchesSearch && item.status === 'MATCHED';
+    if (pyFilter === 'MISMATCH') return matchesSearch && item.status !== 'MATCHED';
+    return matchesSearch;
+  });
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center h-[calc(100vh-5rem)]">
@@ -148,59 +171,45 @@ export default function AOC4TaskView() {
               <div className={`flex flex-col items-center gap-2 relative z-10 ${currentStep === step.id ? 'opacity-100' : 'opacity-50'}`}>
                 <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold border-2 transition-colors
                   ${currentStep > step.id ? 'bg-emerald-500 border-emerald-500 text-slate-900 dark:text-white' : 
-                    currentStep === step.id ? 'bg-indigo-500 border-indigo-500 text-slate-900 dark:text-white shadow-[0_0_15px_rgba(99,102,241,0.3)]' : 
-                    'bg-slate-800 border-slate-300 dark:border-slate-700 text-slate-500'}`}
+                    currentStep === step.id ? 'bg-indigo-600 border-indigo-500 text-white shadow-[0_0_15px_rgba(99,102,241,0.5)]' : 
+                    'bg-slate-800 border-slate-700 text-slate-400'}`}
                 >
                   {currentStep > step.id ? <Check className="w-4 h-4" /> : step.id}
                 </div>
-                <span className={`text-[11px] font-semibold uppercase tracking-wider whitespace-nowrap ${currentStep === step.id ? 'text-indigo-400' : 'text-slate-600 dark:text-slate-400'}`}>
+                <span className="text-[11px] font-bold tracking-wide uppercase text-slate-600 dark:text-slate-300 whitespace-nowrap">
                   {step.title}
                 </span>
               </div>
+
               {idx < STEPS.length - 1 && (
-                <div className="flex-1 h-[1px] mx-4 bg-slate-800 relative top-[-10px]">
-                  <div 
-                    className="absolute top-0 left-0 h-full bg-indigo-500 transition-all duration-500"
-                    style={{ width: currentStep > step.id ? '100%' : '0%' }}
-                  />
-                </div>
+                <div className={`flex-1 h-0.5 mx-2 -mt-5 transition-colors ${currentStep > step.id ? 'bg-emerald-500' : 'bg-slate-700'}`} />
               )}
             </React.Fragment>
           ))}
         </div>
         
-        {/* Step Navigation Controls */}
-        <div className="flex items-center justify-between mt-2 pt-4 border-t border-slate-300 dark:border-slate-700/50">
-           <button 
-             onClick={() => {
-                const prev = Math.max(1, currentStep - 1);
-                setCurrentStep(prev);
-                const prevFailed = getFlagsForStep(failedFlags, prev);
-                if (prevFailed.length > 0) setActiveFlagId(prevFailed[0].rule_id);
-             }}
-             disabled={currentStep === 1}
-             className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-colors ${currentStep === 1 ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-500' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700'}`}
-           >
-             Previous Step
-           </button>
-           {currentStep < 4 ? (
+        {/* Navigation Buttons */}
+        <div className="flex items-center justify-between border-t border-slate-300 dark:border-slate-700/50 pt-3">
+            <button 
+              onClick={() => setCurrentStep(prev => Math.max(1, prev - 1))}
+              disabled={currentStep === 1}
+              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-colors ${currentStep === 1 ? 'opacity-30 cursor-not-allowed text-slate-500' : 'text-slate-700 dark:text-slate-300 hover:bg-slate-800 hover:text-white'}`}
+            >
+              Previous Step
+            </button>
+            
+            {currentStep < 5 ? (
               <button 
-                onClick={() => {
-                   const next = currentStep + 1;
-                   setCurrentStep(next);
-                   const nextFailed = getFlagsForStep(failedFlags, next);
-                   if (nextFailed.length > 0) setActiveFlagId(nextFailed[0].rule_id);
-                }}
-                className="px-4 py-1.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2 bg-indigo-500 text-white hover:bg-indigo-600 shadow-lg shadow-indigo-500/20"
+                onClick={() => setCurrentStep(prev => Math.min(5, prev + 1))}
+                className="px-4 py-1.5 rounded-lg text-xs font-bold bg-indigo-500 hover:bg-indigo-600 text-white shadow-lg shadow-indigo-500/20 transition-colors flex items-center gap-1.5"
               >
-                {currentStep === 1 ? 'Next Step: Compliance Review' : currentStep === 2 ? 'Next Step: RPT & Loans Review' : 'Next Step: Final Excel Output'}
-                <ArrowRight className="w-4 h-4" />
+                Next Step <ChevronRight className="w-3.5 h-3.5" />
               </button>
             ) : (
               <button 
                 onClick={() => window.open(`http://localhost:8000/api/download/${taskId}`, '_blank')}
                 disabled={progress < 100}
-                className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-colors flex items-center gap-2 ${progress < 100 ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-500' : 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-500/20'}`}
+                className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-colors flex items-center gap-2 ${progress < 100 ? 'opacity-50 cursor-not-allowed bg-slate-200 dark:bg-slate-800 text-slate-500' : 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-500/20'}`}
               >
                 {progress < 100 ? 'Resolve all flags to download' : 'Download Final Excel'}
                 <Download className="w-4 h-4" />
@@ -210,9 +219,120 @@ export default function AOC4TaskView() {
         
       </div>
 
-      {currentStep === 4 ? (
+      {currentStep === 5 ? (
         <div className="flex-1 min-h-0 bg-white dark:bg-[#131B2C] border border-slate-300 dark:border-slate-700/50 rounded-xl shadow-lg overflow-hidden">
           <ExcelViewer taskId={taskId} />
+        </div>
+      ) : currentStep === 4 ? (
+        /* Step 4: Previous Year Variance View */
+        <div className="flex-1 min-h-0 flex flex-col bg-white dark:bg-[#131B2C] border border-slate-300 dark:border-slate-700/50 rounded-xl shadow-lg overflow-hidden">
+          {/* Header & Controls */}
+          <div className="p-4 border-b border-slate-300 dark:border-slate-700/50 flex items-center justify-between bg-white dark:bg-[#1A2235]">
+            <div className="flex items-center gap-3">
+              <span className="px-3 py-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 rounded-lg text-xs font-bold">
+                Total Compared: {comparisonSummary.total_compared || 0}
+              </span>
+              <span className="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg text-xs font-bold">
+                Matched: {comparisonSummary.matched || 0}
+              </span>
+              <span className="px-3 py-1 bg-rose-500/10 text-rose-400 border border-rose-500/20 rounded-lg text-xs font-bold">
+                Mismatches: {comparisonSummary.mismatches || 0}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              {/* Filter Toggles */}
+              <div className="flex bg-slate-100 dark:bg-[#0F1523] p-0.5 rounded-lg border border-slate-300 dark:border-slate-700 text-xs font-medium">
+                <button 
+                  onClick={() => setPyFilter('ALL')}
+                  className={`px-3 py-1 rounded-md transition-colors ${pyFilter === 'ALL' ? 'bg-indigo-500 text-white font-bold' : 'text-slate-600 dark:text-slate-400'}`}
+                >
+                  All ({comparisonResults.length})
+                </button>
+                <button 
+                  onClick={() => setPyFilter('MATCHED')}
+                  className={`px-3 py-1 rounded-md transition-colors ${pyFilter === 'MATCHED' ? 'bg-emerald-500 text-white font-bold' : 'text-slate-600 dark:text-slate-400'}`}
+                >
+                  Matched ({comparisonSummary.matched || 0})
+                </button>
+                <button 
+                  onClick={() => setPyFilter('MISMATCH')}
+                  className={`px-3 py-1 rounded-md transition-colors ${pyFilter === 'MISMATCH' ? 'bg-rose-500 text-white font-bold' : 'text-slate-600 dark:text-slate-400'}`}
+                >
+                  Mismatches ({comparisonSummary.mismatches || 0})
+                </button>
+              </div>
+
+              {/* Search Bar */}
+              <input 
+                type="text"
+                value={pySearchTerm}
+                onChange={(e) => setPySearchTerm(e.target.value)}
+                placeholder="Search line items or sections..."
+                className="bg-white dark:bg-[#0F1523] border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white rounded-lg px-3 py-1 text-xs w-56 focus:outline-none focus:border-indigo-500"
+              />
+
+              {/* Download Button */}
+              <button 
+                onClick={() => window.open(`http://localhost:8000/api/download_comparison/${taskId}`, '_blank')}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold text-white bg-indigo-500 hover:bg-indigo-600 shadow-md shadow-indigo-500/20 transition-all"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Download Comparison (.xlsx)
+              </button>
+            </div>
+          </div>
+
+          {/* Variance Table */}
+          <div className="flex-1 overflow-auto bg-slate-100 dark:bg-[#0F1523] hide-scrollbar">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-white dark:bg-[#1A2235] sticky top-0 z-10 shadow-md">
+                <tr>
+                  <th className="py-3 px-4 text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-widest border-b border-slate-300 dark:border-slate-700/50">S.No</th>
+                  <th className="py-3 px-4 text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-widest border-b border-slate-300 dark:border-slate-700/50">Financial Section</th>
+                  <th className="py-3 px-4 text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-widest border-b border-slate-300 dark:border-slate-700/50">Line Item</th>
+                  <th className="py-3 px-4 text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-widest border-b border-slate-300 dark:border-slate-700/50 text-right">CY Comparative Value</th>
+                  <th className="py-3 px-4 text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-widest border-b border-slate-300 dark:border-slate-700/50 text-right">Last Year Filed Value</th>
+                  <th className="py-3 px-4 text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-widest border-b border-slate-300 dark:border-slate-700/50 text-right">Variance</th>
+                  <th className="py-3 px-4 text-[10px] font-bold text-slate-600 dark:text-slate-400 uppercase tracking-widest border-b border-slate-300 dark:border-slate-700/50 text-center">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-300 dark:divide-slate-800/50">
+                {filteredComparison.length > 0 ? (
+                  filteredComparison.map((item, idx) => {
+                    const isMatched = item.status === 'MATCHED';
+                    return (
+                      <tr key={idx} className="hover:bg-slate-200/50 dark:hover:bg-slate-800/30 transition-colors">
+                        <td className="py-2.5 px-4 text-xs text-slate-500 font-medium">{idx + 1}</td>
+                        <td className="py-2.5 px-4 text-xs text-slate-600 dark:text-slate-400 font-medium">{item.section}</td>
+                        <td className="py-2.5 px-4 text-xs text-slate-900 dark:text-slate-200 font-semibold">{item.line_item}</td>
+                        <td className="py-2.5 px-4 text-xs text-slate-700 dark:text-slate-300 text-right font-mono">
+                          {typeof item.cy_reported_py === 'number' ? item.cy_reported_py.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : item.cy_reported_py}
+                        </td>
+                        <td className="py-2.5 px-4 text-xs text-slate-700 dark:text-slate-300 text-right font-mono">
+                          {typeof item.last_year_filed === 'number' ? item.last_year_filed.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : item.last_year_filed}
+                        </td>
+                        <td className={`py-2.5 px-4 text-xs text-right font-mono font-bold ${item.variance !== 0 ? 'text-rose-400' : 'text-slate-400'}`}>
+                          {typeof item.variance === 'number' ? item.variance.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : item.variance}
+                        </td>
+                        <td className="py-2.5 px-4 text-center">
+                          <span className={`inline-flex px-2.5 py-0.5 rounded text-[10px] font-bold ${isMatched ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}`}>
+                            {item.status}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                ) : (
+                  <tr>
+                    <td colSpan={7} className="py-8 text-center text-xs text-slate-500">
+                      No matching comparison items found.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : (
       /* Main 3-Column Layout */

@@ -200,6 +200,16 @@ class PrivateComplianceEngine:
             flags.append({"id": "COMP_LOAN_186", "particulars": "Loan Investment Guarantee - 186", "status": "Passed", "user_value": "Not Applicable", "rationale": "No relevant loans, investments, or guarantees detected.", "source": "Compliance Engine"})
 
         # 15. Loan to Director or Related entities
+        has_loan_from = bool(re.search(r"loan.*?from.*?(director|directors|related part)", str(input_data.get("full_text", "")).lower())) or \
+                        bool(re.search(r"borrowings.*?from.*?(director|directors)", str(input_data.get("full_text", "")).lower()))
+        
+        has_explicit_loan_to = bool(re.search(r"loan.*?to.*?(director|directors|mr\.|mrs\.|ms\.)", str(input_data.get("full_text", "")).lower())) or \
+                               bool(re.search(r"loans and advances.*?to.*?(director|directors)", str(input_data.get("full_text", "")).lower()))
+                               
+        if loan_to_directors_assets > 0 and has_loan_from and not has_explicit_loan_to:
+            # LLM hallucinated Liability as Asset. Reset to 0.
+            loan_to_directors_assets = 0.0
+
         if loan_to_directors_assets > 0:
             flags.append({"id": "COMP_LOAN_DIRECTOR", "particulars": "Loan to Director or Related entities", "status": "Failed", "user_value": "Applicable", "rationale": f"Loan to Directors/Related Entities (Assets) = {loan_to_directors_assets:,.2f} > 0.", "source": "Compliance Engine"})
         else:

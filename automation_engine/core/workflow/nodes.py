@@ -204,6 +204,113 @@ def node_extract(state: WorkflowState) -> WorkflowState:
     state["extracted_data"] = extracted_data
     state["target_cells"] = target_cells
     
+    # Content-based year detection for multi-document AOC-4 runs
+    if state.get("module_type", "fla") == "aoc4":
+        import re
+        all_mds = []
+        for k, v in state.get("ocr_outputs", {}).items():
+            if isinstance(v, dict) and "md" in v and os.path.exists(v["md"]):
+                with open(v["md"], "r", encoding="utf-8", errors="ignore") as mf:
+                    all_mds.append((os.path.abspath(v["md"]), mf.read()))
+        
+        # Also check raw input files (e.g. directly uploaded .md or .xlsx)
+        docs = state.get("financial_docs", {})
+        for k, p in docs.items():
+            if isinstance(p, str) and os.path.exists(p):
+                abs_p = os.path.abspath(p)
+                if p.endswith(".md"):
+                    with open(abs_p, "r", encoding="utf-8", errors="ignore") as mf:
+                        all_mds.append((abs_p, mf.read()))
+                elif p.endswith(".xlsx") or p.endswith(".xls"):
+                    all_mds.append((abs_p, abs_p)) # Absolute Excel path directly
+        
+        # Also check if any other files in input_dir were uploaded
+        input_dir = state.get("input_dir", "")
+        if os.path.exists(input_dir):
+            for f in os.listdir(input_dir):
+                full_f = os.path.abspath(os.path.join(input_dir, f))
+                if full_f.endswith(('.xlsx', '.xls')) and not any(m[0] == full_f for m in all_mds):
+                    all_mds.append((full_f, full_f))
+                elif full_f.endswith('.md') and not any(m[0] == full_f for m in all_mds):
+                    with open(full_f, "r", encoding="utf-8", errors="ignore") as mf:
+                        all_mds.append((full_f, mf.read()))
+
+        excel_sources = [m[1] for m in all_mds if m[1].endswith(('.xlsx', '.xls'))]
+        text_sources = [m[1] for m in all_mds if not m[1].endswith(('.xlsx', '.xls'))]
+
+        # Filter only Excel files that actually contain Financial Statement sheets
+        fin_excels = []
+        for p in excel_sources:
+            try:
+                import openpyxl
+                wb_test = openpyxl.load_workbook(p, read_only=True)
+                names_l = [s.lower() for s in wb_test.sheetnames]
+                wb_test.close()
+                if any(kw in s for s in names_l for kw in ["balance sheet", "profit and loss", "p&l", "statement of profit", "financials"]):
+                    fin_excels.append(p)
+            except Exception:
+                pass
+
+        # Identify text documents that contain actual Balance Sheet & P&L tables
+        primary_fs_candidates = []
+        for t in text_sources:
+            t_low = t.lower()
+            has_bs = "|" in t and any(kw in t_low for kw in ["share capital", "total equity", "total liabilities", "balance sheet as at", "balance sheet"])
+            has_pl = "|" in t and any(kw in t_low for kw in ["revenue from operations", "total income", "total expenses", "profit before tax", "profit and loss"])
+            if has_bs and has_pl:
+                # Target actual financial year ending dates (e.g. 31st March 2026, March 31, 2025)
+                fy_matches = re.findall(r'(?:31(?:st)?\s*(?:march|mar)|march\s*31(?:st)?)[,\s]*(202\d)', t, re.IGNORECASE)
+                if fy_matches:
+                    max_yr = max(int(y) for y in fy_matches)
+                else:
+                    hdr_matches = re.findall(r'(?:as at|ended|for the year).*?(202\d)', t, re.IGNORECASE)
+                    max_yr = max(int(y) for y in hdr_matches) if hdr_matches else 2025
+                tbl_count = t.count('\n|')
+                primary_fs_candidates.append((max_yr, tbl_count, t))
+
+        # For each distinct reporting year, pick the most comprehensive document (highest table count)
+        year_best = {}
+        for yr, tbl_count, t in primary_fs_candidates:
+            if yr not in year_best or tbl_count > year_best[yr][0]:
+                year_best[yr] = (tbl_count, t)
+        sorted_years = sorted(year_best.keys(), reverse=True)
+
+        if len(fin_excels) >= 2:
+            cy_cand = [f for f in fin_excels if any(k in f.lower() for k in ['25-26', '2026', 'cy', 'current'])]
+            py_cand = [f for f in fin_excels if any(k in f.lower() for k in ['24-25', '2025', 'py', 'previous'])]
+            state["cy_source"] = cy_cand[0] if cy_cand else fin_excels[0]
+            state["py_source"] = py_cand[0] if py_cand else fin_excels[1]
+            msg_py = f"  [+] Multi-Excel detected: CY ({os.path.basename(state['cy_source'])}) vs PY ({os.path.basename(state['py_source'])})."
+            print(msg_py)
+            state["logs"].append(msg_py)
+        elif fin_excels and (primary_fs_candidates or text_sources):
+            state["cy_source"] = fin_excels[0]
+            state["py_source"] = year_best[sorted_years[0]][1] if sorted_years else (primary_fs_candidates[0][2] if primary_fs_candidates else "\n\n".join(text_sources))
+            msg_py = f"  [+] Multi-doc detected: Cross-reconciling Financial Excel against OCR Financial Statements."
+            print(msg_py)
+            state["logs"].append(msg_py)
+        elif len(sorted_years) >= 2:
+            # True multi-year cross reconciliation (CY FY vs PY FY)
+            state["cy_source"] = year_best[sorted_years[0]][1]
+            state["py_source"] = year_best[sorted_years[1]][1]
+            msg_py = f"  [+] Multi-year detected: CY (FY {sorted_years[0]}) vs PY (FY {sorted_years[1]}) assigned based on content."
+            print(msg_py)
+            state["logs"].append(msg_py)
+        elif len(primary_fs_candidates) >= 1:
+            chosen_fs = year_best[sorted_years[0]][1] if sorted_years else primary_fs_candidates[0][2]
+            state["cy_source"] = chosen_fs
+            state["py_source"] = chosen_fs
+        elif len(text_sources) > 1:
+            merged_text = "\n\n".join(text_sources)
+            state["cy_source"] = merged_text
+            state["py_source"] = merged_text
+        elif text_sources:
+            state["cy_source"] = text_sources[0]
+            state["py_source"] = text_sources[0]
+        elif fin_excels:
+            state["cy_source"] = fin_excels[0]
+            state["py_source"] = fin_excels[0]
+    
     return state
 
 def node_output(state: WorkflowState) -> WorkflowState:
@@ -235,6 +342,9 @@ def node_output(state: WorkflowState) -> WorkflowState:
     return state
 
 def check_comparison(state: WorkflowState) -> str:
+    # Always run comparison for AOC4 (since it can perform both cross-doc and same-doc verification)
+    if state.get("module_type", "fla") == "aoc4":
+        return "compare"
     if state.get("previous_fla_file"):
         return "compare"
     return "end"
@@ -244,28 +354,80 @@ def node_compare(state: WorkflowState) -> WorkflowState:
     print(msg)
     state["logs"].append(msg)
     
-    try:
-        from automation_engine.modules.fla.comparison_platform.manager import ComparisonPlatformManager
-        manager = ComparisonPlatformManager()
-        # The Comparison platform takes source (previous year) and target (newly generated)
-        results = manager.run_comparison(state.get("module_type", "fla"), state["previous_fla_file"], state["output_excel"])
-        state["comparison_results"] = results
-        
-        mismatches = sum(1 for r in results if "Mismatch" in r.get("reason", ""))
-        missing = sum(1 for r in results if "Missing" in r.get("reason", ""))
-        
-        if mismatches > 0 or missing > 0:
-            warn_msg = f"  [!] COMPARISON FLAGGED: {mismatches} Mismatches and {missing} Missing items found! Manual review required."
-            print(warn_msg)
-            state["logs"].append(warn_msg)
-        else:
-            success_msg = f"  [+] Comparison completed successfully. All {len(results)} rules validated perfectly."
-            print(success_msg)
-            state["logs"].append(success_msg)
-    except Exception as e:
-        error_msg = f"[!] Comparison Failed: {str(e)}"
-        print(error_msg)
-        state["logs"].append(error_msg)
-        state["comparison_results"] = []
+    mod_type = state.get("module_type", "fla")
+    
+    if mod_type == "aoc4":
+        try:
+            from automation_engine.modules.aoc4.py_variance_checker import AOC4PreviousYearReconciler
+            reconciler = AOC4PreviousYearReconciler()
+            
+            docs = state.get("financial_docs", {})
+            cy_src = state.get("cy_source")
+            py_src = state.get("py_source")
+            
+            if not cy_src or not py_src:
+                fin_files = [v for k, v in docs.items() if (k.startswith("financials") or k == "financial_excel" or k.startswith("fallback_md")) and isinstance(v, str) and os.path.exists(v)]
+                cy_candidates = [f for f in fin_files if any(k in f.lower() for k in ['25-26', '2026', 'cy', 'current'])]
+                py_candidates = [f for f in fin_files if any(k in f.lower() for k in ['24-25', '2025', 'py', 'previous'])]
+                
+                if cy_candidates and not cy_src:
+                    cy_src = cy_candidates[0]
+                if py_candidates and not py_src:
+                    py_src = py_candidates[0]
+                    
+                if not cy_src:
+                    cy_src = docs.get("financials") or (fin_files[0] if fin_files else "")
+                if not py_src:
+                    py_src = cy_src
+            
+            print(f"  -> Reconciling CY ({os.path.basename(str(cy_src))}) vs PY ({os.path.basename(str(py_src))})")
+            report = reconciler.reconcile(cy_src, py_src)
+            state["comparison_results"] = report.get("reconciliation_items", [])
+            state["comparison_summary"] = report.get("summary", {})
+            
+            # Save standalone Comparison Report
+            safe_company_name = "".join(c if c.isalnum() or c in " .-_" else "_" for c in state["company_name"])
+            output_dir = os.path.join(BASE_OUTPUT_DIR, safe_company_name)
+            compare_path = os.path.join(output_dir, f"{safe_company_name}_Comparison_Report.xlsx")
+            reconciler.export_to_excel(report, compare_path)
+            
+            # Also append the Previous Year Comparison sheet directly into the main Populated Excel!
+            if state.get("output_excel") and os.path.exists(state["output_excel"]):
+                reconciler.append_to_existing_workbook(report, state["output_excel"])
+                
+            summary = report.get("summary", {})
+            reconcile_msg = f"  [+] AOC4 Comparison Complete: {summary.get('total_compared', 0)} line items compared ({summary.get('matched', 0)} Matched, {summary.get('mismatches', 0)} Mismatches). Appended to output Excel."
+            print(reconcile_msg)
+            state["logs"].append(reconcile_msg)
+            
+        except Exception as e:
+            error_msg = f"[!] AOC4 Comparison Failed: {str(e)}"
+            print(error_msg)
+            state["logs"].append(error_msg)
+            state["comparison_results"] = []
+    else:
+        try:
+            from automation_engine.modules.fla.comparison_platform.manager import ComparisonPlatformManager
+            manager = ComparisonPlatformManager()
+            # The Comparison platform takes source (previous year) and target (newly generated)
+            results = manager.run_comparison(state.get("module_type", "fla"), state["previous_fla_file"], state["output_excel"])
+            state["comparison_results"] = results
+            
+            mismatches = sum(1 for r in results if "Mismatch" in r.get("reason", ""))
+            missing = sum(1 for r in results if "Missing" in r.get("reason", ""))
+            
+            if mismatches > 0 or missing > 0:
+                warn_msg = f"  [!] COMPARISON FLAGGED: {mismatches} Mismatches and {missing} Missing items found! Manual review required."
+                print(warn_msg)
+                state["logs"].append(warn_msg)
+            else:
+                success_msg = f"  [+] Comparison completed successfully. All {len(results)} rules validated perfectly."
+                print(success_msg)
+                state["logs"].append(success_msg)
+        except Exception as e:
+            error_msg = f"[!] Comparison Failed: {str(e)}"
+            print(error_msg)
+            state["logs"].append(error_msg)
+            state["comparison_results"] = []
         
     return state

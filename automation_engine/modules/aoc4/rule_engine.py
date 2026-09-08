@@ -41,9 +41,26 @@ class AOC4RuleEngine:
         docs = extracted_data.get("docs", {})
         financial_data = self.excel_extractor.extract_from_docs(docs)
 
+        # ── PURE COMPUTATION OF NET WORTH (CY & PY) ──
+        # Net Worth must be computed purely as Paid-up Capital + Reserves & Surplus.
+        # It must NEVER use text fallback or regex keyword hunting.
+        puc = financial_data.get("paid_up_capital") if financial_data.get("paid_up_capital") is not None else extracted_data.get("paid_up_capital")
+        reserves = financial_data.get("reserves_and_surplus") if financial_data.get("reserves_and_surplus") is not None else extracted_data.get("reserves_and_surplus")
+        if puc is not None or reserves is not None:
+            financial_data["net_worth"] = (float(puc) if puc is not None else 0.0) + (float(reserves) if reserves is not None else 0.0)
+            extracted_data["net_worth"] = financial_data["net_worth"]
+            print(f"[*] AOC 4 Rule Engine: Computed Pure Net Worth (CY) = {financial_data['net_worth']}")
+
+        prev_puc = financial_data.get("prev_paid_up_capital") if financial_data.get("prev_paid_up_capital") is not None else extracted_data.get("prev_paid_up_capital")
+        prev_reserves = financial_data.get("prev_reserves_and_surplus") if financial_data.get("prev_reserves_and_surplus") is not None else extracted_data.get("prev_reserves_and_surplus")
+        if prev_puc is not None or prev_reserves is not None:
+            financial_data["prev_net_worth"] = (float(prev_puc) if prev_puc is not None else 0.0) + (float(prev_reserves) if prev_reserves is not None else 0.0)
+            extracted_data["prev_net_worth"] = financial_data["prev_net_worth"]
+            print(f"[*] AOC 4 Rule Engine: Computed Pure Net Worth (PY) = {financial_data['prev_net_worth']}")
+
         # ── FIX 2: Always run text fallback, not just when excel partially succeeds ──
-        # Identify ALL missing numeric keys (will be all of them if no Excel was found)
-        expected_keys = list(self.excel_extractor.numeric_keywords.keys())
+        # Identify missing numeric keys (Net Worth is purely computed above, exclude it from fallback)
+        expected_keys = [k for k in self.excel_extractor.numeric_keywords.keys() if k not in ["net_worth", "prev_net_worth"]]
         missing_keys = [k for k in expected_keys if financial_data.get(k) is None]
         print(f"[*] AOC 4 Rule Engine: {len(missing_keys)}/{len(expected_keys)} numeric fields missing after Excel extraction.")
 
@@ -51,11 +68,21 @@ class AOC4RuleEngine:
             from automation_engine.modules.aoc4.parser import AOC4Parser
             temp_parser = AOC4Parser(self.config_path)
 
+            # ── Extract MCA Masterdata fields (Authorised/Paid-up Capital) ──
+            mca_fields = temp_parser._extract_mca_masterdata(full_text)
+            for k, v in mca_fields.items():
+                if v is not None:
+                    extracted_data[k] = v
+
             # Always run text fallback for missing fields
             if missing_keys:
                 fallback_data = temp_parser.extract_financials_from_text(full_text, missing_keys)
 
                 scale = self.excel_extractor.detect_financials_scale(full_text)
+                # If Excel or extracted numbers are already in raw Rupees (>= 1,00,000), do NOT apply scale multiplier
+                if any(isinstance(v, (int, float)) and v >= 100000 for v in financial_data.values()):
+                    scale = 1.0
+
                 if scale != 1.0:
                     print(f"[*] AOC 4 Parser: Applying unit scale multiplier {scale} to text fallback data")
                     for k in fallback_data.keys():
@@ -69,6 +96,18 @@ class AOC4RuleEngine:
                         financial_data[k] = v
         else:
             print("[!] AOC 4 Rule Engine: No full_text available — text fallback skipped. Check if documents were parsed correctly.")
+
+        # Re-verify pure Net Worth calculation after any fallback on Paid-up Capital or Reserves
+        puc = financial_data.get("paid_up_capital") if financial_data.get("paid_up_capital") is not None else extracted_data.get("paid_up_capital")
+        reserves = financial_data.get("reserves_and_surplus") if financial_data.get("reserves_and_surplus") is not None else extracted_data.get("reserves_and_surplus")
+        if puc is not None or reserves is not None:
+            financial_data["net_worth"] = (float(puc) if puc is not None else 0.0) + (float(reserves) if reserves is not None else 0.0)
+
+        prev_puc = financial_data.get("prev_paid_up_capital") if financial_data.get("prev_paid_up_capital") is not None else extracted_data.get("prev_paid_up_capital")
+        prev_reserves = financial_data.get("prev_reserves_and_surplus") if financial_data.get("prev_reserves_and_surplus") is not None else extracted_data.get("prev_reserves_and_surplus")
+        if prev_puc is not None or prev_reserves is not None:
+            financial_data["prev_net_worth"] = (float(prev_puc) if prev_puc is not None else 0.0) + (float(prev_reserves) if prev_reserves is not None else 0.0)
+
 
         # Fallback for Schedule III format detection from Markdown text
         if financial_data.get("has_schedule_iii_format") is None and full_text:
@@ -86,10 +125,9 @@ class AOC4RuleEngine:
         # Always carry full_text forward so compliance/RPT engines can scan it
         financial_data["full_text"] = full_text
 
-        # Merge extracted financial data back into extracted_data
+        # ── FIX: Force overwrite LLM hallucinations with Rule Engine deterministic extraction ──
         for k, v in financial_data.items():
-            if k not in extracted_data or extracted_data[k] is None:
-                extracted_data[k] = v
+            extracted_data[k] = v
 
         # Diagnostic log — helps debug 0-checks in production
         populated = [k for k in expected_keys if extracted_data.get(k) not in (None, 0, 0.0)]
@@ -242,10 +280,14 @@ class AOC4RuleEngine:
                                 val = "Not a Subsidiary company"
                             else:
                                 val = "No"
+                        if isinstance(val, (int, float)) and cy_key in ["loan_from_directors", "secured_loan", "borrowings", "dues_to_msme", "advance_from_customers"]:
+                            val = abs(val)
                         target_cells[priv_sheet_name][f"{cy_col}{matched_row}"] = val
                     
                     if py_key and extracted_data.get(py_key) is not None:
                         val_py = extracted_data[py_key]
+                        if isinstance(val_py, (int, float)) and py_key in ["prev_loan_from_directors", "prev_secured_loan", "prev_borrowings"]:
+                            val_py = abs(val_py)
                         target_cells[priv_sheet_name][f"{py_col}{matched_row}"] = val_py
                         
             # Map compliance flags by normalized particular string, or explicit rule ID fallback
@@ -346,13 +388,31 @@ class AOC4RuleEngine:
                         norm = self._normalize_string(val)
                         row_map_rpt[norm] = row
             
+            id_to_row_rpt = {
+                "COMP_SEC_185_BASE": 26,
+                "COMP_SEC_185_FIRM": 27,
+                "COMP_SEC_185_EXC1": 29,
+                "COMP_SEC_185_EXC2": 30,
+                "COMP_SEC_185_EXC3": 31,
+                "COMP_SEC_185_NON_COMPLIANCE": 32,
+                "COMP_SEC_185_INTERESTED_BASE": 33,
+                "COMP_SEC_185_INTERESTED_PVT": 34,
+                "COMP_SEC_185_INTERESTED_BODY_CORP": 35,
+                "COMP_SEC_185_INTERESTED_BOARD": 36,
+                "COMP_SEC_185_INTERESTED_SR": 38,
+                "COMP_SEC_185_INTERESTED_UTIL": 39
+            }
+
             for flag in rpt_flags:
+                flag_id = flag.get("id", "")
                 norm_flag = self._normalize_string(flag["particulars"])
                 matched_row = row_map_rpt.get(norm_flag)
+                if not matched_row:
+                    matched_row = id_to_row_rpt.get(flag_id)
+                
                 if matched_row:
                     # For RPT Section 188 transactions (Rows 11-20):
                     # Write 'actual_value' to Col F and 'user_value' (Materiality Yes/No) to Col G
-                    flag_id = flag.get("id", "")
                     if flag_id.startswith("COMP_SEC_188_"):
                         if flag.get("actual_value") is not None and str(flag.get("actual_value")) != "0.0":
                             target_cells["RPT and loans to Director"][f"F{matched_row}"] = flag.get("actual_value")

@@ -73,22 +73,36 @@ class DocumentIngestion:
 
         # Prioritize MD file if provided by user directly
         if financial_mds:
-            for idx, md_path in enumerate(financial_mds):
+            cy_mds = [p for p in financial_mds if not any(k in os.path.basename(p).lower() for k in ["previous", "prior", "last_year", "last year", "old"])]
+            py_mds = [p for p in financial_mds if any(k in os.path.basename(p).lower() for k in ["previous", "prior", "last_year", "last year", "old"])]
+            
+            # Primary Current Year Financials -> File WITHOUT 'previous'
+            docs["financials"] = cy_mds[0] if cy_mds else financial_mds[0]
+            if py_mds:
+                docs["previous_financials"] = py_mds[0]
+                
+            ordered_mds = cy_mds + py_mds
+            for idx, md_path in enumerate(ordered_mds):
                 docs[f"financials_{idx}"] = md_path
-            docs["financials"] = financial_mds[0]
         elif financial_pdfs:
-            if len(financial_pdfs) == 1:
-                docs["financials"] = financial_pdfs[0]
+            cy_pdfs = [p for p in financial_pdfs if not any(k in os.path.basename(p).lower() for k in ["previous", "prior", "last_year", "last year", "old"])]
+            py_pdfs = [p for p in financial_pdfs if any(k in os.path.basename(p).lower() for k in ["previous", "prior", "last_year", "last year", "old"])]
+            
+            target_pdfs = cy_pdfs if cy_pdfs else financial_pdfs
+            if len(target_pdfs) == 1:
+                docs["financials"] = target_pdfs[0]
             else:
-                print(f"    [*] Merging {len(financial_pdfs)} financial PDFs...")
+                print(f"    [*] Merging {len(target_pdfs)} financial PDFs...")
                 merged_path = os.path.join(self.signed_dir, "merged_financials_combined.pdf")
                 merger = pypdf.PdfWriter()
-                for pdf_path in sorted(financial_pdfs):
+                for pdf_path in sorted(target_pdfs):
                     merger.append(pdf_path)
                 with open(merged_path, "wb") as out:
                     merger.write(out)
                 docs["financials"] = merged_path
-                    
+            
+            if py_pdfs:
+                docs["previous_financials"] = py_pdfs[0]
 
         # Fallbacks for missing basic PDFs
         pdfs = [f for f in os.listdir(self.signed_dir) if f.endswith('.pdf')]
@@ -102,9 +116,13 @@ class DocumentIngestion:
         md_files = [f for f in all_files if f.endswith('.md')]
         excel_files = [f for f in all_files if f.endswith('.xlsx') or f.endswith('.xls')]
         
-        # If financials is still totally empty, assign the first found md or excel
+        # If financials is still totally empty, assign the first found non-previous md or excel
         if "financials" not in docs:
-            if md_files: docs["financials"] = os.path.join(self.signed_dir, md_files[0])
+            cy_md = [os.path.join(self.signed_dir, f) for f in md_files if "previous" not in f.lower() and "master" not in f.lower()]
+            cy_xl = [os.path.join(self.signed_dir, f) for f in excel_files if "previous" not in f.lower() and "master" not in f.lower()]
+            if cy_md: docs["financials"] = cy_md[0]
+            elif cy_xl: docs["financials"] = cy_xl[0]
+            elif md_files: docs["financials"] = os.path.join(self.signed_dir, md_files[0])
             elif excel_files: docs["financials"] = os.path.join(self.signed_dir, excel_files[0])
             
         # Just safely append ALL .md and .xlsx files to docs so they are definitely processed

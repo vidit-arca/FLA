@@ -41,11 +41,36 @@ To execute the rules engine, the system requires the following data points for t
 
 ### B. CARO Applicability
 **Rule:** Determines if the CARO reporting framework applies. OPCs and Small Companies are automatically exempt.
-* **Private Company Exemption Triggers (Must meet ALL):**
-  1. Paid-up Capital + Reserves & Surplus ≤ ₹1 Crore
-  2. Total Borrowings ≤ ₹1 Crore (at any point during FY)
-  3. Total Revenue ≤ ₹10 Crores
-* **Output:** `Applicable` / `Not Applicable`
+
+#### 1. CARO Decision Hierarchy Flow
+```mermaid
+flowchart TD
+    Start["Company Financials & Status"] --> CheckHolding{"Is it a Holding or Subsidiary Company?"}
+    
+    CheckHolding -->|YES: Holding or Subsidiary| Disqualified["Disqualified from Small Company Status<br>(Section 2-85 Proviso A)"]
+    
+    CheckHolding -->|NO: Standalone Company| CheckLimits{"PUC <= 10 Cr AND Turnover <= 100 Cr?"}
+    
+    CheckLimits -->|YES: Within Limits| SmallCo["Classified as Small Company"]
+    CheckLimits -->|NO: Exceeds Limits| Disqualified
+    
+    SmallCo --> CaroExempt["CARO: Not Applicable<br>'Exempt because it is a Small Company or OPC'"]
+    
+    Disqualified --> CheckCaroLimits{"Check CARO Private Company Limits:<br>1. PUC + Reserves <= 1 Cr<br>2. Borrowings <= 1 Cr<br>3. Turnover <= 10 Cr"}
+    
+    CheckCaroLimits -->|All 3 Within Limits| CaroNotApp["CARO: Not Applicable<br>'Within 1 Cr / 10 Cr Limits'"]
+    CheckCaroLimits -->|Any 1 Limit Exceeded| CaroApp["CARO: Applicable<br>'Threshold Exceeded: PUC+Reserves > 1 Cr OR Borrowings > 1 Cr OR Turnover > 10 Cr'"]
+```
+
+#### 2. Decision Matrix Table
+| # | Holding / Subsidiary? | Small Co Criteria (PUC $\le$ 10 Cr & TO $\le$ 100 Cr) | Small Company Status | CARO 3-Point Limits (PUC+Res $\le$ 1 Cr, Borrowings $\le$ 1 Cr, TO $\le$ 10 Cr) | CARO Verdict | System Rationale / Output Reason | Example Scenario |
+| :---: | :---: | :---: | :---: | :---: | :---: | :--- | :--- |
+| **1** | **`No`** | **`Yes`** | **`Yes`** *(Small Co)* | *Not Checked (Exempt at Gate)* | **`Not Applicable`** | *"Exempt because it is a Small Company or OPC."* | **Phusaaram Mundhra** (PUC 0.17 Cr, TO 41.15 Cr, Standalone) |
+| **2** | **`Yes`** | **`Yes`** | **`No`** *(Disqualified by law)* | **`All 3 Within Limits`** | **`Not Applicable`** | *"PUC+Reserves $\le$ 1 Cr AND Borrowings $\le$ 1 Cr AND Turnover $\le$ 10 Cr."* | Small Subsidiary with PUC+Res ₹50L, Borrowings ₹20L, TO ₹3 Cr |
+| **3** | **`Yes`** | **`Yes`** | **`No`** *(Disqualified by law)* | **`Any 1 Exceeded`** (e.g. Reserves > 1 Cr) | **`Applicable`** | *"Threshold Exceeded: PUC+Reserves (46.04 Cr) > 1 Cr OR Borrowings > 1 Cr..."* | Subsidiary with high reserves or borrowings |
+| **4** | **`No`** | **`No`** *(PUC > 10 Cr or TO > 100 Cr)* | **`No`** *(Large Private Co)* | **`Any 1 Exceeded`** | **`Applicable`** | *"Threshold Exceeded: Turnover (120 Cr) > 10 Cr..."* | Large Standalone Private Company (Turnover > 100 Cr) |
+| **5** | **`Any`** | **`Any`** | **`No`** | **`Public / Listed Company`** | **`Applicable`** | *"Not a private company. Type is Public Limited / Listed."* | Public Ltd Company (CARO applies mandatorily) |
+| **6** | **`Any`** | **`Any`** | **`OPC`** *(One Person Co)* | *Not Checked (Exempt at Gate)* | **`Not Applicable`** | *"Exempt because it is a Small Company or OPC."* | One Person Company (OPC) |
 
 ### C. Corporate Social Responsibility (CSR)
 **Rule:** Determines mandatory CSR committee formation and spending.

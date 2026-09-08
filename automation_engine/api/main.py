@@ -108,6 +108,8 @@ def process_pipeline(task_id: str):
             final_state["logs"].append(f"[+] Comparison generated {len(final_state['comparison_results'])} results.")
             # Store comparison results inside extracted data for UI access
             task.extracted_data["comparison_results"] = final_state["comparison_results"]
+        if final_state.get("comparison_summary"):
+            task.extracted_data["comparison_summary"] = final_state["comparison_summary"]
             
         task.logs += "\n".join(final_state["logs"])
         task.logs += "\n[+] LangGraph Pipeline finished successfully.\n"
@@ -221,6 +223,29 @@ def download_excel(task_id: str, db: Session = Depends(get_db)):
         filename=os.path.basename(task.output_excel)
     )
 
+@app.get("/api/download_comparison/{task_id}")
+def download_comparison_report(task_id: str, db: Session = Depends(get_db)):
+    task = db.query(models.ExtractionTask).filter(models.ExtractionTask.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    safe_company_name = "".join(c if c.isalnum() or c in " .-_" else "_" for c in task.company_name)
+    output_dir = os.path.join(BASE_OUTPUT_DIR, safe_company_name)
+    compare_path = os.path.join(output_dir, f"{safe_company_name}_Comparison_Report.xlsx")
+    
+    if not os.path.exists(compare_path):
+        # Check if the populated excel exists and return it
+        if task.output_excel and os.path.exists(task.output_excel):
+            compare_path = task.output_excel
+        else:
+            raise HTTPException(status_code=404, detail="Comparison report file not found")
+        
+    return FileResponse(
+        compare_path, 
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        filename=os.path.basename(compare_path)
+    )
+
 @app.get("/api/download_package/{task_id}")
 def download_package(task_id: str, db: Session = Depends(get_db)):
     task = db.query(models.ExtractionTask).filter(models.ExtractionTask.id == task_id).first()
@@ -230,11 +255,18 @@ def download_package(task_id: str, db: Session = Depends(get_db)):
     zip_buffer = BytesIO()
     
     with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-        # 1. Add the main Populated Excel Return (if it exists)
+        # 1. Add the main Populated Excel Return (with all sheets)
         if task.output_excel and os.path.exists(task.output_excel):
             zip_file.write(task.output_excel, arcname=f"{task.module_type.upper()}_{task.company_name}_Return.xlsx")
             
-        # 2. Generate and Add the Flags Excel
+        # 2. Add standalone Comparison Report if present
+        safe_company_name = "".join(c if c.isalnum() or c in " .-_" else "_" for c in task.company_name)
+        output_dir = os.path.join(BASE_OUTPUT_DIR, safe_company_name)
+        compare_path = os.path.join(output_dir, f"{safe_company_name}_Comparison_Report.xlsx")
+        if os.path.exists(compare_path):
+            zip_file.write(compare_path, arcname=f"{task.module_type.upper()}_{task.company_name}_Comparison_Report.xlsx")
+            
+        # 3. Generate and Add the Flags Excel
         flags_buffer = BytesIO()
         with pd.ExcelWriter(flags_buffer, engine='openpyxl') as writer:
             has_data = False
@@ -245,23 +277,12 @@ def download_package(task_id: str, db: Session = Depends(get_db)):
                 pd.DataFrame(flags).to_excel(writer, index=False, sheet_name="Common Errors")
                 has_data = True
                 
-            # FLA Comparison Results
+            # Comparison Results
             comparison = task.extracted_data.get("comparison_results", []) if task.extracted_data else []
             if comparison:
                 pd.DataFrame(comparison).to_excel(writer, index=False, sheet_name="Previous Year Comparison")
                 has_data = True
                 
-            # FLA Validation logs
-            if task.output_excel:
-                out_dir = os.path.dirname(task.output_excel)
-                val_path = os.path.join(out_dir, "validation_report.json")
-                if os.path.exists(val_path):
-                    with open(val_path, "r") as f:
-                        val_data = json.load(f)
-                    if val_data:
-                        pd.DataFrame(val_data).to_excel(writer, index=False, sheet_name="Mathematical Consistency")
-                        has_data = True
-                        
             if not has_data:
                 pd.DataFrame([{"Message": "No flags generated"}]).to_excel(writer, index=False, sheet_name="Flags")
                 
