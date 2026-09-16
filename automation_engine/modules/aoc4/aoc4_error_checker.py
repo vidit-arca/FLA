@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import re
 
 class AOC4CommonErrorEngine:
     def __init__(self, excel_path: str):
@@ -62,33 +63,112 @@ class AOC4CommonErrorEngine:
                     extracted_value = "Invalid Input"
                     extracted_reason = f"Why it is Invalid Input: {input_data.get('audit_report_error', 'Audit Report is from a previous or mismatched year.')}"
                 else:
-                    missing = []
-                    # a) Opinion of the Auditor
-                    if "opinion" not in full_text_lower: missing.append("Opinion")
-                    # b) Basis of Opinion
-                    if "basis of opinion" not in full_text_lower and "basis for opinion" not in full_text_lower: missing.append("Basis for Opinion")
-                    # c) Emphasis of matter
-                    if "emphasis of matter" not in full_text_lower: missing.append("Emphasis of matter")
-                    # d) Key Audit Matters
-                    if "key audit matters" not in full_text_lower and "key audit matter" not in full_text_lower: missing.append("Key Audit Matters")
-                    # e) Other Information
-                    if "other information" not in full_text_lower: missing.append("Other Information")
-                    # f) Responsibility of Management
-                    if "responsibilities of management" not in full_text_lower and "management's responsibility" not in full_text_lower: missing.append("Responsibility of Management")
-                    # g) Auditor's responsibility
-                    if "auditor's responsibilities" not in full_text_lower and "auditor's responsibility" not in full_text_lower: missing.append("Auditor's responsibility")
-                    # h) Other matters
-                    if "other matters" not in full_text_lower and "other matter" not in full_text_lower: missing.append("Other matters")
-                    # i) report on other legal and regulatory requirements
-                    if "report on other legal and regulatory requirements" not in full_text_lower and "other legal and regulatory requirements" not in full_text_lower: missing.append("Report on other legal and regulatory requirements")
-                    # j) reporting on Internal finanical Controls
-                    if "internal financial control" not in full_text_lower and "internal financial controls" not in full_text_lower: missing.append("Internal Financial Controls")
+                    is_listed = str(input_data.get("is_listed", "no")).strip().lower() == "yes"
+                    turnover = float(input_data.get("turnover", 0.0) or 0.0)
+                    borrowings = float(input_data.get("borrowings", 0.0) or input_data.get("long_term_borrowings", 0.0) or 0.0)
                     
-                    if not missing:
+                    # IFC is legally mandatory for listed companies or large private companies (Turnover >= 50 Cr or Borrowings >= 25 Cr)
+                    # Note: values in Lakhs (5000 Lakhs = 50 Cr, 2500 Lakhs = 25 Cr) or Raw Rupees (500000000)
+                    ifc_mandatory = is_listed or (turnover >= 500000000 or turnover >= 5000) or (borrowings >= 250000000 or borrowings >= 2500)
+                    
+                    audit_items = [
+                        {
+                            "key": "a",
+                            "label": "Opinion",
+                            "is_mandatory": True,
+                            "pattern": r"(?:#+\s*)?\b(?:opinion|independent\s+auditor(?:['’]s|s)?\s+opinion|report\s+on\s+the\s+audit\s+of\s+the\s+(?:standalone\s+)?financial\s+statements\s*[-–—:]*\s*opinion|opinion\s+on\s+(?:the\s+)?(?:standalone\s+)?financial\s+statements)\b"
+                        },
+                        {
+                            "key": "b",
+                            "label": "Basis of Opinion",
+                            "is_mandatory": True,
+                            "pattern": r"(?:#+\s*)?\bbasis\s+(?:for|of)\s+(?:auditor(?:['’]s|s)?\s+)?opinion\b"
+                        },
+                        {
+                            "key": "c",
+                            "label": "Emphasis of matter",
+                            "is_mandatory": False,
+                            "pattern": r"(?:#+\s*)?\bemphasis\s+of\s+matters?\b"
+                        },
+                        {
+                            "key": "d",
+                            "label": "Key Audit Matters",
+                            "is_mandatory": is_listed,
+                            "pattern": r"(?:#+\s*)?\bkey\s+audit\s+matters?\b"
+                        },
+                        {
+                            "key": "e",
+                            "label": "Other Information",
+                            "is_mandatory": False,
+                            "pattern": r"(?:#+\s*)?\bother\s+information\b"
+                        },
+                        {
+                            "key": "f",
+                            "label": "Responsibility of Management",
+                            "is_mandatory": True,
+                            "pattern": r"(?:#+\s*)?\b(?:responsibilit(?:y|ies)\s+of\s+management(?:\s+and\s+those\s+charged\s+with\s+governance)?|management(?:['’]s|s)?\s+responsibilit(?:y|ies))(?:\s+(?:for|in\s+respect\s+of)?(?:\s+the)?\s+(?:standalone\s+)?financial\s+statements?)?\b"
+                        },
+                        {
+                            "key": "g",
+                            "label": "Auditor's responsibility",
+                            "is_mandatory": True,
+                            "pattern": r"(?:#+\s*)?\bauditor(?:['’]s|s)?\s+responsibilit(?:y|ies)(?:\s+for\s+(?:the\s+)?audit\s+of\s+(?:the\s+)?(?:standalone\s+)?financial\s+statements?)?\b"
+                        },
+                        {
+                            "key": "h",
+                            "label": "Other matters",
+                            "is_mandatory": False,
+                            "pattern": r"(?:#+\s*)?\bother\s+matters?\b"
+                        },
+                        {
+                            "key": "i",
+                            "label": "Report on other legal & regulatory",
+                            "is_mandatory": True,
+                            "pattern": r"(?:#+\s*)?\b(?:report\s+on\s+)?other\s+legal\s+and\s+regulatory\s+requirements\b"
+                        },
+                        {
+                            "key": "j",
+                            "label": "Internal financial Controls",
+                            "is_mandatory": ifc_mandatory,
+                            "pattern": r"(?:#+\s*)?\b(?:report\s+on\s+)?internal\s+financial\s+controls?(?:\s+with\s+reference\s+to\s+financial\s+statements|\s+over\s+financial\s+reporting)?\b"
+                        }
+                    ]
+                    
+                    status_parts = []
+                    missing_mandatory = []
+                    
+                    for item in audit_items:
+                        key = item["key"]
+                        found = bool(re.search(item["pattern"], full_text_lower, re.IGNORECASE))
+                        
+                        if found:
+                            status_parts.append(f"{key}: Yes")
+                        else:
+                            if item["is_mandatory"]:
+                                status_parts.append(f"{key}: No")
+                                missing_mandatory.append(item["label"])
+                            else:
+                                if key == "c":
+                                    status_parts.append(f"{key}: No (Clean/NA)")
+                                elif key == "d":
+                                    status_parts.append(f"{key}: No (Unlisted - NA)")
+                                elif key == "e":
+                                    status_parts.append(f"{key}: No (NA)")
+                                elif key == "h":
+                                    status_parts.append(f"{key}: No (NA)")
+                                elif key == "j":
+                                    status_parts.append(f"{key}: No (Exempt under GSR 583(E))")
+                                else:
+                                    status_parts.append(f"{key}: No (NA)")
+                                    
+                    itemized_status = ", ".join(status_parts)
+                    
+                    if not missing_mandatory:
                         extracted_value = "Yes"
+                        extracted_reason = f"{itemized_status}. All mandatory audit report sections verified."
                     else:
                         extracted_value = "No"
-                        extracted_reason = f"Missing fields: {', '.join(missing)}"
+                        extracted_reason = f"{itemized_status}. Missing mandatory sections: {', '.join(missing_mandatory)}."
                 
             # Row 2: Check for CARO
             elif "caro" in particulars.lower() or "companies auditor's report order" in particulars.lower():
@@ -97,12 +177,10 @@ class AOC4CommonErrorEngine:
                     extracted_reason = f"Why it is Invalid Input: {input_data.get('audit_report_error', 'Audit Report is from a previous or mismatched year.')}"
                 else:
                     # Remove punctuation from text to check for CARO 
-                    import re
                     clean_text = re.sub(r'[^a-z0-9 ]', ' ', full_text_lower)
                     clean_text = re.sub(r'\s+', ' ', clean_text)
                     
                     if "companies auditor s report order" in clean_text or "caro " in clean_text or " caro" in clean_text:
-                        import re
                         # Look for "not applicable" within ~100 characters of CARO keywords
                         is_na = False
                         for kw in ["companies auditor s report order", "caro"]:
@@ -168,7 +246,6 @@ class AOC4CommonErrorEngine:
                 extracted_reason = "Manual Check Required: Please verify Shareholding with Statutory Register."
                     
             elif "authorised capital is mentioned correctly" in particulars.lower():
-                import re
                 has_keywords = any(kw in full_text_lower for kw in ["authorised capital", "authorized capital", "authorised share capital", "authorized share capital", "authorised :", "authorized :"])
                 has_face_value = any(kw in full_text_lower for kw in ["par value", "face value", "per share", "rs. 10", "rs. 100", "rs. 1", "re. 1", "rs.10", "rs.100"])
                 
@@ -198,7 +275,6 @@ class AOC4CommonErrorEngine:
                     extracted_reason = "Authorised Capital disclosure not found."
                     
             elif "paid up capital" in particulars.lower() and "mentioned correctly" in particulars.lower():
-                import re
                 has_keywords = any(kw in full_text_lower for kw in ["paid up capital", "paid-up capital", "paid up share capital", "subscribed and paid up", "subscribed and paid-up", "share capital"])
                 has_face_value = any(kw in full_text_lower for kw in ["par value", "face value", "per share", "rs. 10", "rs. 100", "rs. 1", "re. 1", "rs.10", "rs.100"])
                 
@@ -284,7 +360,6 @@ class AOC4CommonErrorEngine:
                     
             # Row 9: EPS
             elif "eps & diluted eps" in particulars.lower():
-                import re
                 eps_pattern = r'\b(eps|earnings per share|diluted eps|diluted earning(s)? per share)\b'
                 matches = list(re.finditer(eps_pattern, full_text_lower))
                 
@@ -309,7 +384,6 @@ class AOC4CommonErrorEngine:
                     
             # Row 10: Signed by directors and auditors
             elif "signed by both the directors and the auditors" in particulars.lower():
-                import re
                 has_text_signatures = "director" in full_text_lower and ("auditor" in full_text_lower or "partner" in full_text_lower or "chartered accountant" in full_text_lower)
                 
                 # Check that an image block exists near the signatures (within 250 characters)
@@ -328,7 +402,6 @@ class AOC4CommonErrorEngine:
             
             # Row 11: Check for UDIN
             elif "udin" in particulars.lower():
-                import re
                 # We use word boundaries \b to avoid matching "udin" inside words like "including"
                 has_udin_word = bool(re.search(r'\budin\b', full_text_lower))
                 has_18_digit = bool(re.search(r'\b\d{18}\b', full_text_lower))
@@ -341,7 +414,6 @@ class AOC4CommonErrorEngine:
                     
             # Row 12: Seal of the auditor
             elif "seal of the auditor" in particulars.lower():
-                import re
                 # 1. Stricter Text Check: "seal" or "stamp" must be near auditor-related keywords
                 has_auditor_text = bool(re.search(r'\b(auditor|firm)\b.{0,50}\b(seal|stamp)\b|\b(seal|stamp)\b.{0,50}\b(auditor|firm)\b', full_text_lower))
                 
@@ -361,7 +433,6 @@ class AOC4CommonErrorEngine:
                     
             # Row 13 & 14: RPT and Forex
             elif "rpt transaction" in particulars.lower() or "forex and rpt" in particulars.lower():
-                import re
                 
                 forex_keywords = [
                     "value of imports",
@@ -539,7 +610,6 @@ class AOC4CommonErrorEngine:
                     extracted_reason = "CSR is Not Applicable based on compliance criteria (Net Worth < 500Cr, Turnover < 1000Cr, PBT < 5Cr)"
                 else:
                     # Filter text to strictly include Financial Statements and Auditor's Report only (exclude Board Report / Directors' Report)
-                    import re
                     lines = full_text.split("\n")
                     filtered_lines = []
                     in_br = False
