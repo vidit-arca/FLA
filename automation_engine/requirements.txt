@@ -1,11 +1,29 @@
-# Core Excel & PDF manipulation libraries
-openpyxl>=3.1.2
-pypdf>=4.0.0
+# Core Web API & Server
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+pydantic>=2.8.0
+sqlalchemy>=2.0.30
+
+# Data & Spreadsheet Processing
 pandas>=2.0.0
+openpyxl>=3.1.2
+numpy>=1.26.0
 
-# VLM OCR Pipeline (Marker PDF)
-# Note: marker requires torch and layout transformers.
-# It can be installed globally or in a conda environment.
+# Document & PDF Extraction
+pypdf>=4.0.0
+pdfplumber>=0.10.0
+python-docx>=1.1.0
+PyMuPDF>=1.24.0
 
-# Orchestration
+# Orchestration & Workflow
 langgraph>=0.0.26
+
+# IDP Studio, Networking & Model Inference
+requests>=2.31.0
+tritonclient[http]>=2.40.0
+
+# Optional / Local OCR Engine
+#marker-pdf>=1.0.0
+
+
