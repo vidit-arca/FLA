@@ -28,8 +28,9 @@ from .database import engine, get_db
 models.Base.metadata.create_all(bind=engine)
 
 # Initialize isolated IDP Studio database & tables (idp_studio.db) zero-touch on startup
-from automation_engine.modules.idp_studio.db import init_db as init_idp_db
+from automation_engine.modules.idp_studio.core import init_db as init_idp_db
 init_idp_db()
+
 
 app = FastAPI(title="FLA Extraction API")
 

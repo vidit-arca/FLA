@@ -55,17 +55,21 @@ export default function IdpStudio() {
       const schema = templates.find(t => t.template_name === templateName);
       if (schema) {
           try {
-              let parsedFields = [];
+              let rawParsed = [];
               if (typeof schema.fields_json === 'string') {
-                  parsedFields = JSON.parse(schema.fields_json);
+                  rawParsed = JSON.parse(schema.fields_json);
               } else {
-                  parsedFields = schema.fields_json;
+                  rawParsed = schema.fields_json;
               }
               
+              const fieldsList = Array.isArray(rawParsed) ? rawParsed : (rawParsed?.fields || []);
+              const governingLaw = rawParsed?.governing_law || "";
+
               setCurrentSchema({
                   id: schema.template_name,
                   name: schema.template_name,
-                  fields: parsedFields
+                  governing_law: governingLaw,
+                  fields: fieldsList
               });
           } catch (e) {
               console.error("Failed to parse fields_json for schema", schema.template_name, e);
@@ -87,8 +91,17 @@ export default function IdpStudio() {
     try {
         const data = await idpClient.getTemplates();
         setTemplates(data);
-        if (data.length > 0 && !templateName) {
-            setTemplateName(data[0].template_name);
+        if (data.length > 0) {
+            const saved = localStorage.getItem("idp_selected_template");
+            const match = data.find(t => t.template_name === saved);
+            if (match) {
+                setTemplateName(match.template_name);
+            } else if (!templateName) {
+                const adt = data.find(t => t.template_name && t.template_name.includes("ADT-1"));
+                const chosen = adt ? adt.template_name : data[0].template_name;
+                setTemplateName(chosen);
+                localStorage.setItem("idp_selected_template", chosen);
+            }
         }
     } catch (err) {
         console.error("Failed to fetch templates", err);
@@ -296,7 +309,10 @@ export default function IdpStudio() {
           <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Target Form:</span>
           <select 
             value={templateName}
-            onChange={(e) => setTemplateName(e.target.value)}
+            onChange={(e) => {
+                setTemplateName(e.target.value);
+                localStorage.setItem("idp_selected_template", e.target.value);
+            }}
             className="appearance-none bg-black/20 border border-white/10 text-indigo-300 text-sm font-semibold rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 block px-3 py-1.5 min-w-[200px] cursor-pointer"
           >
             {templates && templates.map(schema => (

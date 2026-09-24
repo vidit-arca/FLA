@@ -15,14 +15,18 @@ class FLABridgeAdapter:
     - Phase 3: Post-Evaluation Direct Mapping Guarantee & Summary Total Reconciliation
     """
 
-    def __init__(self, config_path: str = "modules/fla/rules_config.json"):
+    def __init__(self, config_path: str = None):
         # Add project root to sys.path so modules can be imported cleanly
-        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
         if root_dir not in sys.path:
             sys.path.append(root_dir)
+
+        if not config_path or not os.path.isabs(config_path):
+            config_path = os.path.join(root_dir, "modules", "fla", "rules_config.json")
             
         from modules.fla.rule_engine import RuleEngine
         self.engine = RuleEngine(config_path=config_path)
+
 
     def get_all_cell_labels(self) -> Dict[str, Dict[str, str]]:
         """

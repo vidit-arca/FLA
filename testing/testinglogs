@@ -1,0 +1,51 @@
+1. The Reality Check & Statutory Analysis
+Under Section 135(1) of the Companies Act, 2013, CSR applicability is triggered if a company meets any one of these three criteria during the immediately preceding financial year:
+
+Criteria	Statutory Limit	Company's Actual Value	Output Shown	Status
+Net Worth	$\ge ₹500 \text{ Cr}$	₹0.90 Cr (₹90 Lakhs)	0.90 Cr	❌ Not Exceeded
+Turnover	$\ge ₹1,000 \text{ Cr}$	₹64.54 Cr	64.54 Cr	❌ Not Exceeded
+Net Profit (PBT)	$\ge ₹5 \text{ Cr}$	₹4,59,958.75 (~₹4.60 Lakhs / 0.046 Cr)	459958.75 Cr ⚠️	❌ Not Exceeded (Wrongly flagged)
+Conclusion on CSR: Since none of the three thresholds are met, CSR is NOT Applicable.
+
+2. Why CSR Committee is also Wrong
+Under Section 135(9) of the Companies Act, 2013:
+
+Where the CSR spend obligation does not exceed ₹50 Lakhs, the requirement to constitute a CSR Committee does not apply (the functions can be discharged directly by the Board).
+With the company's real Net Profit of ₹4,59,958.75, 2% CSR spend would only be ~₹9,199, which is far below ₹50 Lakhs.
+Therefore, CSR Committee is NOT Applicable.
+3. What Went Wrong in the Engine?
+In 
+
+compliance_engine.py
+:
+
+python
+CR = 10000000.0  # 1 Crore = 10,000,000
+...
+elif net_worth >= (500 * CR) or turnover >= (1000 * CR) or net_profit >= (5 * CR):
+    rationale = f"Threshold Exceeded: ... OR Net Profit ({net_profit/CR:.2f} Cr) >= 5 Cr."
+To display 459958.75 Cr, the internal variable net_profit was passed as 4,599,587,500,000 (₹4.6 Trillion / 4.6 Lakh Crores).
+
+The Root Cause:
+
+The company's actual Profit Before Tax in the financials is ₹4,59,958.75 (actual raw Rupees).
+However, the document unit scale detector (detect_financials_scale in 
+
+excel_extractor.py
+ or 
+
+rule_engine.py
+) detected "Crores" (multiplier 10,000,000)—likely from a note or CARO disclosure mentioning "Crores".
+The engine then multiplied 459958.75 * 10,000,000, treating a number that was already in Rupees as if it were in Crores.
+When compliance_engine.py divided it back by CR (10^7), it showed 459958.75 Cr and erroneously triggered both CSR and CSR Committee.
+4. Recommended Fix
+We should add a sanity check / scale reconciliation in 
+
+rule_engine.py
+ or 
+
+compliance_engine.py
+:
+
+Turnover Cross-Check: A company's Net Profit cannot exceed its Turnover by orders of magnitude (e.g. Net Profit of ₹4.6 Lakh Cr on Turnover of ₹64 Cr is impossible).
+Scale Normalization: If net_profit > turnover * 2 and net_profit >= 10^7, normalize the unit scale before feeding into compliance_engine.

@@ -2,9 +2,10 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-# Create isolated DB inside idp_studio/ directory (automation_engine/modules/idp_studio/idp_studio.db)
-DB_DIR = os.path.dirname(os.path.abspath(__file__))
-SQLALCHEMY_DATABASE_URL = f"sqlite:///{os.path.join(DB_DIR, 'idp_studio.db')}"
+# Keep existing DB file location in idp_studio/ directory
+IDP_STUDIO_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+DB_PATH = os.path.join(IDP_STUDIO_DIR, "idp_studio.db")
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
@@ -28,7 +29,7 @@ def init_db():
     from . import models
     Base.metadata.create_all(bind=engine)
 
-    # Safe auto-migration: check if document_type column exists, if not add it
+    # Safe auto-migration: check if multi-tenant scoping and document_type columns exist
     try:
         from sqlalchemy import text
         with engine.begin() as conn:
@@ -39,12 +40,21 @@ def init_db():
                     if "document_type" not in col_names:
                         conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN document_type VARCHAR DEFAULT 'generic'"))
                         print(f"[IDP DB] Added 'document_type' column to {tbl}")
+                    if "scope_type" not in col_names:
+                        conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN scope_type VARCHAR DEFAULT 'GLOBAL'"))
+                        print(f"[IDP DB] Added 'scope_type' column to {tbl}")
+                    if "scope_id" not in col_names:
+                        conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN scope_id VARCHAR DEFAULT 'default'"))
+                        print(f"[IDP DB] Added 'scope_id' column to {tbl}")
+                    if "priority" not in col_names:
+                        conn.execute(text(f"ALTER TABLE {tbl} ADD COLUMN priority INTEGER DEFAULT 1"))
+                        print(f"[IDP DB] Added 'priority' column to {tbl}")
                 except Exception as mig_err:
                     print(f"[IDP DB] Migration check on {tbl}: {mig_err}")
 
+
             # Auto-tag FORM ABT rules to their respective document types based on field names
             try:
-                # Consent letter / appointment letter fields: FRN and Auditor Category
                 conn.execute(text("""
                     UPDATE idp_schema_alias_rules 
                     SET document_type = 'consent_letter' 
@@ -52,7 +62,6 @@ def init_db():
                       AND (form_field LIKE '%firmregistration%' OR form_field LIKE '%categoryofauditor%')
                       AND (document_type IS NULL OR document_type = 'generic')
                 """))
-                # Board resolution fields: Firm Name, Company Name, Registered Address, CIN
                 conn.execute(text("""
                     UPDATE idp_schema_alias_rules 
                     SET document_type = 'board_resolution' 
@@ -65,5 +74,4 @@ def init_db():
     except Exception as e:
         print(f"[IDP DB] Init error: {e}")
 
-    print(f"[IDP Studio] Database and tables initialized in {os.path.join(DB_DIR, 'idp_studio.db')}")
-
+    print(f"[IDP Studio] Database and tables initialized in {DB_PATH}")

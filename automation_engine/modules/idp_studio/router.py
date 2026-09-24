@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Body
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Body, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
@@ -11,9 +11,15 @@ import io
 import os
 import sys
 
-from .db import get_db, engine, init_db
-from . import models
-from .doc_classifier import classify_document
+from .core.db import get_db, engine, init_db
+from .core import models
+from .extractors.classifier import classify_document, detect_operative_statutory_branch
+from .extractors.spatial import get_effective_rules, get_scenario_lexicon
+from .forms.kit_parser import InstructionKitParser
+from .forms.registry import FormRegistry
+from .forms.filler import DynamicFormFiller
+
+
 
 # Ensure tables and migrations are initialized
 init_db()
@@ -80,93 +86,343 @@ def get_all_templates(db: Session = Depends(get_db)):
     return templates
 
 
+@router.delete("/templates/{template_id}")
+def delete_template(template_id: str, db: Session = Depends(get_db)):
+    """Deletes a template from the database by template_id or template_name."""
+    tmpl = db.query(models.IdpTemplate).filter(
+        (models.IdpTemplate.template_id == template_id) | (models.IdpTemplate.template_name == template_id)
+    ).first()
+    if not tmpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+    db.delete(tmpl)
+    db.commit()
+    return {"message": f"Template '{tmpl.template_name}' successfully deleted"}
+
+
 @router.post("/templates/upload")
 async def upload_pdf_template(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """
+    Template Ingestion Endpoint.
+    Parses the uploaded Instruction Kit PDF using InstructionKitParser, generating a clean,
+    type-safe, conditional form schema (with radio/select options, validations, depends_on).
+    """
     if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported for form template upload")
+        raise HTTPException(status_code=400, detail="Only PDF files are supported for template upload")
         
     contents = await file.read()
     try:
-        import pdfplumber as _pdfplumber
+        # Parse Instruction Kit into structured schema
+        parser = InstructionKitParser()
+        schema = parser.parse(contents)
+        fields = schema.get("fields", [])
         
-        fields = []
-        seen_labels = set()
-        
-        with _pdfplumber.open(io.BytesIO(contents)) as pdf:
-            page_width = pdf.pages[0].width if pdf.pages else 612.0
-            # Left half = field labels. Right half = values (ignore).
-            # Use 45% of page width as cutoff to be safe on narrow forms.
-            label_x_cutoff = page_width * 0.45
+        template_name = schema.get("template_name") or file.filename.replace(".pdf", "").replace(".PDF", "")
+        # Clean up form name
+        if not template_name or template_name == "Form Template":
+            template_name = file.filename.replace(".pdf", "").replace(".PDF", "").replace("_", " ")
 
-            for page in pdf.pages:
-                words = page.extract_words()
-                if not words:
-                    continue
-
-                # Group words by approximate row (bucket y into 8pt bands)
-                rows: dict = {}
-                for w in words:
-                    # Only keep words in the label (left) column
-                    if w['x0'] >= label_x_cutoff:
-                        continue
-                    row_key = round(float(w['top']) / 8) * 8
-                    rows.setdefault(row_key, []).append(w)
-
-                for row_key in sorted(rows.keys()):
-                    row_words = sorted(rows[row_key], key=lambda w: w['x0'])
-                    line_text = ' '.join(w['text'] for w in row_words).strip()
-
-                    # Skip very short lines, pure numbers, headers, checkmarks, etc.
-                    if len(line_text) < 4:
-                        continue
-                    if line_text.replace(',', '').replace('.', '').replace('-', '').isdigit():
-                        continue
-                    # Skip lines that are clearly header/meta (page titles, instructions)
-                    skip_prefixes = ('refer instruction', 'all fields marked', 'pursuant to', 'llp form no', 'm2')
-                    if any(line_text.lower().startswith(p) for p in skip_prefixes):
-                        continue
-                    # Skip checkmark lines
-                    if '✔' in line_text or '✓' in line_text:
-                        continue
-
-                    clean_label = line_text.replace('\n', ' ').strip()
-                    # Truncate very long descriptions (keep first 120 chars)
-                    if len(clean_label) > 120:
-                        clean_label = clean_label[:120].strip()
-
-                    if clean_label not in seen_labels:
-                        seen_labels.add(clean_label)
-                        field_id = ''.join(e for e in clean_label.lower() if e.isalnum() or e == '_')[:50]
-                        fields.append({
-                            "id": f"field_{field_id}",
-                            "label": clean_label
-                        })
-
-        template_name = file.filename.replace(".pdf", "").replace(".PDF", "")
         template_id = str(uuid.uuid4())
         
-        # Save the blank PDF to the data/templates folder for future preview generation
+        # Save the template PDF to the data/templates folder for reference and PDF previews
         template_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "templates"))
         os.makedirs(template_dir, exist_ok=True)
         template_path = os.path.join(template_dir, f"{template_name}.pdf")
         with open(template_path, "wb") as out_f:
             out_f.write(contents)
         
-        db_template = models.IdpTemplate(
-            template_id=template_id,
-            template_name=template_name,
-            fields_json=json.dumps(fields)
-        )
-        db.add(db_template)
-        db.commit()
-        db.refresh(db_template)
+        # Check if a template with this name already exists in DB, update or insert
+        existing_tmpl = db.query(models.IdpTemplate).filter(models.IdpTemplate.template_name == template_name).first()
+        if existing_tmpl:
+            existing_tmpl.fields_json = json.dumps(schema)
+            db.commit()
+            db.refresh(existing_tmpl)
+            template_id = existing_tmpl.template_id
+        else:
+            db_template = models.IdpTemplate(
+                template_id=template_id,
+                template_name=template_name,
+                fields_json=json.dumps(schema)
+            )
+            db.add(db_template)
+            db.commit()
+            db.refresh(db_template)
         
-        return {"message": "Template created from PDF and saved for previews", "template_id": template_id, "fields": fields}
+        # Also persist to FormRegistry filesystem cache & standardized index
+        try:
+            FormRegistry.save_form_schema(schema, db)
+        except Exception as reg_err:
+            print(f"[!] FormRegistry sync notice: {reg_err}")
+
+        print(f"[IDP Studio] Successfully parsed and saved template '{template_name}' with {len(fields)} fields from Instruction Kit.")
+        return {
+            "message": f"Template created from Instruction Kit ({len(fields)} fields)",
+            "template_id": template_id,
+            "template_name": template_name,
+            "fields": fields,
+            "schema": schema
+        }
         
     except Exception as e:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error parsing PDF template: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error parsing Instruction Kit template: {str(e)}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Generic Schema-Driven MCA Dynamic Form Endpoints (Supporting 54+ Forms)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class FormAutofillRequest(BaseModel):
+    evidence: Optional[List[Dict[str, Any]]] = None
+
+class FormValidateRequest(BaseModel):
+    values: Dict[str, Any]
+
+
+@router.get("/forms")
+def list_available_forms(db: Session = Depends(get_db)):
+    """
+    Lists all available MCA forms (out of 54) dynamically from DB and schema registry.
+    Returns lightweight summaries with field counts and conditional indicators.
+    """
+    forms = FormRegistry.list_forms(db)
+    return {"total_forms": len(forms), "forms": forms}
+
+
+@router.get("/forms/{form_id}")
+def get_form_definition(form_id: str, db: Session = Depends(get_db)):
+    """
+    Retrieves the complete standardized schema for a specific MCA form.
+    Decoupled: includes canonical numbers, labels, types, options, validations, depends_on.
+    """
+    schema = FormRegistry.get_form_schema(form_id, db)
+    if not schema:
+        raise HTTPException(status_code=404, detail=f"Form schema for '{form_id}' not found")
+    return schema
+
+
+@router.post("/forms/{form_id}/detect_branch")
+async def detect_form_branch(
+    form_id: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Scans uploaded documents (or document text) and runs the Operative Clause Detector
+    to recommend the statutory branch for the Upfront HITL Decision Gate.
+    """
+    schema = FormRegistry.get_form_schema(form_id, db)
+    if not schema:
+        raise HTTPException(status_code=404, detail=f"Form schema for '{form_id}' not found")
+
+    content_type = request.headers.get("content-type", "")
+    full_text = ""
+    filename = ""
+
+    import pdfplumber
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            full_text = body.get("text", "")
+            filename = body.get("filename", "")
+        except Exception:
+            pass
+    elif "multipart/form-data" in content_type:
+        try:
+            form = await request.form()
+            uploaded_files = form.getlist("files")
+            single_file = form.get("file")
+            if single_file and single_file not in uploaded_files:
+                uploaded_files.append(single_file)
+            for uf in uploaded_files:
+                if hasattr(uf, "read") and hasattr(uf, "filename") and uf.filename.lower().endswith(".pdf"):
+                    contents = await uf.read()
+                    filename = uf.filename
+                    with pdfplumber.open(io.BytesIO(contents)) as pdf:
+                        for page in pdf.pages:
+                            t = page.extract_text()
+                            if t:
+                                full_text += t + "\n"
+        except Exception as e:
+            print(f"[!] Error in detect_form_branch: {e}")
+
+    result = detect_operative_statutory_branch(full_text, filename=filename)
+    return {
+        "status": "success",
+        "form_id": form_id,
+        "form_name": schema.get("form_name"),
+        "detected": result
+    }
+
+
+@router.post("/forms/{form_id}/autofill")
+async def autofill_mca_form(
+    form_id: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Autonomous Dynamic Form-Filling Endpoint:
+    1. Loads target Form Schema from FormRegistry (no hardcoding).
+    2. Gathers evidence from either JSON body or multipart uploaded documents.
+    3. Injects confirmed branch and harvested scenario lexicon from database.
+    4. Runs qwen2.5:14b semantic mapper to match document evidence to target schema fields.
+    5. Enforces deterministic guardrails: Type checks, Regex, Canonical Options, and DAG pruning.
+    6. Returns audited FormFillExecutionPayload with populated values and missing field flags.
+    """
+    schema = FormRegistry.get_form_schema(form_id, db)
+    if not schema:
+        raise HTTPException(status_code=404, detail=f"Form schema for '{form_id}' not found")
+
+    context = {}
+    evidence_items = []
+    content_type = request.headers.get("content-type", "")
+
+    # 1. Parse JSON body
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                if body.get("evidence"):
+                    evidence_items.extend(body["evidence"])
+                if body.get("company_id") or body.get("scenario") or body.get("confirmed_branch"):
+                    context = {
+                        "company_id": body.get("company_id"),
+                        "scenario": body.get("scenario"),
+                        "confirmed_branch": body.get("confirmed_branch"),
+                        "casual_vacancy_reason": body.get("casual_vacancy_reason"),
+                    }
+        except Exception as je:
+            print(f"[!] Error parsing JSON body in autofill: {je}")
+
+    # 2. Parse multipart form data (files and/or evidence JSON string)
+    elif "multipart/form-data" in content_type:
+        try:
+            form = await request.form()
+            ev_str = form.get("evidence")
+            if ev_str:
+                try:
+                    parsed_ev = json.loads(ev_str)
+                    if isinstance(parsed_ev, list):
+                        evidence_items.extend(parsed_ev)
+                except Exception:
+                    pass
+
+            if form.get("company_id") or form.get("scenario") or form.get("confirmed_branch"):
+                context = {
+                    "company_id": form.get("company_id"),
+                    "scenario": form.get("scenario"),
+                    "confirmed_branch": form.get("confirmed_branch"),
+                    "casual_vacancy_reason": form.get("casual_vacancy_reason"),
+                }
+
+            import pdfplumber
+            uploaded_files = form.getlist("files")
+            single_file = form.get("file")
+            if single_file and single_file not in uploaded_files:
+                uploaded_files.append(single_file)
+
+            for uf in uploaded_files:
+                if hasattr(uf, "read") and hasattr(uf, "filename") and uf.filename.lower().endswith(".pdf"):
+                    contents = await uf.read()
+                    file_text = ""
+                    with pdfplumber.open(io.BytesIO(contents)) as pdf:
+                        for page in pdf.pages:
+                            t = page.extract_text()
+                            if t:
+                                file_text += t + "\n"
+                    lines = [l.strip() for l in file_text.splitlines() if l.strip()]
+                    for l in lines[:80]:
+                        if ":" in l:
+                            parts = l.split(":", 1)
+                            evidence_items.append({
+                                "key": parts[0].strip(),
+                                "value": parts[1].strip(),
+                                "source_doc": uf.filename
+                            })
+                        else:
+                            evidence_items.append({
+                                "key": l[:40],
+                                "value": l,
+                                "source_doc": uf.filename
+                            })
+        except Exception as fe:
+            print(f"[!] Error parsing multipart form in autofill: {fe}")
+
+    # Harvest dynamic scenario lexicon from database if scenario provided
+    scenario_key = context.get("scenario")
+    if not scenario_key and context.get("confirmed_branch"):
+        cb = str(context["confirmed_branch"]).lower()
+        if "casual" in cb:
+            scenario_key = "casual_vacancy"
+        elif "agm" in cb:
+            scenario_key = "agm_appointment"
+        elif "tribunal" in cb:
+            scenario_key = "tribunal_order"
+        elif "central" in cb:
+            scenario_key = "central_gov"
+        context["scenario"] = scenario_key
+
+    if scenario_key:
+        t_name = schema.get("form_name", form_id)
+        lexicon = get_scenario_lexicon(t_name, scenario=scenario_key)
+        context["lexicon"] = lexicon
+
+    # Fallback to saved SchemaAliasRules for this form template if no direct evidence was supplied
+    if not evidence_items:
+        t_name = schema.get("form_name")
+        effective_rules = get_effective_rules(
+            t_name,
+            company_id=context.get("company_id"),
+            scenario=context.get("scenario")
+        )
+        for a in effective_rules.values():
+            evidence_items.append({
+                "key": a.extracted_key,
+                "value": a.extracted_key,
+                "source_doc": f"Rule Memory ({a.scope_type})"
+            })
+
+    # Execute dynamic form filling with context and dynamic lexicon
+    filler = DynamicFormFiller()
+    execution_result = filler.fill_form(schema, evidence_items, context=context if context else None)
+    return execution_result
+
+
+
+@router.post("/forms/{form_id}/validate")
+def validate_mca_form(
+    form_id: str,
+    request: FormValidateRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Deterministic Live Validation Endpoint for UI form edits:
+    Evaluates types, regexes, canonical option constraints, and DAG dependency pruning.
+    Does NOT call the LLM — runs 100% deterministically in <5ms.
+    """
+    schema = FormRegistry.get_form_schema(form_id, db)
+    if not schema:
+        raise HTTPException(status_code=404, detail=f"Form schema for '{form_id}' not found")
+
+    fields = schema.get("fields", [])
+    raw_mappings = {}
+    for f in fields:
+        f_id = f["id"]
+        val = request.values.get(f_id)
+        raw_mappings[f_id] = {
+            "status": "populated" if val is not None and str(val).strip() != "" else "missing",
+            "value": val,
+            "confidence": 1.0 if val is not None else 0.0,
+            "reasoning": "User input / validated edit"
+        }
+
+    filler = DynamicFormFiller()
+    validated_fields = filler._validate_and_normalize_values(fields, raw_mappings, [])
+    active_fields = filler._resolve_dag_dependencies(fields, validated_fields)
+    payload = filler._compile_execution_payload(schema["form_id"], schema["form_name"], fields, active_fields, 0.001)
+    return payload
 
 
 from typing import Optional, Dict, Any
@@ -176,12 +432,20 @@ class SchemaAliasCreate(BaseModel):
     form_field: str
     extracted_key: str
     spatial_meta: Optional[Dict[str, Any]] = None
+    document_type: Optional[str] = "generic"
+    scope_type: Optional[str] = "GLOBAL"
+    scope_id: Optional[str] = "default"
+    priority: Optional[int] = 1
 
 class SchemaAliasResponse(SchemaAliasCreate):
     rule_id: str
+    scope_type: Optional[str] = "GLOBAL"
+    scope_id: Optional[str] = "default"
+    priority: Optional[int] = 1
     
     class Config:
         orm_mode = True
+
 
 class RuleHistoryResponse(BaseModel):
     rule_id: str
@@ -213,8 +477,9 @@ async def test_fla_engine(payload: Dict[str, Any] = Body(...)):
     """
     try:
         print("INCOMING IDP PAYLOAD:", payload)
-        from modules.idp_studio.fla_bridge import FLABridgeAdapter
+        from .extractors.fla_bridge import FLABridgeAdapter
         bridge = FLABridgeAdapter()
+
         computed_state = bridge.adapt_and_evaluate(payload)
         cell_labels = bridge.get_all_cell_labels()
         
@@ -238,8 +503,9 @@ async def generate_excel_from_idp(payload: Dict[str, Any] = Body(...)):
     populates the skeletal Excel template, and returns the physical .xlsx file.
     """
     try:
-        from modules.idp_studio.fla_bridge import FLABridgeAdapter
+        from .extractors.fla_bridge import FLABridgeAdapter
         from core.excel_writer import ExcelWriter
+
         
         # 1. Compute target cells via 3-Phase FLABridgeAdapter
         bridge = FLABridgeAdapter()
@@ -316,19 +582,7 @@ async def generate_preview_pdf(payload: Dict[str, Any] = Body(...), db: Session 
         # 3. Open PDF
         doc = fitz.open(template_path)
         
-        # 4. STEP 1: WIPE old pre-filled sample data ONLY from the interior of input boxes
-        # Preserves the black vector line borders at x=391.0 and x=574.5 intact!
-        for page in doc:
-            words = page.get_text("words")
-            for w in words:
-                x0, y0, x1, y1, text, bno, lno, wno = w
-                # Only erase if inside the fillable box zone (between x=391.0 and x=575.0)
-                if x0 >= 390.0 and x1 <= 580.0:
-                    lower = text.lower()
-                    if not any(k in lower for k in ['page', 'english', 'hindi', 'yes', 'no', 'auditor\'s', 'individual']):
-                        # Inset 1.5pt from border lines so borders remain crisp and unbroken
-                        erase_box = fitz.Rect(max(392.5, x0 - 1), y0 - 1, min(573.5, x1 + 1), y1 + 1)
-                        page.draw_rect(erase_box, color=(1, 1, 1), fill=(1, 1, 1))
+        # 4. Clean Template Initialization: dynamic schema templates load clean without coordinate pixel wiping.
 
         # Helper: Stamp Radio Button / Toggle Option Dot
         def stamp_radio_button(doc_ref, label_targets, chosen_val, possible_options=["Yes", "No"]):
@@ -503,16 +757,31 @@ async def generate_preview_pdf(payload: Dict[str, Any] = Body(...), db: Session 
         raise HTTPException(status_code=500, detail=f"PDF Generation Error: {str(e)}")
 
 @router.get("/rules/{template_name}", response_model=List[SchemaAliasResponse])
-def get_rules_for_template(template_name: str, db: Session = Depends(get_db)):
+def get_rules_for_template(
+    template_name: str,
+    company_id: Optional[str] = None,
+    scenario: Optional[str] = None,
+    document_type: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    if company_id or scenario or document_type:
+        effective = get_effective_rules(template_name, company_id=company_id, scenario=scenario, document_type=document_type)
+        return list(effective.values())
     rules = db.query(models.SchemaAliasRule).filter(models.SchemaAliasRule.template_name == template_name).all()
     return rules
 
 @router.post("/rules", response_model=SchemaAliasResponse)
 def create_schema_alias_rule(rule: SchemaAliasCreate, db: Session = Depends(get_db)):
-    # Delete existing rule for this template + form_field combination if it exists
+    scope_t = rule.scope_type or "GLOBAL"
+    scope_i = rule.scope_id or "default"
+    pri = rule.priority or (3 if scope_t == "COMPANY" else (2 if scope_t == "SCENARIO" else 1))
+
+    # Delete existing rule for this template + form_field + scope combination if it exists
     existing = db.query(models.SchemaAliasRule).filter(
         models.SchemaAliasRule.template_name == rule.template_name,
-        models.SchemaAliasRule.form_field == rule.form_field
+        models.SchemaAliasRule.form_field == rule.form_field,
+        models.SchemaAliasRule.scope_type == scope_t,
+        models.SchemaAliasRule.scope_id == scope_i
     ).first()
     
     if existing:
@@ -529,12 +798,17 @@ def create_schema_alias_rule(rule: SchemaAliasCreate, db: Session = Depends(get_
         template_name=rule.template_name,
         form_field=rule.form_field,
         extracted_key=rule.extracted_key,
+        document_type=rule.document_type or "generic",
+        scope_type=scope_t,
+        scope_id=scope_i,
+        priority=pri,
         spatial_meta_json=spatial_json
     )
     db.add(db_rule)
     db.commit()
     db.refresh(db_rule)
     return db_rule
+
 
 @router.delete("/rules/{rule_id}")
 def delete_schema_alias_rule(rule_id: str, db: Session = Depends(get_db)):
@@ -971,20 +1245,30 @@ async def save_rules_batch(
         if spatial_meta:
             spatial_json_str = python_json.dumps(spatial_meta) if isinstance(spatial_meta, dict) else str(spatial_meta)
 
-        # Upsert SchemaAliasRule (spatial rule) with detected_doc_type
+        item_scope_type = item.get("scope_type", "GLOBAL")
+        item_scope_id = item.get("scope_id", "default")
+        item_priority = item.get("priority", 3 if item_scope_type == "COMPANY" else (2 if item_scope_type == "SCENARIO" else 1))
+
+        # Upsert SchemaAliasRule (spatial rule) with detected_doc_type and multi-tenant scoping
         existing_spatial = db.query(models.SchemaAliasRule).filter(
             models.SchemaAliasRule.template_name == template_name,
-            models.SchemaAliasRule.form_field == form_field
+            models.SchemaAliasRule.form_field == form_field,
+            models.SchemaAliasRule.scope_type == item_scope_type,
+            models.SchemaAliasRule.scope_id == item_scope_id
         ).first()
         if existing_spatial:
             existing_spatial.document_type = detected_doc_type
             existing_spatial.extracted_key = extracted_key
             existing_spatial.spatial_meta_json = spatial_json_str
+            existing_spatial.priority = item_priority
         else:
             db.add(models.SchemaAliasRule(
                 rule_id=str(uuid.uuid4()),
                 template_name=template_name,
                 document_type=detected_doc_type,
+                scope_type=item_scope_type,
+                scope_id=item_scope_id,
+                priority=item_priority,
                 form_field=form_field,
                 extracted_key=extracted_key,
                 spatial_meta_json=spatial_json_str
@@ -1039,17 +1323,23 @@ async def save_rules_batch(
 
                         existing_dom = db.query(models.DomExtractionRule).filter(
                             models.DomExtractionRule.template_name == template_name,
-                            models.DomExtractionRule.variable_name == extracted_key
+                            models.DomExtractionRule.variable_name == extracted_key,
+                            models.DomExtractionRule.scope_type == item_scope_type,
+                            models.DomExtractionRule.scope_id == item_scope_id
                         ).first()
                         if existing_dom:
                             existing_dom.dom_path = dom_path_str
                             existing_dom.document_type = detected_doc_type
+                            existing_dom.priority = item_priority
                             existing_dom.created_at = datetime.datetime.utcnow()
                         else:
                             db.add(models.DomExtractionRule(
                                 rule_id=str(uuid.uuid4()),
                                 template_name=template_name,
                                 document_type=detected_doc_type,
+                                scope_type=item_scope_type,
+                                scope_id=item_scope_id,
+                                priority=item_priority,
                                 variable_name=extracted_key,
                                 dom_path=dom_path_str,
                                 success_count=0
@@ -1058,6 +1348,7 @@ async def save_rules_batch(
                         dom_saved_count += 1
             except Exception as dom_err:
                 print(f"[Batch Save] Failed DOM learning for '{extracted_key}': {dom_err}")
+
 
     db.commit()
     print(f"[Batch Save] ✓ Successfully saved {saved_count} spatial rules and {dom_saved_count} DOM rules to DB for template '{template_name}'")
@@ -1294,7 +1585,7 @@ Document Text:
         response = requests.post(
             "http://192.168.112.2:11434/api/generate",
             json={
-                "model": "qwen2.5-coder:7b",
+                "model": "qwen2.5:14b",
                 "prompt": prompt,
                 "stream": False,
                 "format": "json"
@@ -1404,12 +1695,49 @@ async def extract_batch_documents(
 
                 print(f"[Batch] Scoped {len(scoped_rules)} of {len(schema_rules)} total rules for '{filename}' ({doc_type})")
 
-                if full_text:
-                    q = _get_dom_query_from_markdown(full_text)
-                else:
-                    q = None
+                # Build dependency map from template schema if available
+                field_dependency_map = {}
+                if template_name:
+                    tmpl = db.query(models.IdpTemplate).filter(models.IdpTemplate.template_name == template_name).first()
+                    if tmpl and tmpl.fields_json:
+                        try:
+                            parsed_tmpl = json.loads(tmpl.fields_json)
+                            fields_list = parsed_tmpl.get("fields", parsed_tmpl) if isinstance(parsed_tmpl, dict) else parsed_tmpl
+                            if isinstance(fields_list, list):
+                                for f in fields_list:
+                                    if isinstance(f, dict) and f.get("id") and f.get("depends_on"):
+                                        field_dependency_map[f["id"]] = f["depends_on"]
+                        except Exception:
+                            pass
 
-                for rule in scoped_rules:
+                # Sort rules topologically: rules without dependencies evaluated first
+                root_rules = [r for r in scoped_rules if r.form_field not in field_dependency_map]
+                dependent_rules = [r for r in scoped_rules if r.form_field in field_dependency_map]
+                ordered_rules = root_rules + dependent_rules
+                extracted_lookup = {}
+
+                for rule in ordered_rules:
+                    # DAG Pruning Check: evaluate condition against already extracted values
+                    dep = field_dependency_map.get(rule.form_field)
+                    if dep and isinstance(dep, dict):
+                        parent_id = dep.get("field")
+                        op = dep.get("operator", "equals")
+                        target_val = dep.get("value")
+                        parent_val = extracted_lookup.get(parent_id)
+
+                        if parent_val is not None:
+                            p_str = str(parent_val).strip().lower()
+                            t_str = str(target_val).strip().lower() if target_val is not None else ""
+                            condition_met = True
+                            if op == "equals":
+                                condition_met = (p_str == t_str)
+                            elif op == "in" and isinstance(target_val, list):
+                                condition_met = any(p_str == str(v).strip().lower() for v in target_val)
+                            
+                            if not condition_met:
+                                print(f"[Batch] ✂️ Pruning branch '{rule.form_field}': condition not met ({parent_id}='{parent_val}' vs target='{target_val}')")
+                                continue
+
                     variable_name = rule.extracted_key
                     dom_value = None
 
@@ -1418,6 +1746,7 @@ async def extract_batch_documents(
                         dom_value, _ = _try_dom_extraction(full_text, variable_name, db, template_name)
 
                     if dom_value:
+                        extracted_lookup[rule.form_field] = dom_value
                         extracted_fields.append({
                             "key": rule.form_field,
                             "value": dom_value,
@@ -1479,7 +1808,7 @@ Document Text:
                             response = requests.post(
                                 "http://192.168.112.2:11434/api/generate",
                                 json={
-                                    "model": "qwen2.5-coder:7b",
+                                    "model": "qwen2.5:14b",
                                     "prompt": prompt,
                                     "stream": False,
                                     "format": "json"
@@ -1706,7 +2035,7 @@ Region Text:
         response = requests.post(
             "http://192.168.112.2:11434/api/generate",
             json={
-                "model": "qwen2.5-coder:7b",
+                "model": "qwen2.5:14b",
                 "prompt": prompt,
                 "stream": False,
                 "format": "json"

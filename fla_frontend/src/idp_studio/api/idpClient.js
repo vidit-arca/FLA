@@ -218,5 +218,35 @@ export const idpClient = {
             console.error('Error fetching structured document:', error);
             throw error;
         }
+    },
+
+    detectBranch: async (formId, filesOrText) => {
+        try {
+            if (Array.isArray(filesOrText) && filesOrText.length > 0 && filesOrText[0] instanceof File) {
+                const formData = new FormData();
+                filesOrText.forEach(file => formData.append("files", file));
+                const response = await axios.post(`${API_BASE_URL}/forms/${formId}/detect_branch`, formData, {
+                    headers: { 'Content-Type': 'multipart/form-data' }
+                });
+                return response.data;
+            } else {
+                const payload = typeof filesOrText === 'string' ? { text: filesOrText } : (filesOrText || {});
+                const response = await axios.post(`${API_BASE_URL}/forms/${formId}/detect_branch`, payload);
+                return response.data;
+            }
+        } catch (error) {
+            console.error('Error detecting form branch:', error);
+            throw error;
+        }
+    },
+
+    autofillForm: async (formId, payload) => {
+        try {
+            const response = await axios.post(`${API_BASE_URL}/forms/${formId}/autofill`, payload);
+            return response.data;
+        } catch (error) {
+            console.error('Error autofilling MCA form:', error);
+            throw error;
+        }
     }
 };
