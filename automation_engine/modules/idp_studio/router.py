@@ -504,7 +504,7 @@ async def generate_excel_from_idp(payload: Dict[str, Any] = Body(...)):
     """
     try:
         from .extractors.fla_bridge import FLABridgeAdapter
-        from core.excel_writer import ExcelWriter
+        from automation_engine.core.excel_writer import ExcelWriter
 
         
         # 1. Compute target cells via 3-Phase FLABridgeAdapter
@@ -1034,6 +1034,12 @@ def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_nam
                 print(f"[DOM] Path navigation error: {path_err}")
 
 
+
+        # Tier B: Fallback if structural path broke or did not match: find row/text directly via DOMQuery
+        if not matched_node and q:
+            matches = q.find_row(clean_var) or q.find_by_text(clean_var)
+            if matches:
+                matched_node = matches[0]
 
         if not matched_node:
             return None, None
@@ -1670,8 +1676,9 @@ async def extract_batch_documents(
                 except Exception as excel_err:
                     print(f"[Batch] Direct Excel/MD parsing error on {filename}: {excel_err}")
 
-            # Initialize full_text before Tier 1 so Tier 2 LLM always has access to it
+            # Initialize full_text and q before Tier 1 so both DOM and LLM tiers have safe access
             full_text = ""
+            q = None
             doc_type = "generic"
 
             # --- TIER 1: DOM-based extraction for each mapped form field ---
@@ -1683,6 +1690,12 @@ async def extract_batch_documents(
                     full_text = _run_triton_ocr_on_pdf_bytes(pdf_bytes)
                 except Exception as ocr_err:
                     print(f"[Batch][DOM] Triton OCR failed: {ocr_err}")
+
+                if full_text:
+                    try:
+                        q = _get_dom_query_from_markdown(full_text)
+                    except Exception as q_err:
+                        print(f"[Batch][DOM] Error building DOM query from markdown: {q_err}")
 
                 # Classify document into its specific document type
                 doc_type = classify_document(filename, full_text)
@@ -1742,7 +1755,7 @@ async def extract_batch_documents(
                     dom_value = None
 
                     # Try DOM navigation first
-                    if q:
+                    if full_text:
                         dom_value, _ = _try_dom_extraction(full_text, variable_name, db, template_name)
 
                     if dom_value:
