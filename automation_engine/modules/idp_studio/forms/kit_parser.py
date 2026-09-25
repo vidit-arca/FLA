@@ -119,9 +119,14 @@ class InstructionKitParser:
             # Metadata from first 4 pages
             for i in range(min(4, total)):
                 txt = pdf.pages[i].extract_text() or ""
-                m = re.search(r"Instruction\s+Kit\s+for\s+(Form\s+(?:No\.?\s*)?[A-Z0-9\-]+(?:\s+[A-Z0-9]+)?)", txt, re.I)
-                if m:
-                    meta_info["form_name"] = m.group(1).strip()
+                for pat in [
+                    r"Instruction\s+Kit\s+for\s+(?:webform\s+)?((?:LLP\s+)?Form\s+(?:No\.?\s*)?[A-Za-z0-9\-]+(?:\s+[A-Za-z0-9\-]+)?)",
+                    r"Instruction\s+Kit\s+for\s+(?:webform\s+)?([A-Za-z0-9\s\.\-]+?)(?:\s*\n|\s*\(|$)",
+                ]:
+                    m = re.search(pat, txt, re.I)
+                    if m and m.group(1).strip() and len(m.group(1).strip()) < 50:
+                        meta_info["form_name"] = m.group(1).strip()
+                        break
                 for pat in [
                     r"Pursuant to ([^\n\.]{10,150})",
                     r"Under section ([^\n\.]{10,80}(?:Act|Rules)[^\n\.]{0,40})",
@@ -130,6 +135,8 @@ class InstructionKitParser:
                     if m2:
                         meta_info["governing_law"] = m2.group(0).strip()
                         break
+                if meta_info["form_name"] != "Form Template":
+                    break
 
             full_text = "\n".join(p.extract_text() or "" for p in pdf.pages)
             meta_info["full_text"] = full_text

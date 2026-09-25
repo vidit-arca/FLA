@@ -117,12 +117,15 @@ async def upload_pdf_template(file: UploadFile = File(...), db: Session = Depend
         schema = parser.parse(contents)
         fields = schema.get("fields", [])
         
-        template_name = schema.get("template_name") or file.filename.replace(".pdf", "").replace(".PDF", "")
+        template_name = schema.get("template_name") or schema.get("form_name") or file.filename.replace(".pdf", "").replace(".PDF", "")
         # Clean up form name
         if not template_name or template_name == "Form Template":
             template_name = file.filename.replace(".pdf", "").replace(".PDF", "").replace("_", " ")
 
         template_id = str(uuid.uuid4())
+        schema["template_name"] = template_name
+        schema["form_name"] = template_name
+        schema["form_id"] = template_id
         
         # Save the template PDF to the data/templates folder for reference and PDF previews
         template_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "templates"))
@@ -131,28 +134,27 @@ async def upload_pdf_template(file: UploadFile = File(...), db: Session = Depend
         with open(template_path, "wb") as out_f:
             out_f.write(contents)
         
-        # Check if a template with this name already exists in DB, update or insert
-        existing_tmpl = db.query(models.IdpTemplate).filter(models.IdpTemplate.template_name == template_name).first()
-        if existing_tmpl:
-            existing_tmpl.fields_json = json.dumps(schema)
-            db.commit()
-            db.refresh(existing_tmpl)
-            template_id = existing_tmpl.template_id
-        else:
-            db_template = models.IdpTemplate(
-                template_id=template_id,
-                template_name=template_name,
-                fields_json=json.dumps(schema)
-            )
-            db.add(db_template)
-            db.commit()
-            db.refresh(db_template)
-        
-        # Also persist to FormRegistry filesystem cache & standardized index
+        # Persist to FormRegistry (which synchronizes DB IdpTemplate and filesystem cache)
         try:
-            FormRegistry.save_form_schema(schema, db)
+            template_id = FormRegistry.save_form_schema(schema, db)
         except Exception as reg_err:
             print(f"[!] FormRegistry sync notice: {reg_err}")
+            # Fallback direct DB save
+            existing_tmpl = db.query(models.IdpTemplate).filter(models.IdpTemplate.template_name == template_name).first()
+            if existing_tmpl:
+                existing_tmpl.fields_json = json.dumps(schema)
+                db.commit()
+                db.refresh(existing_tmpl)
+                template_id = existing_tmpl.template_id
+            else:
+                db_template = models.IdpTemplate(
+                    template_id=template_id,
+                    template_name=template_name,
+                    fields_json=json.dumps(schema)
+                )
+                db.add(db_template)
+                db.commit()
+                db.refresh(db_template)
 
         print(f"[IDP Studio] Successfully parsed and saved template '{template_name}' with {len(fields)} fields from Instruction Kit.")
         return {
