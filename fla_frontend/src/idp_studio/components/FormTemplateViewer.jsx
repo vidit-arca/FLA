@@ -1,5 +1,5 @@
 import React, { useRef, useState, useMemo, useEffect } from 'react';
-import { LayoutDashboard, UploadCloud, Loader2, Save, CornerDownRight, Filter, AlertCircle, Sparkles } from 'lucide-react';
+import { LayoutDashboard, UploadCloud, Loader2, Save, CornerDownRight, Filter, AlertCircle, Sparkles, CheckCircle2 } from 'lucide-react';
 import { idpClient } from '../api/idpClient';
 
 export default function FormTemplateViewer({ 
@@ -13,17 +13,22 @@ export default function FormTemplateViewer({
   onDeleteRule, 
   onTemplateUploaded, 
   onSaveMappings, 
-  isSavingMappings 
+  isSavingMappings,
+  activeSelections: externalSelections = null,
+  onOptionSelect = null
 }) {
   const fileInputRef = useRef(null);
   const [isUploading, setIsUploading] = useState(false);
-  // Start with no pre-selections — user clicks pills to reveal conditional branches
-  const [activeSelections, setActiveSelections] = useState({});
+  // Internal state fallback if external selections not provided
+  const [internalSelections, setInternalSelections] = useState({});
+  const activeSelections = externalSelections || internalSelections;
   const [showAllFields, setShowAllFields] = useState(false);
 
   // When schema changes, reset selections and log to console for debugging
   useEffect(() => {
-    setActiveSelections({});
+    if (!externalSelections) {
+      setInternalSelections({});
+    }
     if (currentSchema?.fields?.length > 0) {
       const deps = currentSchema.fields.filter(f => f.depends_on);
       console.log(`[IDP] Schema: ${currentSchema.fields.length} fields, ${deps.length} conditional`, deps.map(f => `${f.id} → ${f.depends_on?.field}==${f.depends_on?.value}`));
@@ -52,10 +57,15 @@ export default function FormTemplateViewer({
   const fields = currentSchema?.fields || [];
 
   const handleOptionSelect = (fieldId, optionValue) => {
-    setActiveSelections(prev => ({
-      ...prev,
-      [fieldId]: optionValue
-    }));
+    if (!externalSelections) {
+      setInternalSelections(prev => ({
+        ...prev,
+        [fieldId]: optionValue
+      }));
+    }
+    if (onOptionSelect) {
+      onOptionSelect(fieldId, optionValue);
+    }
   };
 
   // hasConditionalFields: true if ANY field has a depends_on, controls UI toggle
@@ -299,10 +309,12 @@ export default function FormTemplateViewer({
         {hierarchicalFields.map(field => {
           const rule = (rules || []).find(r => r.form_field === field.id);
           const isMapped = !!rule;
-          const isLinkable = selectedExtractedData && !rule;
+          const activeChoice = activeSelections[field.id];
+          const isNoSelected = (activeChoice && String(activeChoice).toLowerCase() === 'no') || (rule && String(rule.extracted_value || rule.extracted_key).toLowerCase() === 'no');
+          const isSatisfied = isMapped || isNoSelected;
+          const isLinkable = selectedExtractedData && !rule && !isNoSelected;
           const depth = field._depth || 0;
           const isDependent = depth > 0;
-          const activeChoice = activeSelections[field.id];
 
           return (
             <div 
@@ -314,7 +326,7 @@ export default function FormTemplateViewer({
               className={`p-3 rounded-xl border transition-all duration-200 relative ${
                 isDependent ? 'border-l-4 border-l-indigo-500 bg-indigo-500/[0.03]' : ''
               } ${
-                isMapped 
+                isSatisfied 
                   ? 'border-emerald-500/30 bg-emerald-500/5' 
                   : isLinkable 
                       ? 'border-indigo-400 cursor-pointer bg-indigo-500/10 shadow-[0_0_15px_rgba(99,102,241,0.2)] transform scale-[1.01]' 
@@ -334,7 +346,7 @@ export default function FormTemplateViewer({
                       </span>
                     )}
                     <label className={`text-xs font-bold uppercase tracking-wider truncate ${
-                      isMapped ? 'text-emerald-400' : isLinkable ? 'text-indigo-400' : 'text-slate-200'
+                      isSatisfied ? 'text-emerald-400' : isLinkable ? 'text-indigo-400' : 'text-slate-200'
                     }`} title={field.label}>
                       {field.label}
                     </label>
@@ -417,10 +429,22 @@ export default function FormTemplateViewer({
                             Unlink
                         </button>
                     </div>
+                ) : isNoSelected ? (
+                    <div className="mt-1.5 flex items-center justify-between bg-slate-800/40 p-2 rounded-lg border border-slate-700/60">
+                        <div className="flex items-center gap-2">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                            <span className="text-xs font-bold text-slate-200">
+                                Selected: <span className="text-white font-mono bg-slate-700 px-1.5 py-0.5 rounded">No</span>
+                            </span>
+                            <span className="text-[0.65rem] text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded font-medium border border-slate-700">
+                                No document mapping required
+                            </span>
+                        </div>
+                    </div>
                 ) : (
                     <div className="bg-black/20 border border-white/5 rounded-lg p-1.5 min-h-[32px] flex items-center justify-center mt-1">
                         <span className="text-xs italic text-slate-500 font-medium">
-                            {isLinkable ? 'Click to link selected text' : 'Unmapped'}
+                            {isLinkable ? 'Click to link selected text' : (String(activeChoice).toLowerCase() === 'yes' ? 'Requires document mapping (Select text from document)' : 'Unmapped')}
                         </span>
                     </div>
                 )}

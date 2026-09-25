@@ -575,8 +575,24 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
     def _find_field_value(field_def: Dict[str, Any]) -> Optional[str]:
         fid = field_def.get("id", "")
         flabel = field_def.get("label", "").lower()
+        cno = str(field_def.get("canonical_no", "")).lower().replace("(", "").replace(")", "").strip()
+        f_type = str(field_def.get("type", "text")).lower()
+        options = field_def.get("options") or []
+
+        # 1. Exact ID check
         if fid in mapped_data and mapped_data[fid]:
             return str(mapped_data[fid]).strip()
+
+        # 2. Canonical number check (e.g. "3b", "3d", "4b", "4c", "1", "2a")
+        if cno:
+            for k, v in mapped_data.items():
+                if not v or str(v).strip() in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
+                    continue
+                k_norm = str(k).lower().replace("(", "").replace(")", "").replace("-", "_").replace(" ", "_")
+                if k_norm.startswith(f"{cno}_") or f"_{cno}_" in k_norm or k_norm == cno:
+                    return str(v).strip()
+
+        # 3. Normalized ID fuzzy check
         norm_fid = fid.lower().replace("_", "").replace("field", "")
         for k, v in mapped_data.items():
             if not v or str(v).strip() in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
@@ -586,6 +602,11 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
                 return str(v).strip()
             if flabel and len(flabel) > 5 and flabel in str(k).lower():
                 return str(v).strip()
+
+        # 4. If radio/toggle with [Yes, No] options and not affirmatively mapped, default to "No"
+        if f_type in ["radio", "toggle"] and options and set(str(o).lower().strip() for o in options) == {"yes", "no"}:
+            return "No"
+
         return None
 
     # Section Header
@@ -611,15 +632,28 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
                 parent_field = dep.get("field")
                 target_value = dep.get("value")
                 operator = dep.get("operator", "equals")
-                parent_val = extracted_context.get(parent_field, "")
+
+                parent_val = extracted_context.get(parent_field)
+                if not parent_val and parent_field:
+                    norm_pf = str(parent_field).lower().replace("_", "").replace("field", "")
+                    for ek, ev in extracted_context.items():
+                        norm_ek = str(ek).lower().replace("_", "").replace("field", "")
+                        if norm_pf == norm_ek or norm_pf in norm_ek or norm_ek in norm_pf:
+                            parent_val = ev
+                            break
+
                 if parent_val:
                     p_str = str(parent_val).strip().lower()
                     t_str = str(target_value).strip().lower() if target_value else ""
-                    if operator == "equals" and p_str != t_str:
-                        continue
-                    elif operator == "in" and isinstance(target_value, list):
-                        if not any(p_str == str(opt).strip().lower() for opt in target_value):
+                    if operator == "equals":
+                        if p_str != t_str and t_str not in p_str and p_str not in t_str:
                             continue
+                    elif operator == "in" and isinstance(target_value, list):
+                        if not any(p_str == str(opt).strip().lower() or str(opt).strip().lower() in p_str for opt in target_value):
+                            continue
+                else:
+                    # Parent inactive / empty -> prune dependent subsection
+                    continue
 
             val = _find_field_value(f)
             c_no = f.get("canonical_no", "")

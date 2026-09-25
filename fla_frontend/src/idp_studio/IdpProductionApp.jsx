@@ -397,9 +397,34 @@ export default function IdpProductionApp() {
         }
 
         const finalPayload = { ...payload };
-        if (autofillRes?.active_fields) {
-          autofillRes.active_fields.forEach(f => {
-            if (f.value && !finalPayload[f.id]) {
+        
+        // Explicitly inject confirmed branch & sub-reasons into statutory payload
+        if (scenarioData?.confirmed_branch) {
+          finalPayload['3b_nature_of_appointment'] = scenarioData.confirmed_branch;
+          finalPayload['nature_of_appointment'] = scenarioData.confirmed_branch;
+          finalPayload['field_nature_of_appointment'] = scenarioData.confirmed_branch;
+        }
+        if (scenarioData?.casual_vacancy_reason) {
+          finalPayload['casual_vacancy_reason'] = scenarioData.casual_vacancy_reason;
+          finalPayload['field_casual_vacancy_reason'] = scenarioData.casual_vacancy_reason;
+          finalPayload['7a_casual_vacancy_reason'] = scenarioData.casual_vacancy_reason;
+        }
+
+        // Unpack active DAG fields from backend (supports both list and dictionary representations)
+        let activeFieldsArray = null;
+        if (autofillRes) {
+          if (Array.isArray(autofillRes.active_fields)) {
+            activeFieldsArray = autofillRes.active_fields;
+          } else if (autofillRes.fields && typeof autofillRes.fields === 'object') {
+            activeFieldsArray = Object.entries(autofillRes.fields)
+              .filter(([_, f]) => f.is_active !== false)
+              .map(([id, f]) => ({ id, ...f }));
+          }
+        }
+
+        if (activeFieldsArray) {
+          activeFieldsArray.forEach(f => {
+            if (f.value !== undefined && f.value !== null && String(f.value).trim() !== "" && !finalPayload[f.id]) {
               finalPayload[f.id] = f.value;
             }
           });
@@ -407,7 +432,7 @@ export default function IdpProductionApp() {
 
         setConsolidatedState({
           payload: finalPayload,
-          active_fields: autofillRes?.active_fields || null,
+          active_fields: activeFieldsArray,
           cells: { "Consolidated Return": finalPayload },
           labels: {}
         });

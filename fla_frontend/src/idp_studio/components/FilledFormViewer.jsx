@@ -24,41 +24,10 @@ export default function FilledFormViewer({
   const [isLoadingPdf, setIsLoadingPdf] = useState(true);
   const [pdfError, setPdfError] = useState(null);
 
-  // Canonical fields for statutory sequence
-  const canonicalFields = [
-    { key: 'cin', label: '1. *Corporate Identity Number (CIN)', aliases: ['corporateidentitynumbercin', 'cin', '1 corporateidentitynumbercin'] },
-    { key: 'company_name', label: '2(a) *Name of the company', aliases: ['anameofthecompany', 'company_name', '2 anameofthecompany'] },
-    { key: 'address', label: '2(b) *Address of registered office', isAddress: true, aliases: ['registered_office_address', 'address', '2b address of registered office'] },
-    { key: 'email', label: '2(c) *Email ID of the company', aliases: ['email', 'email_id', '2c email id of the company'] },
-    { key: '3a_class_of_companies', label: '3(a) *Whether company falling under Section 139(2)', isToggle: true, options: ['Yes', 'No'] },
-    { key: '3b_nature_of_appointment', label: '3(b) *Nature of appointment', isDropdown: true },
-    { key: '3b_others_specify', label: '3(b)(i) If Others, please specify', aliases: ['others_specify', '3b others specify'] },
-    { key: '3c_appointed_in_agm', label: '3(c) *Whether auditor(s) appointed in AGM', isToggle: true, options: ['Yes', 'No'] },
-    { key: '3d_date_of_agm', label: '3(d) If yes, date of AGM (DD/MM/YYYY)', aliases: ['date_of_agm', 'agm_date', '3d date of agm'] },
-    { key: 'appointment_date', label: '4(a) *Date of appointment (DD/MM/YYYY)', aliases: ['adateofappointmentddmmyyyy', 'appointment_date', 'date_of_appointment', '4 adateofappointmentddmmyyyy'] },
-    { key: '4b_joint_auditors', label: '4(b) *Whether joint auditors have been appointed', isToggle: true, options: ['Yes', 'No'] },
-    { key: 'number_of_auditors', label: '4(c) *Number of auditor(s) appointed', aliases: ['cnumberofauditors', 'number_of_auditors', '4c number of auditor(s) appointed'] },
-    { key: '4d_auditor_category', label: "4(d) *Category of Auditor", isToggle: true, options: ["Auditor's Firm", "Individual"] },
-    { key: 'frn', label: '4(e) *Firm Registration Number (FRN)', aliases: ['efirmregistrationnumber', 'frn', '4 efirmregistrationnumber'] },
-    { key: 'auditor_firm_name', label: "4(f) *Name of the auditor's firm", aliases: ['fnameoftheauditorsfirm', 'auditor_firm_name', '4 fnameoftheauditorsfirm'] },
-    { key: '4f_pan_auditor_firm', label: "4(f)(i) Income Tax PAN of Auditor's Firm", aliases: ['pan', 'firm_pan', '4f pan of auditor firm'] },
-    { key: '4f_address_auditor_firm', label: "4(f)(ii) Address of the Auditor's Firm", aliases: ['auditor_address', 'auditors_firm_address'] },
-    { key: '4f_email_auditor_firm', label: "4(f)(ii) *Email ID of the Auditor's Firm", aliases: ['auditor_email', 'auditors_firm_email'] },
-    { key: 'auditor_name', label: '4(h) *Name of the auditor', aliases: ['hnameoftheauditor', 'auditor_name', '4 hnameoftheauditor'] },
-    { key: 'membership_number', label: '4(i) *Membership Number of Auditor', aliases: ['imembershipnumber', 'membership_number', 'membership', '4i membership number of auditor'] },
-    { key: '4i_period_from', label: '4(i) Period of account for which appointed - *From (DD/MM/YYYY)', aliases: ['period_from', 'from_date', 'financial_year_start'] },
-    { key: '4i_period_to', label: '4(i) Period of account for which appointed - *To (DD/MM/YYYY)', aliases: ['period_to', 'to_date', 'financial_year_end'] },
-    { key: 'number_of_financial_years', label: '4(j) *Number of financial year(s) to which appointment relates', aliases: ['kfinancialyears', 'financial_years', 'number_of_financial_years'] },
-    { key: '4k_within_limit_twenty', label: '4(k) *Whether appointment is within limit of 20 companies as per Sec 141(3)(g)', isToggle: true, options: ['Yes', 'No'] },
-    { key: '4l_previous_audit_same_co', label: '4(l) Has auditor previously conducted audit in the same company as per Rule 6', isToggle: true, options: ['Yes', 'No'] },
-    { key: '5_audit_committee', label: '5. *Recommendation of Audit Committee', isToggle: true, options: ['Yes', 'No', 'Not Applicable'] },
-    { key: '6a_casual_vacancy', label: '6(a) *Casual vacancy caused by other than resignation', isToggle: true, options: ['Yes', 'No', 'Not Applicable'] },
-  ];
-
-  // Helper: Combine address pieces cleanly
+  // Helper: Combine address pieces cleanly if address parts exist
   const getConsolidatedAddress = (data) => {
     if (!data) return '';
-    const direct = data['address'] || data['registered_office_address'] || data['2b Address of registered office'] || data['2b address of registered office'];
+    const direct = data['address'] || data['registered_office_address'] || data['registered_address'];
     if (direct && String(direct).length > 15) return direct;
     
     const pieces = [
@@ -77,43 +46,12 @@ export default function FilledFormViewer({
     return unique.join(', ') || direct || '';
   };
 
-  // Build clean, deduplicated displayData in statutory sequence
-  const displayData = {};
-  const consumedKeys = new Set();
-
-  canonicalFields.forEach(field => {
-    let matchedVal = '';
-    
-    if (field.isAddress) {
-      matchedVal = getConsolidatedAddress(extractedData);
-      ['address', 'registered_office_address', 'addressline 1', 'addressline 2', 'addressline_1', 'addressline_2', 'arealocality', 'city', 'pincodezipcode', 'pincode', 'country', 'state'].forEach(k => consumedKeys.add(k));
-    } else {
-      if (extractedData && extractedData[field.key] !== undefined && extractedData[field.key] !== null) {
-        matchedVal = extractedData[field.key];
-        consumedKeys.add(field.key);
-      } else if (field.aliases) {
-        for (const alias of field.aliases) {
-          const normAlias = alias.toLowerCase().replace(/[^a-z0-9]/g, '');
-          const foundKey = Object.keys(extractedData || {}).find(k => k.toLowerCase().replace(/[^a-z0-9]/g, '') === normAlias);
-          if (foundKey && extractedData[foundKey] !== undefined && extractedData[foundKey] !== null) {
-            matchedVal = extractedData[foundKey];
-            consumedKeys.add(foundKey);
-            break;
-          }
-        }
-      }
-    }
-    displayData[field.key] = matchedVal;
-  });
-
-  // Append any genuinely unique custom fields not already mapped into canonical fields
-  Object.entries(extractedData || {}).forEach(([k, v]) => {
-    const normKey = k.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const isConsumed = Array.from(consumedKeys).some(ck => ck.toLowerCase().replace(/[^a-z0-9]/g, '') === normKey);
-    if (!isConsumed && displayData[k] === undefined) {
-      displayData[k] = v;
-    }
-  });
+  // Build clean dynamic payload directly from extractedData (ZERO hardcoded fields)
+  const displayData = { ...(extractedData || {}) };
+  const consolidatedAddr = getConsolidatedAddress(extractedData);
+  if (consolidatedAddr && !displayData['address'] && !displayData['registered_office_address']) {
+    displayData['address'] = consolidatedAddr;
+  }
 
   const fieldCount = Object.keys(displayData).length;
 

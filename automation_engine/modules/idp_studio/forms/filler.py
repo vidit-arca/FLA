@@ -511,5 +511,10 @@ Output strictly valid JSON with this structure:
                 "completion_percentage": completion_pct
             },
             "fields": active_fields,
+            "active_fields": [
+                dict(id=fid, **fdata)
+                for fid, fdata in active_fields.items()
+                if fdata.get("is_active", True)
+            ],
             "missing_required_fields": missing_required
         }

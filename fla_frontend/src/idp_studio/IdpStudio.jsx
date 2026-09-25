@@ -17,6 +17,7 @@ export default function IdpStudio() {
   const [templates, setTemplates] = useState([]);
   const [templateName, setTemplateName] = useState("");
   const [currentSchema, setCurrentSchema] = useState(null);
+  const [activeSelections, setActiveSelections] = useState({});
   
   // Test FLA Logic State
   const [testFlaResult, setTestFlaResult] = useState(null);
@@ -200,6 +201,45 @@ export default function IdpStudio() {
     setSelectedExtractedData(null);
   };
 
+  const handleOptionSelect = (fieldId, optionValue) => {
+    setActiveSelections(prev => ({
+      ...prev,
+      [fieldId]: optionValue
+    }));
+
+    const isNo = String(optionValue).toLowerCase() === 'no';
+    const isYes = String(optionValue).toLowerCase() === 'yes';
+
+    if (isNo) {
+      // Direct selection "No": satisfies statutory field without requiring document mapping
+      const newRule = {
+        rule_id: `opt_${fieldId}`,
+        template_name: templateName,
+        form_field: fieldId,
+        extracted_key: "No",
+        extracted_value: "No",
+        scope_type: "DIRECT_SELECTION",
+        source: "option_select"
+      };
+      setRules(prev => [...prev.filter(r => r.form_field !== fieldId), newRule]);
+    } else if (isYes) {
+      // "Yes" requires document mapping -> remove auto direct selection rule so user can link evidence
+      setRules(prev => prev.filter(r => !(r.form_field === fieldId && r.scope_type === 'DIRECT_SELECTION')));
+    } else {
+      // General option branch selection (e.g. 3(b) Nature of appointment options)
+      const newRule = {
+        rule_id: `opt_${fieldId}`,
+        template_name: templateName,
+        form_field: fieldId,
+        extracted_key: optionValue,
+        extracted_value: optionValue,
+        scope_type: "SCENARIO",
+        source: "option_select"
+      };
+      setRules(prev => [...prev.filter(r => r.form_field !== fieldId), newRule]);
+    }
+  };
+
   const handleSaveAllMappings = async () => {
     if (!rules || rules.length === 0) {
       alert("No mapped fields to save! Please map fields first using the Map to Form step.");
@@ -226,11 +266,9 @@ export default function IdpStudio() {
             const rule = rules.find(r => r.form_field === field.id);
             if (rule) {
                 const extractedItem = extractedData.find(e => e.key === rule.extracted_key);
-                if (extractedItem) {
-                    payload[field.id] = extractedItem.value;
-                } else {
-                    payload[field.id] = rule.extracted_key;
-                }
+                payload[field.id] = extractedItem ? extractedItem.value : (rule.extracted_value || rule.extracted_key);
+            } else if (activeSelections[field.id]) {
+                payload[field.id] = activeSelections[field.id];
             }
         });
     }
@@ -259,11 +297,9 @@ export default function IdpStudio() {
             const rule = rules.find(r => r.form_field === field.id);
             if (rule) {
                 const extractedItem = extractedData.find(e => e.key === rule.extracted_key);
-                if (extractedItem) {
-                    payload[field.id] = extractedItem.value;
-                } else {
-                    payload[field.id] = rule.extracted_key;
-                }
+                payload[field.id] = extractedItem ? extractedItem.value : (rule.extracted_value || rule.extracted_key);
+            } else if (activeSelections[field.id]) {
+                payload[field.id] = activeSelections[field.id];
             }
         });
     }
@@ -287,8 +323,16 @@ export default function IdpStudio() {
 
   const handleDeleteRule = async (ruleId) => {
     try {
-      if (!ruleId.startsWith('temp_')) {
+      if (!ruleId.startsWith('temp_') && !ruleId.startsWith('opt_')) {
         await idpClient.deleteRule(ruleId);
+      }
+      const targetRule = rules.find(r => r.rule_id === ruleId);
+      if (targetRule) {
+        setActiveSelections(prev => {
+          const next = { ...prev };
+          delete next[targetRule.form_field];
+          return next;
+        });
       }
       setRules(prev => prev.filter(r => r.rule_id !== ruleId));
     } catch (err) {
@@ -456,6 +500,8 @@ export default function IdpStudio() {
                     onTemplateUploaded={fetchTemplates}
                     onSaveMappings={handleSaveAllMappings}
                     isSavingMappings={isSavingMappings}
+                    activeSelections={activeSelections}
+                    onOptionSelect={handleOptionSelect}
                 />
               </div>
               
@@ -484,45 +530,96 @@ export default function IdpStudio() {
             
             <div className="bg-[#1E293B]/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/10 p-8 w-full max-w-3xl mb-4 relative flex flex-col flex-1 min-h-0">
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 shrink-0"></div>
-                <div className="flex items-center justify-between mb-6 pb-6 border-b border-white/5 shrink-0">
-                    <div>
-                        <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                            <LayoutDashboard className="w-6 h-6 text-indigo-400" />
-                            {templateName || "Document"} Schema
-                        </h2>
-                        <p className="text-sm text-slate-400 mt-1">Ready for submission</p>
-                    </div>
-                    <div className="bg-indigo-500/10 text-indigo-300 px-5 py-2.5 rounded-full text-sm font-bold border border-indigo-500/20 shadow-inner">
-                        {rules.length} / {currentSchema?.fields?.length || 0} Fields Mapped
-                    </div>
-                </div>
+                {(() => {
+                    // Dynamic DAG filter for Step 3: prune inactive branches, retain triggered subsections
+                    const visibleFields = (currentSchema?.fields || []).filter(field => {
+                        if (!field.depends_on) return true;
+                        const { field: parentId, operator, value } = field.depends_on;
+                        let parentVal = activeSelections[parentId];
+                        if (parentVal === undefined) {
+                            const pRule = rules.find(r => r.form_field === parentId || r.form_field?.includes(parentId));
+                            if (pRule) parentVal = pRule.extracted_value || pRule.extracted_key;
+                        }
+                        if (!parentVal) return false;
+                        const pStr = String(parentVal).trim().toLowerCase();
+                        const tStr = String(value || '').trim().toLowerCase();
+                        if (operator === 'equals') return pStr === tStr || pStr.includes(tStr) || tStr.includes(pStr);
+                        if (operator === 'in' && Array.isArray(value)) return value.map(v => String(v).toLowerCase()).includes(pStr);
+                        return true;
+                    });
 
-                <div className="flex-1 overflow-y-auto pr-2 space-y-3 mb-6 custom-scrollbar">
-                    {currentSchema?.fields?.map(field => {
-                        const mapping = rules.find(r => r.form_field === field.id);
-                        return (
-                            <div key={field.id} className="flex items-center justify-between p-4 rounded-xl transition-colors hover:bg-slate-50 dark:hover:bg-white/5 border border-transparent hover:border-slate-100 dark:hover:border-white/5">
-                                <div className="flex items-center gap-3">
-                                    <div className={`w-2 h-2 rounded-full ${mapping ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-slate-300 dark:bg-slate-600'}`}></div>
-                                    <span className={`text-sm font-semibold ${mapping ? 'text-slate-700 dark:text-slate-200' : 'text-slate-500'}`}>
-                                        {field.label}
-                                    </span>
+                    const resolvedCount = visibleFields.filter(f => {
+                        const rule = rules.find(r => r.form_field === f.id);
+                        const sel = activeSelections[f.id];
+                        return rule || String(sel).toLowerCase() === 'no';
+                    }).length;
+
+                    return (
+                        <>
+                            <div className="flex items-center justify-between mb-6 pb-6 border-b border-white/5 shrink-0">
+                                <div>
+                                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                                        <LayoutDashboard className="w-6 h-6 text-indigo-400" />
+                                        {templateName || "Document"} Schema
+                                    </h2>
+                                    <p className="text-sm text-slate-400 mt-1">Ready for submission</p>
                                 </div>
-                                {mapping ? (
-                                    <div className="text-right">
-                                        <span className="inline-block text-slate-900 dark:text-white font-mono bg-indigo-50 dark:bg-indigo-900/20 px-4 py-2 rounded-lg border border-indigo-100 dark:border-indigo-500/20 text-sm">
-                                            {extractedData.find(e => e.key === mapping.extracted_key)?.value || mapping.extracted_key}
-                                        </span>
-                                    </div>
-                                ) : (
-                                    <span className="text-slate-400 italic text-sm px-4 py-2 bg-slate-50 dark:bg-white/5 rounded-lg border border-dashed border-slate-200 dark:border-white/10">
-                                        Unmapped
-                                    </span>
-                                )}
+                                <div className="bg-indigo-500/10 text-indigo-300 px-5 py-2.5 rounded-full text-sm font-bold border border-indigo-500/20 shadow-inner">
+                                    {resolvedCount} / {visibleFields.length} Fields Resolved
+                                </div>
                             </div>
-                        );
-                    })}
-                </div>
+
+                            <div className="flex-1 overflow-y-auto pr-2 space-y-3 mb-6 custom-scrollbar">
+                                {visibleFields.map(field => {
+                                    const mapping = rules.find(r => r.form_field === field.id);
+                                    const activeChoice = activeSelections[field.id];
+                                    const isNoSelected = (activeChoice && String(activeChoice).toLowerCase() === 'no') || 
+                                                         (mapping && String(mapping.extracted_value || mapping.extracted_key).toLowerCase() === 'no');
+
+                                    if (isNoSelected) {
+                                        return (
+                                            <div key={field.id} className="flex items-center justify-between p-4 rounded-xl transition-colors hover:bg-slate-50 dark:hover:bg-white/5 border border-transparent hover:border-slate-100 dark:hover:border-white/5">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-2 h-2 rounded-full bg-slate-400"></div>
+                                                    <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                        {field.canonical_no ? `${field.canonical_no} ${field.label}` : field.label}
+                                                    </span>
+                                                </div>
+                                                <div className="text-right">
+                                                    <span className="inline-block text-slate-300 font-mono bg-slate-800/80 px-3.5 py-1.5 rounded-lg border border-slate-700 text-xs font-semibold">
+                                                        No (Not Required)
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+
+                                    return (
+                                        <div key={field.id} className="flex items-center justify-between p-4 rounded-xl transition-colors hover:bg-slate-50 dark:hover:bg-white/5 border border-transparent hover:border-slate-100 dark:hover:border-white/5">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-2 h-2 rounded-full ${mapping ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-slate-300 dark:bg-slate-600'}`}></div>
+                                                <span className={`text-sm font-semibold text-slate-700 dark:text-slate-200`}>
+                                                    {field.canonical_no ? `${field.canonical_no} ${field.label}` : field.label}
+                                                </span>
+                                            </div>
+                                            {mapping ? (
+                                                <div className="text-right">
+                                                    <span className="inline-block text-slate-900 dark:text-white font-mono bg-indigo-50 dark:bg-indigo-900/20 px-4 py-2 rounded-lg border border-indigo-100 dark:border-indigo-500/20 text-sm">
+                                                        {extractedData.find(e => e.key === mapping.extracted_key)?.value || mapping.extracted_value || mapping.extracted_key}
+                                                    </span>
+                                                </div>
+                                            ) : (
+                                                <span className="text-slate-400 italic text-sm px-4 py-2 bg-slate-50 dark:bg-white/5 rounded-lg border border-dashed border-slate-200 dark:border-white/10">
+                                                    Unmapped
+                                                </span>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </>
+                    );
+                })()}
                 
                 <button 
                     onClick={handleSaveAllMappings}
