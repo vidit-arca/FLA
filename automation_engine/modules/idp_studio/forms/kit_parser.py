@@ -365,18 +365,21 @@ Output strictly valid JSON:
         discovered_parents: Dict[str, Dict] = {}
         conditions: Dict[str, Dict] = {}
         existing_nos = {c['no'] for c in raw_rows}
-
-        # Step A: Scan full PDF text for unlisted parent field option references (e.g. Page 4)
         full_pdf_text = meta_info.get("full_text", "")
-        if full_pdf_text:
-            norm_doc = re.sub(r"\s+", " ", full_pdf_text)
+
+        # Step A: Scan intro pages and raw_rows instructions separately to avoid multi-column text interleaving
+        intro_text = full_pdf_text[:4000]
+        scan_sources = [intro_text] + [c['instructions'] for c in raw_rows]
+        for src in scan_sources:
+            norm_doc = re.sub(r"\s+", " ", src)
             doc_matches = re.finditer(
-                r"[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\"]+?)[\x27\u2019\u201d]\s+(?:is\s+)?selected\s+in\s+(?:field\s+(?:number\s+)?)?([0-9]+(?:\([a-zA-Z0-9]+\))?)(?:\s+i\.e\.\s*[\x27\"\u201c\u2018]?([^\x27\"\u201d\u2019\n)]+))?",
+                r"[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\"]+?)[\x27\u2019\u201d]\s+(?:is\s+)?selected\s+in\s+(?:field\s+(?:number\s+)?)?([0-9]+\s*(?:\([a-zA-Z0-9]+\))?)(?:\s+i\.e\.\s*[\x27\"\u201c\u2018]?([^\x27\"\u201d\u2019\n)]+))?",
                 norm_doc, re.I
             )
             for dm in doc_matches:
                 d_val = dm.group(1).strip().replace('\u2019', "'")
-                d_no = dm.group(2).strip()
+                d_val = re.sub(r'\b\s*f\s+charge\b', ' of charge', d_val)
+                d_no = re.sub(r'\s+', '', dm.group(2).strip())
                 d_name = (dm.group(3) or "").strip()
                 if 2 < len(d_val) < 60 and not re.search(r"\bappointment\s+relates\b", d_val, re.I):
                     parent = discovered_parents.setdefault(d_no, {"no": d_no, "name": d_name or f"Field {d_no}", "options": set(), "type": "select"})
@@ -387,80 +390,87 @@ Output strictly valid JSON:
         for c in raw_rows:
             inst = c['instructions']
 
+            # Option declared directly for current field: 'X' is selected in this field
+            for m in re.finditer(r'(?:in\s+case\s+(?:where\s+)?)?[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\"]+?)[\x27\u2019\u201d]\s+(?:is\s+)?selected\s+in\s+this\s+field', inst, re.I):
+                opt_val = m.group(1).strip().replace('\u2019', "'")
+                if 1 < len(opt_val) < 60:
+                    parent = discovered_parents.setdefault(c['no'], {"no": c['no'], "name": c['name'] or f"Field {c['no']}", "options": set(), "type": "select"})
+                    parent["options"].add(opt_val)
+
+            # Professional designation: Associate or Fellow
+            if re.search(r'\bassociate\s+or\s+fellow\b', inst, re.I) or re.search(r'\bassociate\s+or\s+fellow\b', c['name'], re.I):
+                parent = discovered_parents.setdefault(c['no'], {"no": c['no'], "name": c['name'] or f"Field {c['no']}", "options": set(), "type": "radio"})
+                parent["options"].update(['Associate', 'Fellow'])
+
             # Pattern 1: selects 'Option' in field number X i.e. "Name"
             m1 = re.search(
-                r"selects\s+[\x27\u2018\u201c](.+?)[\x27\u2019\u201d]\s+in\s+(?:field\s+(?:number\s+)?)?([0-9]+(?:\([a-zA-Z0-9]+\))?)(?:\s+i\.e\.\s*[\x27\"\u201c\u2018]([^\x27\"\u201d\u2019]+)[\x27\"\u201d\u2019])?",
+                r"selects\s+[\x27\u2018\u201c](.+?)[\x27\u2019\u201d]\s+in\s+(?:field\s+(?:number\s+)?)?([0-9]+\s*(?:\([a-zA-Z0-9]+\))?)(?:\s+i\.e\.\s*[\x27\"\u201c\u2018]([^\x27\"\u201d\u2019]+)[\x27\"\u201d\u2019])?",
                 inst, re.I
             )
             if m1:
                 val = m1.group(1).strip().replace('\u2019', "'")
-                f_no = m1.group(2).strip()
+                f_no = re.sub(r'\s+', '', m1.group(2).strip())
                 f_name = (m1.group(3) or "").strip()
                 conditions[c["no"]] = {"parent_no": f_no, "value": val}
-                if f_no not in existing_nos:
-                    parent = discovered_parents.setdefault(f_no, {"no": f_no, "name": f_name or f"Field {f_no}", "options": set(), "type": "select"})
-                    parent["options"].add(val)
-                    if f_name and not parent["name"].startswith("Field "):
-                        parent["name"] = f_name
+                parent = discovered_parents.setdefault(f_no, {"no": f_no, "name": f_name or f"Field {f_no}", "options": set(), "type": "select"})
+                parent["options"].add(val)
+                if f_name and not parent["name"].startswith("Field "):
+                    parent["name"] = f_name
                 continue
 
             # Pattern 2: 'Option' is selected in field number X i.e. "Name"
             m2 = re.search(
-                r"[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\"\n]+)[\x27\u2019\u201d]\s+(?:is\s+)?selected\s+in\s+(?:field\s+(?:number\s+)?)?([0-9]+(?:\([a-zA-Z0-9]+\))?)(?:\s+i\.e\.\s*[\x27\"\u201c\u2018]([^\x27\"\u201d\u2019]+)[\x27\"\u201d\u2019])?",
+                r"[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\"\n]+)[\x27\u2019\u201d]\s+(?:is\s+)?selected\s+in\s+(?:field\s+(?:number\s+)?)?([0-9]+\s*(?:\([a-zA-Z0-9]+\))?)(?:\s+i\.e\.\s*[\x27\"\u201c\u2018]([^\x27\"\u201d\u2019]+)[\x27\"\u201d\u2019])?",
                 inst, re.I
             )
             if m2:
                 val = m2.group(1).strip().replace('\u2019', "'")
-                f_no = m2.group(2).strip()
+                f_no = re.sub(r'\s+', '', m2.group(2).strip())
                 f_name = (m2.group(3) or "").strip()
                 conditions[c["no"]] = {"parent_no": f_no, "value": val}
-                if f_no not in existing_nos:
-                    parent = discovered_parents.setdefault(f_no, {"no": f_no, "name": f_name or f"Field {f_no}", "options": set(), "type": "select"})
-                    parent["options"].add(val)
-                    if f_name:
-                        parent["name"] = f_name
+                parent = discovered_parents.setdefault(f_no, {"no": f_no, "name": f_name or f"Field {f_no}", "options": set(), "type": "select"})
+                parent["options"].add(val)
+                if f_name and not parent["name"].startswith("Field "):
+                    parent["name"] = f_name
                 continue
 
             # Pattern 3: In case 'Yes' selected in field number X i.e. "Name"
             m3 = re.search(
-                r"case\s+[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\"\n]+)[\x27\u2019\u201d]\s+selected\s+in\s+(?:field\s+(?:number\s+)?)?([0-9]+(?:\([a-zA-Z0-9]+\))?)(?:\s+i\.e\.\s*[\x27\"\u201c\u2018]([^\x27\"\u201d\u2019]+)[\x27\"\u201d\u2019])?",
+                r"case\s+[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\"\n]+)[\x27\u2019\u201d]\s+selected\s+in\s+(?:field\s+(?:number\s+)?)?([0-9]+\s*(?:\([a-zA-Z0-9]+\))?)(?:\s+i\.e\.\s*[\x27\"\u201c\u2018]([^\x27\"\u201d\u2019]+)[\x27\"\u201d\u2019])?",
                 inst, re.I
             )
             if m3:
                 val = m3.group(1).strip().replace('\u2019', "'")
-                f_no = m3.group(2).strip()
+                f_no = re.sub(r'\s+', '', m3.group(2).strip())
                 f_name = (m3.group(3) or "").strip()
                 conditions[c["no"]] = {"parent_no": f_no, "value": val}
-                if f_no not in existing_nos:
-                    parent = discovered_parents.setdefault(f_no, {"no": f_no, "name": f_name or f"Field {f_no}", "options": {"Yes", "No"}, "type": "radio"})
-                    parent["options"].add(val)
-                    if f_name:
-                        parent["name"] = f_name
+                parent = discovered_parents.setdefault(f_no, {"no": f_no, "name": f_name or f"Field {f_no}", "options": {"Yes", "No"}, "type": "radio"})
+                parent["options"].add(val)
+                if f_name and not parent["name"].startswith("Field "):
+                    parent["name"] = f_name
                 continue
 
             # Pattern 4: If 'Yes' is selected in X
-            m4 = re.search(r"if\s+[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\"\n]+)[\x27\u2019\u201d]\s+is\s+selected\s+in\s+([0-9]+(?:\([a-zA-Z0-9]+\))?)", inst, re.I)
+            m4 = re.search(r"if\s+[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\"\n]+)[\x27\u2019\u201d]\s+is\s+selected\s+in\s+([0-9]+\s*(?:\([a-zA-Z0-9]+\))?)", inst, re.I)
             if m4:
                 val = m4.group(1).strip().replace('\u2019', "'")
-                f_no = m4.group(2).strip()
+                f_no = re.sub(r'\s+', '', m4.group(2).strip())
                 conditions[c["no"]] = {"parent_no": f_no, "value": val}
-                if f_no not in existing_nos:
-                    parent = discovered_parents.setdefault(f_no, {"no": f_no, "name": "Whether company has appointed auditor previously", "options": {"Yes", "No"}, "type": "radio"})
-                    parent["options"].add(val)
+                parent = discovered_parents.setdefault(f_no, {"no": f_no, "name": "Whether company has appointed auditor previously", "options": {"Yes", "No"}, "type": "radio"})
+                parent["options"].add(val)
                 continue
 
             # Pattern 5: selects [Nth] option from dropdown present in field number X i.e. "Option Name"
             m5 = re.search(
-                r"selects\s+(?:the\s+)?[a-z0-9]+\s+option\s+from\s+(?:the\s+)?dropdown\s+present\s+in\s+field\s+(?:number\s+)?([0-9]+(?:\([a-zA-Z0-9]+\))?)\s+i\.e\.\s*[\x27\"\u201c\u2018]([^\x27\"\u201d\u2019]+)[\x27\"\u201d\u2019]",
+                r"selects\s+(?:the\s+)?[a-z0-9]+\s+option\s+from\s+(?:the\s+)?dropdown\s+present\s+in\s+field\s+(?:number\s+)?([0-9]+\s*(?:\([a-zA-Z0-9]+\))?)\s+i\.e\.\s*[\x27\"\u201c\u2018]([^\x27\"\u201d\u2019]+)[\x27\"\u201d\u2019]",
                 inst, re.I
             )
             if m5:
-                f_no = m5.group(1).strip()
+                f_no = re.sub(r'\s+', '', m5.group(1).strip())
                 opt_name = m5.group(2).strip().replace('\u2019', "'")
                 conditions[c["no"]] = {"parent_no": f_no, "value": opt_name}
-                if f_no not in existing_nos:
-                    parent = discovered_parents.setdefault(f_no, {"no": f_no, "name": f"Field {f_no}", "options": set(), "type": "select"})
-                    parent["options"].add(opt_name)
+                parent = discovered_parents.setdefault(f_no, {"no": f_no, "name": f"Field {f_no}", "options": set(), "type": "select"})
+                parent["options"].add(opt_name)
                 continue
 
         # Fully dynamic resolution of discovered parent fields (Zero form-specific hardcoding)
@@ -476,13 +486,13 @@ Output strictly valid JSON:
                         p_data["name"] = m.group(1).strip()
                         break
 
-            # 2. Collect any sibling options mentioned in instructions for this field
+            # 2. Collect any sibling options mentioned in instructions strictly for this field
             for c in raw_rows:
-                if p_no in c['instructions'] or (p_data['name'] and p_data['name'].lower() in c['instructions'].lower()):
+                # Use strict word boundary so '1' doesn't match '15' or dates, and '4' doesn't match '4(a)'
+                if re.search(rf"\bfield\s+(?:number\s+)?{re.escape(p_no)}(?![0-9a-zA-Z\(])", c['instructions'], re.I):
                     for q in re.finditer(r'[\x27\u2018\u201c\"]([A-Z][a-zA-Z\s\’\']{2,40})[\x27\u2019\u201d\"]', c['instructions']):
                         candidate = q.group(1).strip().replace('\u2019', "'")
                         if candidate not in {'Yes', 'No', 'None', p_data['name']} and len(candidate) > 2 and not candidate.startswith("Field"):
-                            # Normalize casing if variation of existing option
                             p_data['options'].add(candidate)
 
             if any("firm" in str(o).lower() for o in p_data["options"]) and re.search(r"\bindividual\b", full_pdf_text, re.I):
@@ -499,16 +509,26 @@ Output strictly valid JSON:
             else:
                 p_data["type"] = "select"
 
-        # Combine explicit rows and discovered parent fields
+        # Combine explicit rows and discovered parent fields (without duplicating existing rows!)
+        existing_row_map = {c['no']: c for c in raw_rows}
         all_combined = list(raw_rows)
         for p_no, p_data in discovered_parents.items():
-            all_combined.append({
-                "no": p_no,
-                "name": p_data["name"],
-                "instructions": f"Options: {', '.join(sorted(list(p_data['options'])))}",
-                "options": sorted(list(p_data["options"])),
-                "type": p_data["type"]
-            })
+            if p_no in existing_row_map:
+                target = existing_row_map[p_no]
+                curr_opts = target.get("options") or []
+                merged_opts = sorted(list(set(curr_opts) | set(p_data["options"])))
+                target["options"] = merged_opts
+                target["type"] = p_data["type"]
+                if p_data["name"] and not p_data["name"].startswith("Field ") and (target["name"].startswith("Field ") or not target["name"]):
+                    target["name"] = p_data["name"]
+            else:
+                all_combined.append({
+                    "no": p_no,
+                    "name": p_data["name"],
+                    "instructions": f"Options: {', '.join(sorted(list(p_data['options'])))}",
+                    "options": sorted(list(p_data["options"])),
+                    "type": p_data["type"]
+                })
 
         # Sort canonically
         all_combined = sorted(all_combined, key=lambda x: self._canonical_key(x["no"]))
