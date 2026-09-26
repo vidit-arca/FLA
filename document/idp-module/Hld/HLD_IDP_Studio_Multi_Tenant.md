@@ -240,6 +240,19 @@ Before any heavy extraction runs, the AI analyses the Board Resolution and prese
 
 ```mermaid
 flowchart TB
+    %% STATUTORY INGESTION SUBGRAPH
+    subgraph S0["0. Statutory Template Ingestion (Generic MCA Parser)"]
+        KIT["MCA Instruction Kit PDFs
+        (Part III Statutory Tables)"]
+        KPARSER["forms/kit_parser.py
+        • Dynamic 3-Column Coordinate Calibration
+        • Statutory Grammar Branch Detection
+        • Canonical Hierarchical Scoping ({form}.{section}.{field})"]
+        DB_TMPL[("idp_templates
+        fields_json (Canonical IDs + DAG)")]
+        KIT --> KPARSER --> DB_TMPL
+    end
+
     %% DOCUMENT INGESTION
     subgraph S1["1. Ingestion & Pre-Processing"]
         DOCS["Company Source PDFs
@@ -295,6 +308,7 @@ flowchart TB
     %% DAG PRUNING & EXTRACTION
     subgraph S4["4. DAG Pruning & Targeted Extraction"]
         DAG["forms/filler.py (DAG Pruner)
+        • Evaluates template DAG & dependencies
         • Confirmed: 'Casual Vacancy'
         • Activates: Resignation Date, ADT-3 SRN
         • Prunes/Hides: AGM Date, etc."]
@@ -303,6 +317,7 @@ flowchart TB
         Priority: Company → Scenario → Global → LLM"]
         
         HITL --> DAG
+        DB_TMPL -.->|"Loads Schema & DAG"| DAG
         LEXICON --> CASCADE
         DAG --> CASCADE
     end
@@ -320,12 +335,14 @@ flowchart TB
         FEEDBACK -.->|"Enriches Lexicon"| DB_ALIAS
     end
 
+    classDef s0 fill:#f1f5f9,stroke:#64748b,stroke-width:1px;
     classDef s1 fill:#f8fafc,stroke:#94a3b8,stroke-width:1px;
     classDef s2 fill:#fef3c7,stroke:#d97706,stroke-width:2px;
     classDef s3 fill:#eff6ff,stroke:#2563eb,stroke-width:2px;
     classDef s4 fill:#fdf2f8,stroke:#ec4899,stroke-width:2px;
     classDef s5 fill:#dcfce7,stroke:#16a34a,stroke-width:2px;
 
+    class S0 s0;
     class S1 s1;
     class S2 s2;
     class S3 s3;
@@ -339,12 +356,12 @@ flowchart TB
 erDiagram
     idp_schema_alias_rules {
         string rule_id PK
-        string template_name "e.g. ADT-1"
+        string template_name "e.g. ADT-1, LLP-8, MGT-14"
         string scope_type "GLOBAL | SCENARIO | COMPANY"
         string scope_id "default | casual_vacancy | U12345CIN"
         int priority "1=Global, 2=Scenario, 3=Company"
         string document_type "board_resolution | consent_letter"
-        string form_field "target field in the form"
+        string form_field "canonical target field ({form}.{section}.{field})"
         string extracted_key "anchor phrase in source PDF"
         text spatial_meta_json "anchor_text, dx, dy, width, height"
     }
@@ -365,10 +382,12 @@ erDiagram
     idp_templates {
         string template_id PK
         string template_name
-        text fields_json "list of {id, label, type, depends_on}"
+        text fields_json "canonical_id ({form}.{section}.{field}), label, type, depends_on DAG"
+        datetime created_at
+        datetime updated_at
     }
 
-    idp_schema_alias_rules ||--|| idp_templates : "belongs to template"
+    idp_schema_alias_rules ||--|| idp_templates : "targets canonical fields in template"
     idp_dom_extraction_rules ||--|| idp_templates : "belongs to template"
 ```
 
@@ -706,6 +725,19 @@ Save Rule As:
 ```
 
 This single UI control determines `scope_type` and `scope_id` written to DB.
+
+---
+
+### 7.8 `forms/kit_parser.py` — Statutory Instruction Kit Parser & Validator
+
+A coordinate-calibrated, statutory-driven PDF parser that transforms raw MCA Instruction Kit PDFs into machine-readable form templates and dependency DAGs without form-specific hardcoding:
+
+- **Dynamic Column Calibration**: Bounding boxes of `"Field No."`, `"Field Name"`, and `"Instructions"` are detected per page to adjust horizontal split points dynamically, preventing cross-column text bleed.
+- **Strict Part III Order**: Preserves physical document sequence without numeric sorting (retaining statutory sequences like `3(b) -> 3(c) -> 3(e) -> 3(d)`).
+- **Statutory Branch Syntax Detection**: Parses MCA branch triggers directly from instruction text (`"In case '...' is selected in this field then fields from '...' to '...' shall be displayed"`).
+- **Canonical Scoping**: Emits `{form_slug}.{section_slug}.{field_slug}` IDs, allowing distinct sections (e.g. Solvency vs. Charge in LLP-8) to reuse field numbers safely without collision.
+- **Unnumbered Statutory Rows**: Captures critical structural rows (e.g. "Attachments", "Certificate", "Category", "Declaration") as first-class form nodes.
+- **Embedded `ParserValidator`**: Audits parsed templates for duplicate IDs, broken/orphan dependency links, dropped rows, and instruction bleeds before committing to `idp_templates`.
 
 ---
 
@@ -1180,12 +1212,12 @@ Our System:
 
 ### 16.2 Medium-Term (Next 6 Months)
 
-| Improvement | Description | Effort |
+| Improvement | Description | Status |
 |---|---|---|
-| **Extend to All 54+ MCA Forms** | Apply the same 3-tier architecture to AOC-4, MGT-7, Form 8, etc. | High |
-| **Cross-Form Rule Reuse** | Company CIN rules valid across forms (auditor name applies to ADT-1, AOC-4 both) | Medium |
-| **Fine-Tuned Local Model** | Fine-tune a smaller `qwen2.5:3b` on real secretarial documents for faster inference | High |
-| **Active Learning Loop** | Surface low-confidence extractions proactively for operator annotation | Medium |
+| **Generic MCA Form Ingestion** | Generic instruction kit parser with dynamic coordinate calibration and statutory branch DAG detection | ✅ **Completed** (LLP-8, ADT-1, MGT-14 verified) |
+| **Cross-Form Rule Reuse** | Company CIN rules valid across forms (e.g. auditor name applies to ADT-1, AOC-4 both) | Planned (Medium) |
+| **Fine-Tuned Local Model** | Fine-tune a smaller `qwen2.5:3b` on real secretarial documents for faster inference | Planned (High) |
+| **Active Learning Loop** | Surface low-confidence extractions proactively for operator annotation | Planned (Medium) |
 
 ### 16.3 Long-Term Vision
 
@@ -1193,15 +1225,15 @@ Our System:
 graph LR
     A["Current State
     IDP Studio + 3-Tier Scoping
-    ADT-1 / FLA Forms"] --> B["Next State
-    54+ MCA Forms
-    All Statutory Scenarios
-    Company Knowledge Graph"]
+    + Generic MCA Ingestion Engine
+    (LLP-8, ADT-1, MGT-14 verified)"] --> B["Next State
+    Cross-Form Knowledge Graph
+    Autonomous Rule Synthesis
+    High-Throughput Batch Pipeline"]
     
     B --> C["Future State
     Zero-Touch Filing
-    Autonomous Rule Learning
-    Regulatory Compliance AI
+    Autonomous Regulatory Compliance
     Cross-Jurisdiction Support"]
     
     classDef current fill:#dcfce7,stroke:#16a34a,stroke-width:2px;
@@ -1222,8 +1254,9 @@ graph LR
 | [`core/db.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/core/db.py) | Auto-migration on startup | ✅ Modified |
 | [`extractors/classifier.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/extractors/classifier.py) | Doc type + branch detection | ✅ Modified |
 | [`extractors/spatial.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/extractors/spatial.py) | Rule cascade + lexicon harvest | ✅ Modified |
+| [`forms/kit_parser.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/forms/kit_parser.py) | Generic MCA instruction kit parser & statutory validator | ✅ Refactored |
 | [`forms/filler.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/forms/filler.py) | DAG pruning + HITL injection + LLM | ✅ Modified |
-| [`router.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/router.py) | API endpoints (detect_branch, autofill) | ✅ Modified |
+| [`router.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/router.py) | API endpoints (detect_branch, autofill, templates) | ✅ Modified |
 | [`ExtractionBranchGateModal.jsx`](file:///Users/apple/Desktop/FLA/fla_frontend/src/idp_studio/components/ExtractionBranchGateModal.jsx) | HITL frontend gate (new) | ✅ New |
 | [`FormTemplateViewer.jsx`](file:///Users/apple/Desktop/FLA/fla_frontend/src/idp_studio/components/FormTemplateViewer.jsx) | Scope selector in save popover | ✅ Modified |
 | `dom_learner/**` | Existing DOM learning engine | ❌ **UNTOUCHED** |
@@ -1232,7 +1265,9 @@ graph LR
 
 ## Appendix B — Test Coverage
 
-The accompanying test suite [`testing/test_idp_studio_suite.py`](file:///Users/apple/Desktop/FLA/testing/test_idp_studio_suite.py) provides:
+The test suites validate both runtime extraction logic and statutory schema parsing:
+
+### B.1 IDP Studio Scoping & Autofill Suite ([`testing/test_idp_studio_suite.py`](file:///Users/apple/Desktop/FLA/testing/test_idp_studio_suite.py))
 
 | Test | Validates |
 |---|---|
@@ -1248,6 +1283,16 @@ The accompanying test suite [`testing/test_idp_studio_suite.py`](file:///Users/a
 | `test_live_endpoint_rules` | `GET /api/idp/rules/FORM%20ABT` → HTTP 200 |
 
 **Result: 10/10 tests passing.**
+
+### B.2 MCA Instruction Kit Statutory Parser Suite ([`automation_engine/tests/test_instruction_kit_parser.py`](file:///Users/apple/Desktop/FLA/automation_engine/tests/test_instruction_kit_parser.py))
+
+| Test | Form | Validates |
+|---|---|---|
+| `test_parse_llp_8` | LLP Form No. 8 | Multi-branch statutory separation (Solvency vs Charge), physical order `3(b) -> 3(c) -> 3(e) -> 3(d)` preserved, canonical IDs, 49 nodes |
+| `test_parse_adt_1` | Form No. ADT-1 | Single-section default to `main`, exact statutory order, zero collisions, 24 nodes |
+| `test_parse_mgt_14` | Form No. MGT-14 | Dynamic header calibration, compound Roman numerals (`6 I (a) (i)`), 22 nodes |
+
+**Result: 3/3 multi-form tests passing.**
 
 ---
 

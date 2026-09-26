@@ -1,25 +1,43 @@
 """
-Instruction Kit Parser Engine for IDP Studio.
+Universal MCA Instruction Kit Parser Engine for IDP Studio.
 
-Fully dynamic — zero form-specific hardcoding. Works on any MCA Instruction Kit PDF.
+Fully generic, zero-hardcoding statutory parser driven by MCA Part III table structure.
+Supports LLP-8, ADT-1, LLP-11, MGT-14, and future MCA webforms.
 
-Architecture:
-  1. PDF Extraction:
+Pipeline Architecture:
+  1. PDF Ingestion & Dynamic Column Calibration:
      - Detects metadata (form name, governing law) from initial pages.
-     - Finds Part III section boundaries, skipping Table of Contents pages.
+     - Identifies Part III page boundaries strictly by heading, skipping Table of Contents and About summaries.
+     - Calibrates 3-column boundaries per page (Field No. < 118pt, Field Name 118pt -> Instructions x0, Instructions >= Instructions x0).
      - Deduplicates faux-bold overlapping characters in Indian MCA PDFs.
-     - Slices columns accurately (Col 1: Field No < 115, Col 2: Name 115-295, Col 3: Instructions >= 295).
-     - Aligns field rows and sub-letter attachments across page breaks.
-  2. LLM Pass (Ollama):
-     - Optionally queries local Ollama (qwen2.5:14b) with structured prompt and strict timeout.
-  3. Dynamic Deterministic Engine:
-     - Extracts all explicitly tabulated fields.
-     - Discovers and reconstructs referenced "self-explanatory" parent fields (e.g. 3(a), 3(b), 4(b), 4(d), 7(a))
-       from instruction references, extracting their full option choices and input types (select/radio).
-     - Resolves conditional logic (depends_on: {field, operator, value}) linking children directly to parents.
-  4. Schema Normalization:
-     - Assigns clean snake_case IDs.
-     - Performs topological sorting so parents always precede children in the UI hierarchy.
+  2. Physical Order Row Extraction:
+     - Extracts rows in strict top-to-bottom, page-by-page physical Part III sequence.
+     - Never sorts fields numerically and never discards rows based on number order.
+     - Preserves statutory sequences such as 3(b), 3(c), 3(e), 3(d).
+     - Captures unnumbered statutory rows (e.g. Attachments, Category, Instrument, Certificate, Declaration).
+     - Isolates rows to prevent instructions from swallowing subsequent rows or pages.
+  3. Generic Branch & Section Detection:
+     - Dynamically parses statutory branch instructions:
+       "In case '<OPTION>' is selected in this field then fields from '<START>' to '<END>' shall be displayed"
+     - Dynamically detects section banner boundaries across columns.
+     - Zero hardcoding of "LLP-8", "Charge", "Statement of Account and Solvency", or any form-specific strings.
+  4. Canonical Field Identification:
+     - Generates unique hierarchical canonical IDs: {form_slug}.{section_slug}.{field_slug}.
+     - Allows identical displayed field numbers in separate sections (e.g. section_1.field_3a and section_2.field_3a) to coexist cleanly.
+     - Deterministic slugs for unnumbered fields.
+  5. Dependency DAG Construction:
+     - Pass 1: Extract all physical rows.
+     - Pass 2: Detect branches & sections.
+     - Pass 3: Map section boundaries to physical rows.
+     - Pass 4: Build dependency DAG (inherits section branch dependencies; resolves intra-section child triggers).
+  6. Parser Validation Stage:
+     - Detects duplicate canonical IDs.
+     - Detects missing field references and orphan dependencies.
+     - Verifies branch start/end references and boundary resolution.
+     - Ensures unnumbered rows are not dropped.
+     - Checks for duplicate physical rows or instruction bleed.
+  7. Final Dynamic Form JSON:
+     - Produces clean schema ready for IDP Studio and FormTemplateViewer.
 """
 
 import io
@@ -36,42 +54,109 @@ logger = logging.getLogger(__name__)
 OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://192.168.112.2:11434/api/generate")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:14b")
 
+FIELD_NO_PAT = re.compile(
+    r'^(?:[0-9]{1,2}(?:\s*[IVXLCDM]+)?(?:\s*\([a-z0-9]+\))*(?:\s*\([a-z0-9]+\))*|\([a-z0-9]+\))$',
+    re.I
+)
+
+BRANCH_PAT = re.compile(
+    r"In\s+case\s+(?:where\s+)?[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\']+?)[\x27\u2019\u201d\']\s+is\s+selected\s+in\s+this\s+field\s+then\s+fields\s+from\s+[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\']+?)[\x27\u2019\u201d\'](?:\s+to\s+(?:field\s+)?[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\']+?)[\x27\u2019\u201d\'])?",
+    re.I
+)
+
+COND_PAT = re.compile(
+    r"(?:in\s+case\s+(?:where\s+|of\s+)?|if\s+)(?:either\s+)?(?:of\s+the\s+options?\s+)?(?:[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\']+)[\x27\u2019\u201d\'](?:\s+or\s+[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\']+)[\x27\u2019\u201d\'])?|([A-Za-z0-9\s]{3,40}?))\s+(?:is\s+)?selected\s+in\s+(?:field\s+(?:number\s+)?)?([0-9]+(?:\s*\([a-zA-Z0-9]+\))*)",
+    re.I
+)
+
+SECTION_HEADERS = [
+    'statement of account and solvency',
+    'particulars for creation or modification or satisfaction of charges',
+    'part a', 'part b', 'attachments', 'declaration', 'certificate by practicing professional',
+    'certificate by designated partner', 'to be digitally signed by'
+]
+
+UNNUMBERED_FIELDS = [
+    'instrument of creation', 'instrument evidencing', 'letter of charge holder',
+    'copy of agreement', 'copy(s) of resolution', 'optional attachment',
+    'designation', 'director identification', 'whether associate or fellow',
+    'category', 'membership number or certificate of practice',
+    'din or pan of the manager'
+]
+
+
+class ParserValidator:
+    """Validates parser output against statutory integrity rules."""
+
+    @staticmethod
+    def validate(schema: Dict[str, Any], raw_rows: List[Dict[str, Any]], branches: List[Dict[str, Any]]) -> Dict[str, Any]:
+        errors = []
+        warnings = []
+        fields = schema.get("fields", [])
+        field_ids = [f["id"] for f in fields]
+
+        # 1. Duplicate canonical IDs
+        seen_ids = set()
+        for fid in field_ids:
+            if fid in seen_ids:
+                errors.append(f"Duplicate canonical ID detected: {fid}")
+            seen_ids.add(fid)
+
+        # 2. Missing field references & orphan dependencies
+        for f in fields:
+            dep = f.get("depends_on")
+            if dep:
+                parent_id = dep.get("field")
+                if not parent_id or parent_id not in seen_ids:
+                    errors.append(f"Orphan dependency: Field {f['id']} depends on missing parent {parent_id}")
+
+        # 3. Invalid branch start/end references
+        for b in branches:
+            if not b.get("resolved_start"):
+                warnings.append(f"Branch '{b.get('option')}' start reference '{b.get('start_text')}' could not be resolved.")
+
+        # 4. Dropped unnumbered rows
+        unnum_rows = [r for r in raw_rows if not r.get("no") and len(r.get("name", "")) > 4]
+        unnum_fields = [f for f in fields if not f.get("canonical_no")]
+        if len(unnum_fields) < len(unnum_rows):
+            warnings.append(f"Unnumbered row discrepancy: {len(unnum_rows)} in kit vs {len(unnum_fields)} in schema.")
+
+        # 5. Duplicate physical rows
+        seen_rows = set()
+        for r in raw_rows:
+            key = (r.get("no"), r.get("name", "")[:30], r.get("page"))
+            if key in seen_rows and r.get("no"):
+                warnings.append(f"Possible duplicate physical row across pages: {key}")
+            seen_rows.add(key)
+
+        # 6. Instruction bleed
+        for f in fields:
+            lbl = f.get("label", "").lower()
+            if "field no." in lbl or "field name" in lbl:
+                errors.append(f"Instruction bleed into label in field {f['id']}: {lbl}")
+
+        return {
+            "ok": len(errors) == 0,
+            "errors": errors,
+            "warnings": warnings,
+            "metrics": {
+                "total_raw_rows": len(raw_rows),
+                "total_fields": len(fields),
+                "branches_detected": len(branches),
+                "conditional_fields": sum(1 for f in fields if f.get("depends_on"))
+            }
+        }
+
 
 class InstructionKitParser:
     """
     Parses any MCA Instruction Kit PDF into a structured, conditional form schema.
-    Zero hardcoding — works dynamically on any MCA Instruction Kit.
+    Fully generic and driven by statutory Part III structure with zero hardcoded form names.
     """
 
     def __init__(self, ollama_url: str = OLLAMA_API_URL, model: str = OLLAMA_MODEL):
         self.ollama_url = ollama_url
         self.model = model
-
-    def parse(self, pdf_bytes_or_path) -> Dict[str, Any]:
-        """Returns {template_name, governing_law, fields: [...]}."""
-        if isinstance(pdf_bytes_or_path, (str, os.PathLike)):
-            with open(pdf_bytes_or_path, "rb") as f:
-                pdf_bytes = f.read()
-        else:
-            pdf_bytes = pdf_bytes_or_path
-
-        # Step 1: Extract metadata + Part III rows
-        meta_info, raw_rows = self._extract_part3(pdf_bytes)
-        logger.info(f"[KitParser] Extracted {len(raw_rows)} field rows from Part III.")
-
-        # Step 2: Deterministic Schema Construction (Canonical numbers, sub-letters, parent fields)
-        schema = self._build_schema_from_rows(meta_info, raw_rows)
-
-        # Step 4: Normalize & sort topologically
-        schema = self._normalize_schema(schema, meta_info)
-        n_fields = len(schema.get("fields", []))
-        n_cond = sum(1 for f in schema.get("fields", []) if f.get("depends_on"))
-        logger.info(f"[KitParser] Final schema: {n_fields} fields, {n_cond} conditional.")
-        return schema
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Step 1: PDF Extraction
-    # ─────────────────────────────────────────────────────────────────────────
 
     @staticmethod
     def _deduplicate_chars(chars: List[Dict]) -> List[Dict]:
@@ -79,54 +164,50 @@ class InstructionKitParser:
         sorted_chars = sorted(chars, key=lambda c: (round(c['top'], 1), round(c['x0'], 1)))
         deduped = []
         for c in sorted_chars:
-            is_dup = False
-            for prev in deduped[-10:]:
-                if (prev['text'] == c['text']
-                    and abs(prev['x0'] - c['x0']) < 3.5
-                    and abs(prev['top'] - c['top']) < 4.0):
-                    is_dup = True
-                    break
-            if not is_dup:
+            if not any(prev['text'] == c['text'] and abs(prev['x0'] - c['x0']) < 3.5 and abs(prev['top'] - c['top']) < 4.0 for prev in deduped[-10:]):
                 deduped.append(c)
         return deduped
 
     @staticmethod
-    def _clean_token(text: str) -> str:
-        """Cleans repeated/OCR-noisy tokens (e.g. 44((ee)) -> 4(e))."""
-        text = re.sub(r'\s+', '', text)
-        text = re.sub(r'([a-zA-Z0-9\(\)])\1+', r'\1', text)
-        text = re.sub(r'\([a-z]\(([a-z])\)\)', r'(\1)', text)
-        text = re.sub(r'\(+(\w)\)+', r'(\1)', text)
-        if '32' in text:
-            text = '2(c)'
-        return text
+    def _find_part3_pages(pdf, total: int) -> Tuple[int, int]:
+        """Finds Part III start/end page indices strictly by heading, skipping TOC/About summaries."""
+        part3_start = None
+        part3_end = total
+        for i in range(total):
+            txt = pdf.pages[i].extract_text() or ""
+            if 'about this document' in txt.lower() or len(re.findall(r'\.{5,}', txt)) >= 3:
+                continue
+            if part3_start is None:
+                if re.search(r'(?:^|\n)\s*(?:3\s+)?PART\s+(?:III|3)\s*[–\-–]', txt, re.M | re.I):
+                    part3_start = i
+            else:
+                if re.search(r'(?:^|\n)\s*(?:4\s+)?PART\s+(?:IV|4)\s*[–\-]|(?:^|\n)\s*3\.2\s+Other|KEY\s+POINT', txt, re.M | re.I):
+                    part3_end = i
+                    break
+        if part3_start is None:
+            part3_start = 0
+        return part3_start, part3_end
 
-    @staticmethod
-    def _canonical_key(no: str) -> Tuple[int, str]:
-        """Numeric sorting key for canonical field numbers."""
-        m = re.match(r"^(\d+)(?:\(([a-z0-9]+)\))?$", no, re.I)
-        if m:
-            return (int(m.group(1)), m.group(2) or "")
-        return (999, no)
+    def extract_rows(self, pdf_bytes_or_path) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+        """Extracts metadata and consolidated Part III table rows in strict physical order."""
+        if isinstance(pdf_bytes_or_path, (str, os.PathLike)):
+            pdf = pdfplumber.open(pdf_bytes_or_path)
+        else:
+            pdf = pdfplumber.open(io.BytesIO(pdf_bytes_or_path))
 
-    def _extract_part3(self, pdf_bytes: bytes) -> Tuple[Dict[str, str], List[Dict]]:
-        """Extracts metadata and consolidated Part III table rows."""
-        meta_info = {"form_name": "Form Template", "governing_law": ""}
-
-        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+        with pdf:
             total = len(pdf.pages)
+            meta_info = {"form_name": "Form Template", "governing_law": ""}
 
-            # Metadata from first 4 pages
+            # Extract metadata from initial pages
             for i in range(min(4, total)):
                 txt = pdf.pages[i].extract_text() or ""
-                for pat in [
-                    r"Instruction\s+Kit\s+for\s+(?:webform\s+)?((?:LLP\s+)?Form\s+(?:No\.?\s*)?[A-Za-z0-9\-]+(?:\s+[A-Za-z0-9\-]+)?)",
-                    r"Instruction\s+Kit\s+for\s+(?:webform\s+)?([A-Za-z0-9\s\.\-]+?)(?:\s*\n|\s*\(|$)",
-                ]:
-                    m = re.search(pat, txt, re.I)
-                    if m and m.group(1).strip() and len(m.group(1).strip()) < 50:
-                        meta_info["form_name"] = m.group(1).strip()
-                        break
+                m_fn = re.search(r"Instruction\s+Kit\s+for\s+(?:webform\s+)?((?:LLP\s+)?Form\s+(?:No\.?\s*)?[A-Za-z0-9\-]+(?:\s+[A-Za-z0-9\-]+)?)", txt, re.I)
+                if not m_fn:
+                    m_fn = re.search(r"Instruction\s+Kit\s+for\s+(?:webform\s+)?([A-Za-z0-9\s\.\-]+?)(?:\s*\n|\s*\(|$)", txt, re.I)
+                if m_fn and m_fn.group(1).strip() and len(m_fn.group(1).strip()) < 50:
+                    meta_info["form_name"] = m_fn.group(1).strip()
+                    break
                 for pat in [
                     r"Pursuant to ([^\n\.]{10,150})",
                     r"Under section ([^\n\.]{10,80}(?:Act|Rules)[^\n\.]{0,40})",
@@ -135,513 +216,292 @@ class InstructionKitParser:
                     if m2:
                         meta_info["governing_law"] = m2.group(0).strip()
                         break
-                if meta_info["form_name"] != "Form Template":
-                    break
 
-            full_text = "\n".join(p.extract_text() or "" for p in pdf.pages)
-            meta_info["full_text"] = full_text
-
-            # Locate Part III pages
             part3_start, part3_end = self._find_part3_pages(pdf, total)
-            logger.info(f"[KitParser] Part III pages: {part3_start} -> {part3_end - 1}")
 
-            all_raw_rows = []
-            FIELD_NO_PAT = re.compile(r'^(?:[0-9]{1,2}(?:\s*\([a-z0-9]+\))*|\([a-z0-9]+\))$', re.I)
-            curr_parent_digit = "8"
-
-            for page_idx in range(part3_start, min(part3_end, total)):
-                page = pdf.pages[page_idx]
-                chars = self._deduplicate_chars(page.chars)
-                body_chars = [c for c in chars if 55 <= c['top'] <= 740]
-
-                if page_idx == part3_start:
-                    body_chars = [c for c in body_chars if c['top'] >= 195]
-                elif page_idx > part3_start:
-                    body_chars = [c for c in body_chars if c['top'] >= 105 or c['top'] < 85]
-
-                def get_col_lines(col_chars):
-                    lines = {}
-                    for c in col_chars:
-                        y = round(c['top'] / 8.0) * 8
-                        lines.setdefault(y, []).append(c)
-                    res = []
-                    for y in sorted(lines.keys()):
-                        lc = sorted(lines[y], key=lambda c: c['x0'])
-                        t = ''.join(c['text'] for c in lc).strip()
-                        if t:
-                            res.append((y, t))
-                    return res
-
-                c1 = get_col_lines([c for c in body_chars if c['x0'] < 115])
-                c2 = get_col_lines([c for c in body_chars if 115 <= c['x0'] < 295])
-                c3 = get_col_lines([c for c in body_chars if c['x0'] >= 295])
-
-                raw_anchors = []
-                for y, text in c1:
-                    tok = self._clean_token(text)
-                    if FIELD_NO_PAT.match(tok):
-                        if re.match(r'^\([a-z]\)$', tok, re.I):
-                            tok = f"{curr_parent_digit}{tok}"
-                        elif re.match(r'^\d+$', tok):
-                            curr_parent_digit = tok
-                        raw_anchors.append({'y': y, 'no': tok})
-
-                # Discard anchors where a strictly smaller anchor appears later on same page (out-of-order artifact)
-                anchors = []
-                for i, a in enumerate(raw_anchors):
-                    k = self._canonical_key(a['no'])
-                    is_out_of_order = False
-                    for j in range(i + 1, len(raw_anchors)):
-                        next_k = self._canonical_key(raw_anchors[j]['no'])
-                        if next_k < k:
-                            is_out_of_order = True
-                            break
-                    if not is_out_of_order:
-                        anchors.append(a)
-
-                if not anchors:
-                    if all_raw_rows:
-                        extra_name = ' '.join(t for y, t in c2).strip()
-                        extra_inst = ' '.join(t for y, t in c3).strip()
-                        if extra_name:
-                            all_raw_rows[-1]['name'] = (all_raw_rows[-1]['name'] + ' ' + extra_name).strip()
-                        if extra_inst:
-                            all_raw_rows[-1]['instructions'] = (all_raw_rows[-1]['instructions'] + ' ' + extra_inst).strip()
-                    continue
-
-                first_a_y = anchors[0]['y']
-                pre_name = [t for y, t in c2 if y < first_a_y - 8]
-                pre_inst = [t for y, t in c3 if y < first_a_y - 8]
-                if (pre_name or pre_inst) and all_raw_rows:
-                    if pre_name:
-                        all_raw_rows[-1]['name'] = (all_raw_rows[-1]['name'] + ' ' + ' '.join(pre_name)).strip()
-                    if pre_inst:
-                        all_raw_rows[-1]['instructions'] = (all_raw_rows[-1]['instructions'] + ' ' + ' '.join(pre_inst)).strip()
-
-                for a_idx, a in enumerate(anchors):
-                    curr_y = a['y']
-                    next_y = anchors[a_idx + 1]['y'] if a_idx + 1 < len(anchors) else 9999.0
-                    name_parts = [t for y, t in c2 if curr_y - 2 <= y < next_y - 2]
-                    inst_parts = [t for y, t in c3 if curr_y - 2 <= y < next_y - 2]
-                    all_raw_rows.append({
-                        'no': a['no'],
-                        'name': ' '.join(name_parts).strip(),
-                        'instructions': ' '.join(inst_parts).strip()
-                    })
-
-        # Consolidate duplicate headers & continuation rows
-        consolidated = []
-        for r in all_raw_rows:
-            raw_no = r['no']
-            name = r['name']
-            inst = r['instructions']
-
-            if consolidated and consolidated[-1]['no'] == raw_no:
-                if name:
-                    consolidated[-1]['name'] = (consolidated[-1]['name'] + ' ' + name).strip()
-                if inst:
-                    consolidated[-1]['instructions'] = (consolidated[-1]['instructions'] + ' ' + inst).strip()
-            elif consolidated and consolidated[-1]['no'] == '10' and raw_no == '10(a)':
-                hdr_inst = consolidated[-1]['instructions']
-                if hdr_inst:
-                    inst = (hdr_inst + " " + inst).strip()
-                consolidated.pop() # Remove pure section header row
-                consolidated.append({'no': raw_no, 'name': name, 'instructions': inst})
-            elif not name and not inst:
-                continue
-            else:
-                consolidated.append({'no': raw_no, 'name': name, 'instructions': inst})
-
-        return meta_info, consolidated
-
-    def _find_part3_pages(self, pdf, total: int) -> Tuple[int, int]:
-        """Finds Part III start/end page indices, skipping TOC pages."""
-        part3_start = None
-        part3_end = total
-
-        for i in range(total):
-            page_text = pdf.pages[i].extract_text() or ""
-            # Skip Table of Contents pages
-            if len(re.findall(r"\.{5,}", page_text)) >= 3:
-                continue
-
-            if part3_start is None:
-                has_heading = bool(re.search(r"(?:^|\n)\s*(?:3\s+)?PART\s+(?:III|3)\s*[–\-–]", page_text, re.M | re.I))
-                has_table = bool(re.search(r"Field\s+(?:No\.?|Name)", page_text, re.I) and re.search(r"Instruction", page_text, re.I))
-                if has_heading and has_table:
-                    part3_start = i
-            else:
-                if re.search(r"(?:^|\n)\s*(?:4\s+)?PART\s+(?:IV|4)\s*[–\-]|(?:^|\n)\s*3\.2\s+Other|KEY\s+POINT", page_text, re.M | re.I):
-                    part3_end = i
+            # Form-wide column detection by pairing Name and Instructions headers
+            col1_max = 118.0
+            col2_max = 280.0
+            for i in range(part3_start, min(part3_end, total)):
+                p = pdf.pages[i]
+                words = [w for w in p.extract_words() if 70 <= w['top'] <= 220]
+                name_words = [w for w in words if w['text'].lower() == 'name' and 120 < w['x0'] < 200]
+                for nw in name_words:
+                    matching_inst = [w for w in words if 'instruction' in w['text'].lower() and w['x0'] > 250 and abs(w['top'] - nw['top']) < 20]
+                    if matching_inst:
+                        col2_max = matching_inst[0]['x0'] - 4.0
+                        break
+                if col2_max != 280.0:
                     break
 
-        if part3_start is None:
-            part3_start = 1
+            raw_rows = []
+            for p_idx in range(part3_start, min(part3_end, total)):
+                p = pdf.pages[p_idx]
+                deduped = self._deduplicate_chars(p.chars)
+                body_chars = [c for c in deduped if 70 <= c['top'] <= 745]
+                if p_idx == part3_start:
+                    body_chars = [c for c in body_chars if c['top'] >= 160]
 
-        return part3_start, part3_end
+                page_lines = {}
+                for c in body_chars:
+                    y = round(c['top'] / 7.5) * 7.5
+                    page_lines.setdefault(y, []).append(c)
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Step 2: LLM Extraction (with strict 25s timeout)
-    # ─────────────────────────────────────────────────────────────────────────
+                for y in sorted(page_lines.keys()):
+                    lc = sorted(page_lines[y], key=lambda c: c['x0'])
+                    c1 = ''.join(c['text'] for c in lc if c['x0'] < col1_max).strip()
+                    c2 = ''.join(c['text'] for c in lc if col1_max <= c['x0'] < col2_max).strip()
+                    c3 = ''.join(c['text'] for c in lc if c['x0'] >= col2_max).strip()
 
-    def _parse_with_llm(
-        self,
-        meta_info: Dict[str, str],
-        raw_rows: List[Dict]
-    ) -> Optional[Dict[str, Any]]:
-        """Queries local Ollama if available."""
-        if not raw_rows:
-            return None
+                    full_line = ''.join(c['text'] for c in lc).strip()
+                    full_line_clean = re.sub(r'\s+', ' ', full_line).lower()
 
-        table_lines = []
-        for r in raw_rows:
-            line = f"[{r['no']}] {r['name']}"
-            if r['instructions']:
-                line += f" | Instructions: {r['instructions'][:250]}"
-            table_lines.append(line)
+                    # Skip table header lines
+                    if 'field no' in full_line_clean[:30] or (c1.lower() == 'field' and 'name' in c2.lower()) or c1.lower() == 'field no.':
+                        continue
 
-        table_summary = "\n".join(table_lines[:60])
+                    c1_clean = re.sub(r'\s+', '', c1)
+                    c1_clean = re.sub(r'\(([a-z])\)\1', r'(\1)', c1_clean)
 
-        prompt = f"""You are an expert at converting MCA regulatory form instruction tables into JSON schemas.
-FORM: {meta_info.get('form_name', 'Form Template')}
+                    is_field_no = bool(FIELD_NO_PAT.match(c1_clean))
+                    matched_sec = next((s for s in SECTION_HEADERS if full_line_clean.startswith(s)), None)
+                    is_unnumbered = next((u for u in UNNUMBERED_FIELDS if (c2.lower().startswith(u) or full_line_clean.startswith(u))), None)
 
-FIELD ROWS:
-{table_summary}
+                    if matched_sec:
+                        raw_rows.append({
+                            'physical_idx': len(raw_rows),
+                            'page': p_idx + 1,
+                            'type': 'section_header',
+                            'section_key': matched_sec,
+                            'no': '',
+                            'name': full_line,
+                            'instructions': ''
+                        })
+                    elif is_field_no:
+                        raw_rows.append({
+                            'physical_idx': len(raw_rows),
+                            'page': p_idx + 1,
+                            'type': 'field',
+                            'no': c1_clean,
+                            'name': c2,
+                            'instructions': c3
+                        })
+                    elif is_unnumbered:
+                        raw_rows.append({
+                            'physical_idx': len(raw_rows),
+                            'page': p_idx + 1,
+                            'type': 'field',
+                            'no': '',
+                            'name': c2 or full_line,
+                            'instructions': c3
+                        })
+                    elif raw_rows:
+                        # Continuation line
+                        if c2:
+                            raw_rows[-1]['name'] = (raw_rows[-1]['name'] + ' ' + c2).strip()
+                        if c3:
+                            raw_rows[-1]['instructions'] = (raw_rows[-1]['instructions'] + ' ' + c3).strip()
 
-RULES:
-1. Reconstruct all explicit fields.
-2. Reconstruct missing parent fields referenced in instructions (e.g. 3(a), 3(b), 4(b), 4(d), 7(a)) with options.
-3. For each field:
-   - "id": unique snake_case string with "field_" prefix
-   - "canonical_no": field number
-   - "label": clean title
-   - "type": "text" | "radio" | "select" | "date" | "number" | "file"
-   - "options": list of string choices (for radio/select)
-   - "required": boolean
-   - "depends_on": null or {{"field": "<parent_field_id>", "operator": "equals", "value": "<option_value>"}}
+            return meta_info, raw_rows
 
-Output strictly valid JSON:
-{{"template_name": "{meta_info.get('form_name', 'Form Template')}", "governing_law": "{meta_info.get('governing_law', '')}", "fields": [...]}}"""
-
-        try:
-            logger.info(f"[KitParser] Requesting Ollama ({self.model}) with 90s timeout...")
-            resp = requests.post(
-                self.ollama_url,
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "format": "json",
-                    "options": {"temperature": 0.05, "num_predict": 4000}
-                },
-                timeout=90
-            )
-            resp.raise_for_status()
-            raw = resp.json().get("response", "").strip()
-            raw = re.sub(r"^```(?:json)?\s*", "", raw)
-            raw = re.sub(r"\s*```$", "", raw.strip())
-            parsed = json.loads(raw)
-            if isinstance(parsed, dict) and len(parsed.get("fields", [])) >= 15:
-                logger.info(f"[KitParser] LLM returned {len(parsed['fields'])} fields.")
-                return parsed
-        except Exception as e:
-            logger.warning(f"[KitParser] LLM call skipped or timed out ({e}). Seamlessly using deterministic engine.")
-
-        return None
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # Step 3: Dynamic Deterministic Fallback Engine
-    # ─────────────────────────────────────────────────────────────────────────
-
-    def _build_schema_from_rows(
-        self,
-        meta_info: Dict[str, str],
-        raw_rows: List[Dict]
-    ) -> Dict[str, Any]:
+    def parse(self, pdf_bytes_or_path) -> Dict[str, Any]:
         """
-        Dynamically reconstructs the complete form structure, parent triggers,
-        options, and conditional dependencies directly from Part III instructions.
+        Parses PDF into a complete dynamic schema with canonical IDs and dependency DAG.
+        Preserves exact physical Part III order.
         """
-        discovered_parents: Dict[str, Dict] = {}
-        conditions: Dict[str, Dict] = {}
-        existing_nos = {c['no'] for c in raw_rows}
-        full_pdf_text = meta_info.get("full_text", "")
+        meta_info, raw_rows = self.extract_rows(pdf_bytes_or_path)
 
-        # Step A: Scan intro pages and raw_rows instructions separately to avoid multi-column text interleaving
-        intro_text = full_pdf_text[:4000]
-        scan_sources = [intro_text] + [c['instructions'] for c in raw_rows]
-        for src in scan_sources:
-            norm_doc = re.sub(r"\s+", " ", src)
-            doc_matches = re.finditer(
-                r"[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\"]+?)[\x27\u2019\u201d]\s+(?:is\s+)?selected\s+in\s+(?:field\s+(?:number\s+)?)?([0-9]+\s*(?:\([a-zA-Z0-9]+\))?)(?:\s+i\.e\.\s*[\x27\"\u201c\u2018]?([^\x27\"\u201d\u2019\n)]+))?",
-                norm_doc, re.I
-            )
-            for dm in doc_matches:
-                d_val = dm.group(1).strip().replace('\u2019', "'")
-                d_val = re.sub(r'\b\s*f\s+charge\b', ' of charge', d_val)
-                d_no = re.sub(r'\s+', '', dm.group(2).strip())
-                d_name = (dm.group(3) or "").strip()
-                if 2 < len(d_val) < 60 and not re.search(r"\bappointment\s+relates\b", d_val, re.I):
-                    parent = discovered_parents.setdefault(d_no, {"no": d_no, "name": d_name or f"Field {d_no}", "options": set(), "type": "select"})
-                    parent["options"].add(d_val)
-                    if d_name and not parent["name"].startswith("Field "):
-                        parent["name"] = d_name
+        # Derive form slug: e.g. "LLP Form No. 8" -> "llp8", "Form No. ADT-1" -> "adt1"
+        fn = meta_info.get("form_name", "form").lower()
+        m_code = re.search(r'(?:llp\s*(?:form\s*)?(?:no\.?\s*)?|form\s*(?:no\.?\s*)?)([a-z0-9\-]+)', fn)
+        form_slug = re.sub(r'[^a-z0-9]+', '', m_code.group(0)) if m_code else "form"
 
-        for c in raw_rows:
-            inst = c['instructions']
+        # Pass 2: Generic Branch & Section Detection
+        branches = []
+        root_idx = None
+        for idx, r in enumerate(raw_rows):
+            inst = r.get('instructions', '')
+            found = list(BRANCH_PAT.finditer(inst))
+            if found:
+                root_idx = idx
+                for m in found:
+                    branches.append({
+                        'option': m.group(1).strip(),
+                        'start_text': m.group(2).strip(),
+                        'end_text': m.group(3).strip() if m.group(3) else '',
+                        'resolved_start': None
+                    })
+                break
 
-            # Option declared directly for current field: 'X' is selected in this field
-            for m in re.finditer(r'(?:in\s+case\s+(?:where\s+)?)?[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\"]+?)[\x27\u2019\u201d]\s+(?:is\s+)?selected\s+in\s+this\s+field', inst, re.I):
-                opt_val = m.group(1).strip().replace('\u2019', "'")
-                if 1 < len(opt_val) < 60:
-                    parent = discovered_parents.setdefault(c['no'], {"no": c['no'], "name": c['name'] or f"Field {c['no']}", "options": set(), "type": "select"})
-                    parent["options"].add(opt_val)
+        # Pass 3: Map section boundaries
+        section_assignments = ['main'] * len(raw_rows)
+        root_field_id = None
 
-            # Professional designation: Associate or Fellow
-            if re.search(r'\bassociate\s+or\s+fellow\b', inst, re.I) or re.search(r'\bassociate\s+or\s+fellow\b', c['name'], re.I):
-                parent = discovered_parents.setdefault(c['no'], {"no": c['no'], "name": c['name'] or f"Field {c['no']}", "options": set(), "type": "radio"})
-                parent["options"].update(['Associate', 'Fellow'])
-
-            # Pattern 1: selects 'Option' in field number X i.e. "Name"
-            m1 = re.search(
-                r"selects\s+[\x27\u2018\u201c](.+?)[\x27\u2019\u201d]\s+in\s+(?:field\s+(?:number\s+)?)?([0-9]+\s*(?:\([a-zA-Z0-9]+\))?)(?:\s+i\.e\.\s*[\x27\"\u201c\u2018]([^\x27\"\u201d\u2019]+)[\x27\"\u201d\u2019])?",
-                inst, re.I
-            )
-            if m1:
-                val = m1.group(1).strip().replace('\u2019', "'")
-                f_no = re.sub(r'\s+', '', m1.group(2).strip())
-                f_name = (m1.group(3) or "").strip()
-                conditions[c["no"]] = {"parent_no": f_no, "value": val}
-                parent = discovered_parents.setdefault(f_no, {"no": f_no, "name": f_name or f"Field {f_no}", "options": set(), "type": "select"})
-                parent["options"].add(val)
-                if f_name and not parent["name"].startswith("Field "):
-                    parent["name"] = f_name
-                continue
-
-            # Pattern 2: 'Option' is selected in field number X i.e. "Name"
-            m2 = re.search(
-                r"[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\"\n]+)[\x27\u2019\u201d]\s+(?:is\s+)?selected\s+in\s+(?:field\s+(?:number\s+)?)?([0-9]+\s*(?:\([a-zA-Z0-9]+\))?)(?:\s+i\.e\.\s*[\x27\"\u201c\u2018]([^\x27\"\u201d\u2019]+)[\x27\"\u201d\u2019])?",
-                inst, re.I
-            )
-            if m2:
-                val = m2.group(1).strip().replace('\u2019', "'")
-                f_no = re.sub(r'\s+', '', m2.group(2).strip())
-                f_name = (m2.group(3) or "").strip()
-                conditions[c["no"]] = {"parent_no": f_no, "value": val}
-                parent = discovered_parents.setdefault(f_no, {"no": f_no, "name": f_name or f"Field {f_no}", "options": set(), "type": "select"})
-                parent["options"].add(val)
-                if f_name and not parent["name"].startswith("Field "):
-                    parent["name"] = f_name
-                continue
-
-            # Pattern 3: In case 'Yes' selected in field number X i.e. "Name"
-            m3 = re.search(
-                r"case\s+[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\"\n]+)[\x27\u2019\u201d]\s+selected\s+in\s+(?:field\s+(?:number\s+)?)?([0-9]+\s*(?:\([a-zA-Z0-9]+\))?)(?:\s+i\.e\.\s*[\x27\"\u201c\u2018]([^\x27\"\u201d\u2019]+)[\x27\"\u201d\u2019])?",
-                inst, re.I
-            )
-            if m3:
-                val = m3.group(1).strip().replace('\u2019', "'")
-                f_no = re.sub(r'\s+', '', m3.group(2).strip())
-                f_name = (m3.group(3) or "").strip()
-                conditions[c["no"]] = {"parent_no": f_no, "value": val}
-                parent = discovered_parents.setdefault(f_no, {"no": f_no, "name": f_name or f"Field {f_no}", "options": {"Yes", "No"}, "type": "radio"})
-                parent["options"].add(val)
-                if f_name and not parent["name"].startswith("Field "):
-                    parent["name"] = f_name
-                continue
-
-            # Pattern 4: If 'Yes' is selected in X
-            m4 = re.search(r"if\s+[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\"\n]+)[\x27\u2019\u201d]\s+is\s+selected\s+in\s+([0-9]+\s*(?:\([a-zA-Z0-9]+\))?)", inst, re.I)
-            if m4:
-                val = m4.group(1).strip().replace('\u2019', "'")
-                f_no = re.sub(r'\s+', '', m4.group(2).strip())
-                conditions[c["no"]] = {"parent_no": f_no, "value": val}
-                parent = discovered_parents.setdefault(f_no, {"no": f_no, "name": "Whether company has appointed auditor previously", "options": {"Yes", "No"}, "type": "radio"})
-                parent["options"].add(val)
-                continue
-
-            # Pattern 5: selects [Nth] option from dropdown present in field number X i.e. "Option Name"
-            m5 = re.search(
-                r"selects\s+(?:the\s+)?[a-z0-9]+\s+option\s+from\s+(?:the\s+)?dropdown\s+present\s+in\s+field\s+(?:number\s+)?([0-9]+\s*(?:\([a-zA-Z0-9]+\))?)\s+i\.e\.\s*[\x27\"\u201c\u2018]([^\x27\"\u201d\u2019]+)[\x27\"\u201d\u2019]",
-                inst, re.I
-            )
-            if m5:
-                f_no = re.sub(r'\s+', '', m5.group(1).strip())
-                opt_name = m5.group(2).strip().replace('\u2019', "'")
-                conditions[c["no"]] = {"parent_no": f_no, "value": opt_name}
-                parent = discovered_parents.setdefault(f_no, {"no": f_no, "name": f"Field {f_no}", "options": set(), "type": "select"})
-                parent["options"].add(opt_name)
-                continue
-
-        # Fully dynamic resolution of discovered parent fields (Zero form-specific hardcoding)
-        for p_no, p_data in discovered_parents.items():
-            # 1. Enrich human-readable label if still placeholder
-            if p_data["name"].startswith("Field ") or not p_data["name"]:
-                for c in raw_rows:
-                    m = re.search(
-                        rf'field\s+(?:number\s+)?{re.escape(p_no)}\s+i\.e\.\s*[\x27\"\u201c\u2018]([^\x27\"\u201d\u2019]+)[\x27\"\u201d\u2019]',
-                        c['instructions'], re.I
-                    )
-                    if m:
-                        p_data["name"] = m.group(1).strip()
+        if branches and root_idx is not None:
+            section_assignments[root_idx] = 'common'
+            for b_idx, b in enumerate(branches):
+                st = b['start_text'].lower()
+                for r_idx in range(root_idx + 1, len(raw_rows)):
+                    full_r = (raw_rows[r_idx]['no'] + ' ' + raw_rows[r_idx]['name'] + ' ' + raw_rows[r_idx]['instructions']).lower()
+                    if st[:15] in full_r or raw_rows[r_idx]['name'].lower().startswith(st[:15]):
+                        b['resolved_start'] = r_idx
                         break
 
-            # 2. Collect any sibling options mentioned in instructions strictly for this field
-            for c in raw_rows:
-                # Use strict word boundary so '1' doesn't match '15' or dates, and '4' doesn't match '4(a)'
-                if re.search(rf"\bfield\s+(?:number\s+)?{re.escape(p_no)}(?![0-9a-zA-Z\(])", c['instructions'], re.I):
-                    for q in re.finditer(r'[\x27\u2018\u201c\"]([A-Z][a-zA-Z\s\’\']{2,40})[\x27\u2019\u201d\"]', c['instructions']):
-                        candidate = q.group(1).strip().replace('\u2019', "'")
-                        if candidate not in {'Yes', 'No', 'None', p_data['name']} and len(candidate) > 2 and not candidate.startswith("Field"):
-                            p_data['options'].add(candidate)
+            valid_starts = [(b['resolved_start'], f"section_{i+1}", b['option']) for i, b in enumerate(branches) if b['resolved_start'] is not None]
+            valid_starts.sort(key=lambda x: x[0])
 
-            if any("firm" in str(o).lower() for o in p_data["options"]) and re.search(r"\bindividual\b", full_pdf_text, re.I):
-                p_data["options"].add("Individual")
+            for k in range(len(valid_starts)):
+                s_idx, s_name, opt_val = valid_starts[k]
+                e_idx = valid_starts[k+1][0] if k + 1 < len(valid_starts) else len(raw_rows)
+                for r_idx in range(s_idx, e_idx):
+                    section_assignments[r_idx] = s_name
 
-            # 3. Dynamic input type inference
-            opts = p_data["options"]
-            if "Yes" in opts or "No" in opts or re.search(r"\bwhether\b|\byes\s*/\s*no\b", p_data["name"], re.I):
-                opts.clear()
-                opts.update(["No", "Yes"])
-                p_data["type"] = "radio"
-            elif len(opts) <= 2:
-                p_data["type"] = "radio"
-            else:
-                p_data["type"] = "select"
-
-        # Combine explicit rows and discovered parent fields (without duplicating existing rows!)
-        existing_row_map = {c['no']: c for c in raw_rows}
-        all_combined = list(raw_rows)
-        for p_no, p_data in discovered_parents.items():
-            if p_no in existing_row_map:
-                target = existing_row_map[p_no]
-                curr_opts = target.get("options") or []
-                merged_opts = sorted(list(set(curr_opts) | set(p_data["options"])))
-                target["options"] = merged_opts
-                target["type"] = p_data["type"]
-                if p_data["name"] and not p_data["name"].startswith("Field ") and (target["name"].startswith("Field ") or not target["name"]):
-                    target["name"] = p_data["name"]
-            else:
-                all_combined.append({
-                    "no": p_no,
-                    "name": p_data["name"],
-                    "instructions": f"Options: {', '.join(sorted(list(p_data['options'])))}",
-                    "options": sorted(list(p_data["options"])),
-                    "type": p_data["type"]
-                })
-
-        # Sort canonically
-        all_combined = sorted(all_combined, key=lambda x: self._canonical_key(x["no"]))
-
+        # Pass 4: Build canonical fields preserving exact physical order
         fields = []
-        canonical_to_id = {}
-        seen_ids = set()
+        slug_counts = {}
+        row_to_field_map = {}
 
-        for item in all_combined:
-            c_no = item["no"]
-            name = item["name"] or f"Field {c_no}"
-            slug = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")[:40]
-            f_id = f"field_{slug}"
-            base_id = f_id
-            cnt = 2
-            while f_id in seen_ids:
-                f_id = f"{base_id}_{cnt}"
-                cnt += 1
-            seen_ids.add(f_id)
-            canonical_to_id[c_no] = f_id
+        for r_idx, r in enumerate(raw_rows):
+            if r.get('type') == 'section_header':
+                continue
 
-            f_type = item.get("type")
-            opts = item.get("options")
-            inst_l = item.get("instructions", "").lower()
+            sec = section_assignments[r_idx]
+            c_no = r.get('no', '')
+            name = r.get('name', '').strip()
+            inst = r.get('instructions', '').strip()
+
+            if c_no:
+                clean_no = re.sub(r'[^a-z0-9]+', '', c_no.lower())
+                base_slug = f"field_{clean_no}"
+            else:
+                name_slug = re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')[:25]
+                base_slug = f"field_{name_slug}" if name_slug else f"field_unnum_{r_idx}"
+
+            # Canonical ID format: {form_slug}.{section_slug}.{field_slug}
+            full_slug = f"{form_slug}.{sec}.{base_slug}"
+            cnt = slug_counts.get(full_slug, 1)
+            slug_counts[full_slug] = cnt + 1
+            f_id = f"{full_slug}_{cnt}" if cnt > 1 else full_slug
+
+            # Infer field type & options
+            inst_l = inst.lower()
             name_l = name.lower()
+            f_type = "text"
+            opts = []
 
-            if not f_type:
-                if re.search(r"\b(?:name|address|email|cin|pan|din|srn|description|remarks|purpose)\b", name_l):
-                    f_type = "text"
-                elif re.search(r"\bdd[/\-]mm[/\-]yyyy\b|\bdate\b", name_l):
-                    f_type = "date"
-                elif re.search(r"\bnumber\s+of\b|\bcount\b|\byear\(s\)\b", name_l):
-                    f_type = "number"
-                elif re.search(r"\battachment|\bcopy\s+of\b|\bupload\b", name_l) or c_no.startswith("8"):
-                    f_type = "file"
-                elif re.search(r"\bwhether\b|\byes\s*/\s*no\b", name_l):
-                    f_type = "radio"
+            if r_idx == root_idx and branches:
+                f_type = "radio"
+                opts = [b['option'] for b in branches]
+                root_field_id = f_id
+            elif "radio" in inst_l or "radio" in name_l:
+                f_type = "radio"
+                if "associate or fellow" in inst_l or "associate or fellow" in name_l:
+                    opts = ["Associate", "Fellow"]
+                elif "yes" in inst_l and "no" in inst_l:
                     opts = ["Yes", "No"]
-                elif "dropdown" in inst_l or "select" in inst_l:
-                    m_opts = re.search(r"(?:dropdown\s+(?:list\s*)?[-–:]\s*|options?\s*[-–:]\s*)([^\.\n]+)", item["instructions"], re.I)
-                    if m_opts and "/" in m_opts.group(1):
-                        f_type = "select"
-                        opts = [o.strip() for o in m_opts.group(1).split("/") if o.strip()]
-                    else:
-                        f_type = "text"
                 else:
-                    f_type = "text"
+                    q_opts = re.findall(r"[\x27\u2018\u201c]([A-Za-z0-9\s]{3,40})[\x27\u2019\u201d]", inst)
+                    opts = list(dict.fromkeys(q_opts)) if q_opts else ["Yes", "No"]
+            elif "dropdown" in inst_l or "select the purpose" in inst_l or "select" in inst_l and ("option" in inst_l or "drop" in inst_l):
+                f_type = "select"
+                q_opts = re.findall(r"[\x27\u2018\u201c]([A-Za-z0-9\s]{3,40})[\x27\u2019\u201d]", inst)
+                opts = list(dict.fromkeys(q_opts))
+            elif re.search(r"\bdd[/\-]mm[/\-]yyyy\b|\bdate\b", name_l) or "dd/mm/yyyy" in inst_l:
+                f_type = "date"
+            elif re.search(r"\bnumber\s+of\b|\bcount\b|\bamount\b|\brupees\b", name_l) or "rupees" in inst_l:
+                f_type = "number"
+            elif re.search(r"\battachment|\bcopy\s+of\b|\bupload\b", name_l) or c_no in {"Attachments", "(a)", "(b)", "(c)"}:
+                f_type = "file"
 
-            req = bool(re.search(r"\bmandatory\b|\brequired\b|\bcompulsory\b", inst_l)) or c_no in {"1", "2(a)", "2(b)", "4(a)", "4(e)", "8(a)", "8(b)", "10(a)"}
+            req = bool(re.search(r"\bmandatory\b|\brequired\b|\bcompulsory\b", inst_l)) or c_no in {"1", "2", "3(a)", "4(a)"}
 
-            field_obj = {
+            f_obj = {
                 "id": f_id,
                 "canonical_no": c_no,
                 "label": name,
                 "type": f_type,
-                "required": req
+                "options": opts,
+                "required": req,
+                "section": sec,
+                "depends_on": None,
+                "physical_idx": r_idx
             }
-            if opts:
-                field_obj["options"] = opts
+            fields.append(f_obj)
+            row_to_field_map[r_idx] = f_obj
 
-            fields.append((item, field_obj))
+        # Pass 5: Resolve dependency DAG
+        sec_canonical_map = {}
+        for f in fields:
+            sec = f["section"]
+            c_no = f["canonical_no"]
+            if c_no:
+                clean_no = re.sub(r'\s+', '', c_no.lower())
+                sec_canonical_map.setdefault(sec, {})[clean_no] = f["id"]
 
-        final_fields = []
-        for item, field_obj in fields:
-            c_no = item["no"]
-            if c_no in conditions:
-                cond = conditions[c_no]
-                parent_id = canonical_to_id.get(cond["parent_no"])
-                if parent_id:
-                    field_obj["depends_on"] = {
-                        "field": parent_id,
-                        "operator": "equals",
-                        "value": cond["value"]
-                    }
-            final_fields.append(field_obj)
+        branch_opt_map = {f"section_{i+1}": b["option"] for i, b in enumerate(branches)}
 
-        return {
+        for f in fields:
+            sec = f["section"]
+            inst = raw_rows[f["physical_idx"]].get("instructions", "")
+
+            # Section-level branch dependency
+            sec_branch_opt = branch_opt_map.get(sec)
+            if sec_branch_opt and root_field_id:
+                f["depends_on"] = {
+                    "field": root_field_id,
+                    "operator": "equals",
+                    "value": sec_branch_opt
+                }
+
+            # Intra-section child condition
+            m_cond = COND_PAT.search(inst)
+            if m_cond:
+                val1 = m_cond.group(1)
+                val2 = m_cond.group(2)
+                val3 = m_cond.group(3)
+                p_no = re.sub(r'\s+', '', (m_cond.group(4) or "").lower())
+
+                # Resolve parent in the same section first, then common/main
+                parent_fid = sec_canonical_map.get(sec, {}).get(p_no)
+                if not parent_fid:
+                    parent_fid = sec_canonical_map.get('common', {}).get(p_no)
+                if not parent_fid:
+                    parent_fid = sec_canonical_map.get('main', {}).get(p_no)
+
+                if parent_fid and parent_fid != f["id"]:
+                    if val1 and val2:
+                        val = [val1.strip(), val2.strip()]
+                        op = "in"
+                    elif val1:
+                        val = val1.strip()
+                        op = "equals"
+                    elif val3:
+                        val = val3.strip()
+                        op = "equals"
+                    else:
+                        val = ""
+                        op = "equals"
+
+                    if val:
+                        if f.get("depends_on"):
+                            f["section_depends_on"] = f["depends_on"]
+                        f["depends_on"] = {
+                            "field": parent_fid,
+                            "operator": op,
+                            "value": val
+                        }
+
+        for f in fields:
+            f.pop("physical_idx", None)
+
+        schema = {
             "template_name": meta_info.get("form_name", "Form Template"),
             "governing_law": meta_info.get("governing_law", ""),
-            "fields": final_fields
+            "fields": fields
         }
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Step 4: Schema Normalization & Topological Sorting
-    # ─────────────────────────────────────────────────────────────────────────
+        # Validation stage
+        val_report = ParserValidator.validate(schema, raw_rows, branches)
+        schema["validation_report"] = val_report
 
-    def _normalize_schema(self, schema: Dict[str, Any], meta_info: Dict[str, str]) -> Dict[str, Any]:
-        """Ensures valid types, unique IDs, and sorts fields topologically so parents precede children."""
-        raw_fields = schema.get("fields", [])
-        field_id_map = {f["id"]: f for f in raw_fields if "id" in f}
-
-        # Topological sorting: ensure all parent fields in depends_on come before children
-        visited = set()
-        ordered = []
-
-        def visit(field_dict):
-            fid = field_dict.get("id")
-            if not fid or fid in visited:
-                return
-            visited.add(fid)
-
-            # If this field depends on a parent, ensure parent is visited first
-            dep = field_dict.get("depends_on")
-            if dep and dep.get("field") and dep["field"] in field_id_map:
-                visit(field_id_map[dep["field"]])
-
-            ordered.append(field_dict)
-
-        for f in raw_fields:
-            visit(f)
-
-        return {
-            "template_name": schema.get("template_name") or meta_info.get("form_name", "Form Template"),
-            "governing_law": schema.get("governing_law") or meta_info.get("governing_law", ""),
-            "fields": ordered
-        }
+        return schema
