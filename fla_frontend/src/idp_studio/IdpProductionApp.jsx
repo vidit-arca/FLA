@@ -20,13 +20,17 @@ import {
   Eye,
   Send,
   ShieldCheck,
-  Scale
+  Scale,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { idpClient } from './api/idpClient';
 import FilledFormViewer from './components/FilledFormViewer';
 import ExtractionBranchGateModal from './components/ExtractionBranchGateModal';
+import { useTheme } from '../context/ThemeContext';
 
 export default function IdpProductionApp() {
+  const { isDarkMode, toggleTheme } = useTheme();
   const [templates, setTemplates] = useState([]);
   const [templateName, setTemplateName] = useState('');
   const [uploadedFiles, setUploadedFiles] = useState([]);
@@ -598,6 +602,14 @@ export default function IdpProductionApp() {
             <span>Studio</span>
             <ExternalLink className="w-3.5 h-3.5" />
           </a>
+
+          <button
+            onClick={toggleTheme}
+            className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 transition-colors border border-slate-200 dark:border-white/10"
+            title="Toggle Light / Dark Mode"
+          >
+            {isDarkMode ? <Sun className="w-3.5 h-3.5 text-amber-400" /> : <Moon className="w-3.5 h-3.5 text-indigo-600" />}
+          </button>
         </div>
       </header>
 

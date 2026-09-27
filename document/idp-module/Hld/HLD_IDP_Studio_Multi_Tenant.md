@@ -241,16 +241,19 @@ Before any heavy extraction runs, the AI analyses the Board Resolution and prese
 ```mermaid
 flowchart TB
     %% STATUTORY INGESTION SUBGRAPH
-    subgraph S0["0. Statutory Template Ingestion (Generic MCA Parser)"]
+    subgraph S0["0. Statutory Template Ingestion (6-Stage Modular Pipeline)"]
         KIT["MCA Instruction Kit PDFs
         (Part III Statutory Tables)"]
-        KPARSER["forms/kit_parser.py
-        • Dynamic 3-Column Coordinate Calibration
-        • Statutory Grammar Branch Detection
-        • Canonical Hierarchical Scoping ({form}.{section}.{field})"]
+        PIPELINE["forms/pipeline.py (StatutoryFormPipeline)
+        • Stage 1: Dynamic Coordinate Calibration & Layout Geometry
+        • Stage 2: Document Structure & Part III Detection
+        • Stage 3: AI Instruction Understanding & Type Inference
+        • Stage 4: Rule Engine & Reverse Option Harvesting
+        • Stage 5: Statutory Validator & Integrity Audit
+        • Stage 6: Dynamic Form Generator & Schema Serializer"]
         DB_TMPL[("idp_templates
         fields_json (Canonical IDs + DAG)")]
-        KIT --> KPARSER --> DB_TMPL
+        KIT --> PIPELINE --> DB_TMPL
     end
 
     %% DOCUMENT INGESTION
@@ -728,16 +731,61 @@ This single UI control determines `scope_type` and `scope_id` written to DB.
 
 ---
 
-### 7.8 `forms/kit_parser.py` — Statutory Instruction Kit Parser & Validator
+### 7.8 `forms/pipeline.py` & `forms/stages/` — 6-Stage Modular Statutory Instruction Kit Parser & Reverse Option Harvesting Pipeline
 
-A coordinate-calibrated, statutory-driven PDF parser that transforms raw MCA Instruction Kit PDFs into machine-readable form templates and dependency DAGs without form-specific hardcoding:
+To eliminate monolithic parsing fragility and resolve statutory edge-cases across diverse MCA instruction kits, the ingestion engine is decoupled into a **6-Stage Modular Pipeline** orchestrated by [`StatutoryFormPipeline`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/forms/pipeline.py), with [`forms/kit_parser.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/forms/kit_parser.py) serving as a backward-compatible facade:
 
-- **Dynamic Column Calibration**: Bounding boxes of `"Field No."`, `"Field Name"`, and `"Instructions"` are detected per page to adjust horizontal split points dynamically, preventing cross-column text bleed.
-- **Strict Part III Order**: Preserves physical document sequence without numeric sorting (retaining statutory sequences like `3(b) -> 3(c) -> 3(e) -> 3(d)`).
-- **Statutory Branch Syntax Detection**: Parses MCA branch triggers directly from instruction text (`"In case '...' is selected in this field then fields from '...' to '...' shall be displayed"`).
-- **Canonical Scoping**: Emits `{form_slug}.{section_slug}.{field_slug}` IDs, allowing distinct sections (e.g. Solvency vs. Charge in LLP-8) to reuse field numbers safely without collision.
-- **Unnumbered Statutory Rows**: Captures critical structural rows (e.g. "Attachments", "Certificate", "Category", "Declaration") as first-class form nodes.
-- **Embedded `ParserValidator`**: Audits parsed templates for duplicate IDs, broken/orphan dependency links, dropped rows, and instruction bleeds before committing to `idp_templates`.
+```mermaid
+graph TD
+    A["Raw MCA Instruction Kit PDF"] --> S1["Stage 1: PDF Layout & Geometry
+    (stage1_pdf_layout.py)"]
+    S1 --> S2["Stage 2: Document Structure & Part III
+    (stage2_structure.py)"]
+    S2 --> S3["Stage 3: AI Instruction Understanding
+    (stage3_instruction_ai.py)"]
+    S3 --> S4["Stage 4: Rule & DAG Engine
+    + Reverse Option Harvesting
+    (stage4_dag_engine.py)"]
+    S4 --> S5["Stage 5: Statutory Validator & Audit
+    (stage5_validator.py)"]
+    S5 --> S6["Stage 6: Dynamic Form Generator
+    (stage6_generator.py)"]
+    S6 --> DB[("Canonical Template JSON
+    (idp_templates)")]
+```
+
+#### Detailed Stage Breakdown:
+
+1. **Stage 1 — PDF Understanding & Coordinate Geometry (`stage1_pdf_layout.py`)**:
+   - **Dynamic Column Calibration**: Bounding boxes of `"Field No."`, `"Field Name"`, and `"Instructions"` are detected per page, calibrating horizontal split points `(split_1, split_2)` dynamically to eliminate cross-column character bleed.
+   - **TOC False-Positive Elimination**: Table-of-Contents occurrences of "Part III" are detected and filtered, ensuring structural extraction starts strictly at the operative statutory table boundary.
+   - **Character Deduplication**: Resolves duplicate OCR character runs and header-repeat noise across multi-page statutory tables.
+
+2. **Stage 2 — Document Structure & Section Isolation (`stage2_structure.py`)**:
+   - **Part III Isolation**: Extracts rows strictly within Part III ("Important Points for Filling up the form").
+   - **Continuation Line Defense**: Distinguishes full-width section headers (which span across columns `c1`, `c2`, `c3`) from multi-line instruction continuations (which only populate `c3`), preventing multi-sentence instruction text from accidentally triggering phantom section headers.
+   - **Unnumbered Statutory Row Retention**: Structural rows without formal numeric indicators (e.g., "Attachments", "Certificate by practicing professional", "Declaration", "Category") are retained as first-class form nodes.
+
+3. **Stage 3 — AI Instruction Understanding & Semantic Inference (`stage3_instruction_ai.py`)**:
+   - **Semantic Field Typing**: Classifies each field into `text`, `number`, `date`, `radio`, `select`, or `file` based on statutory keywords, format hints (`DD/MM/YYYY`), and option definitions.
+   - **Quote-Clean Option Extraction**: Extracts distinct option values without quotation bleed or trailing grammatical punctuation.
+   - **Statutory Condition Pattern Engine**: Uses high-precision regex (`COND_PAT`) to parse conditional directives such as:
+     - `"In case '...' is selected in this field..."`
+     - `"In case of '...' in field X..."`
+     - `"If '...' is selected in field no. Y..."`
+
+4. **Stage 4 — Rule & Dependency Engine + Reverse Option Harvesting (`stage4_dag_engine.py`)**:
+   - **Hierarchical Canonical IDs**: Generates globally unique, collision-proof IDs following `{form_slug}.{section_slug}.{field_slug}`.
+   - **Section Branch Dependency Mapping**: Maps statutory branch triggers to their parent root selector (e.g., Solvency vs. Charge in LLP-8).
+   - **Intra-Section Precedence**: Prioritizes specific child-to-parent conditions over general section branches.
+   - **Reverse Option Harvesting (Breakthrough Feature)**: Solves the common MCA kit limitation where parent fields omit their valid option lists, but subsequent child instructions explicitly declare dependencies on them (e.g. Field 6 depending on Field 3 being `"Resolution(s)"`). The engine analyzes all child dependency targets and automatically back-populates missing values into the parent field's `options` array.
+
+5. **Stage 5 — Validation & Pre-Commit Audit (`stage5_validator.py`)**:
+   - **Structural Integrity Checks**: Verifies that every canonical ID is unique, no dependency references an unmapped parent (orphan check), and unnumbered statutory rows match source physical rows.
+   - **Zero Regression Guard**: Rejection gate that halts ingestion if duplicate keys or circular dependency loops are discovered.
+
+6. **Stage 6 — Dynamic Form Generator & Schema Serializer (`stage6_generator.py`)**:
+   - Compiles the validated DAG and field list into the canonical JSON schema consumed by IDP Studio and rendered directly in `FormTemplateViewer.jsx`.
 
 ---
 
@@ -1254,11 +1302,13 @@ graph LR
 | [`core/db.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/core/db.py) | Auto-migration on startup | ✅ Modified |
 | [`extractors/classifier.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/extractors/classifier.py) | Doc type + branch detection | ✅ Modified |
 | [`extractors/spatial.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/extractors/spatial.py) | Rule cascade + lexicon harvest | ✅ Modified |
-| [`forms/kit_parser.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/forms/kit_parser.py) | Generic MCA instruction kit parser & statutory validator | ✅ Refactored |
+| [`forms/pipeline.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/forms/pipeline.py) | 6-Stage Statutory Form Pipeline Orchestrator | ✅ New |
+| [`forms/stages/*.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/forms/stages/) | Modular stages (layout, structure, AI, DAG, validator, generator) | ✅ New |
+| [`forms/kit_parser.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/forms/kit_parser.py) | Backward-compatible facade delegating to pipeline | ✅ Refactored |
 | [`forms/filler.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/forms/filler.py) | DAG pruning + HITL injection + LLM | ✅ Modified |
 | [`router.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/router.py) | API endpoints (detect_branch, autofill, templates) | ✅ Modified |
 | [`ExtractionBranchGateModal.jsx`](file:///Users/apple/Desktop/FLA/fla_frontend/src/idp_studio/components/ExtractionBranchGateModal.jsx) | HITL frontend gate (new) | ✅ New |
-| [`FormTemplateViewer.jsx`](file:///Users/apple/Desktop/FLA/fla_frontend/src/idp_studio/components/FormTemplateViewer.jsx) | Scope selector in save popover | ✅ Modified |
+| [`FormTemplateViewer.jsx`](file:///Users/apple/Desktop/FLA/fla_frontend/src/idp_studio/components/FormTemplateViewer.jsx) | Scope selector in save popover & hierarchical DAG viewer | ✅ Modified |
 | `dom_learner/**` | Existing DOM learning engine | ❌ **UNTOUCHED** |
 
 ---
@@ -1289,8 +1339,8 @@ The test suites validate both runtime extraction logic and statutory schema pars
 | Test | Form | Validates |
 |---|---|---|
 | `test_parse_llp_8` | LLP Form No. 8 | Multi-branch statutory separation (Solvency vs Charge), physical order `3(b) -> 3(c) -> 3(e) -> 3(d)` preserved, canonical IDs, 49 nodes |
-| `test_parse_adt_1` | Form No. ADT-1 | Single-section default to `main`, exact statutory order, zero collisions, 24 nodes |
-| `test_parse_mgt_14` | Form No. MGT-14 | Dynamic header calibration, compound Roman numerals (`6 I (a) (i)`), 22 nodes |
+| `test_parse_adt_1` | Form No. ADT-1 | Single-section default to `main`, exact statutory order, zero collisions, Scenario 4 (Casual vacancy) radio options populated, 24 nodes |
+| `test_parse_mgt_14` | Form No. MGT-14 | Dynamic header calibration, Roman subfields (`6 I (a) (i)`), **Reverse Option Harvesting** (Field 3 auto-populated with `"Resolution(s)"`, Field 6 linked dropdown), 24 nodes |
 
 **Result: 3/3 multi-form tests passing.**
 

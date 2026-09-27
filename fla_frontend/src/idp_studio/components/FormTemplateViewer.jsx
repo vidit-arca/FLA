@@ -203,18 +203,18 @@ export default function FormTemplateViewer({
 
   return (
     <div className="w-full h-full bg-transparent flex flex-col shrink-0">
-      <div className="p-5 border-b border-white/5 bg-white/5 relative">
+      <div className="p-5 border-b border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/5 relative">
         <button 
           onClick={() => window.close()}
-          className="absolute top-5 right-5 text-slate-400 hover:text-white transition-colors"
+          className="absolute top-5 right-5 text-slate-400 hover:text-slate-800 dark:hover:text-white transition-colors"
           title="Exit Studio"
         >
           <LayoutDashboard className="w-4 h-4" />
         </button>
-        <h2 className="text-lg font-bold text-white pr-6">Form Template</h2>
-        <p className="text-xs text-slate-400 mt-1 font-medium line-clamp-2">
+        <h2 className="text-lg font-bold text-slate-800 dark:text-white pr-6">Form Template</h2>
+        <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 font-medium line-clamp-2">
           {currentSchema?.governing_law ? (
-            <span className="text-indigo-400 font-semibold">{currentSchema.governing_law}</span>
+            <span className="text-indigo-600 dark:text-indigo-400 font-semibold">{currentSchema.governing_law}</span>
           ) : (
             "Select or upload an official MCA Instruction Kit to populate form schema."
           )}
@@ -224,7 +224,7 @@ export default function FormTemplateViewer({
             <button 
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploading}
-                className="w-full p-2.5 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 hover:bg-indigo-500/20 rounded-lg transition-colors flex items-center justify-center gap-2 font-medium disabled:opacity-50 text-xs shadow-sm"
+                className="w-full p-2.5 bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/20 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 rounded-lg transition-colors flex items-center justify-center gap-2 font-medium disabled:opacity-50 text-xs shadow-sm"
                 title="Upload official MCA Instruction Kit PDF"
             >
                 {isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
@@ -240,17 +240,17 @@ export default function FormTemplateViewer({
 
             {/* Filter Toggle for Dynamic Branching */}
             {hasConditionalFields && (
-              <div className="flex items-center justify-between px-2 py-1.5 bg-black/20 rounded-lg border border-white/5 text-[0.7rem]">
-                <span className="text-slate-400 flex items-center gap-1.5">
-                  <Filter className="w-3 h-3 text-indigo-400" />
+              <div className="flex items-center justify-between px-2 py-1.5 bg-slate-100 dark:bg-black/20 rounded-lg border border-slate-200 dark:border-white/5 text-[0.7rem]">
+                <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                  <Filter className="w-3 h-3 text-indigo-500 dark:text-indigo-400" />
                   <span>Dynamic View:</span>
                 </span>
                 <button
                   onClick={() => setShowAllFields(!showAllFields)}
                   className={`px-2 py-0.5 rounded-md font-semibold transition-colors text-[0.65rem] ${
                     showAllFields 
-                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' 
-                      : 'bg-indigo-500/20 text-indigo-300 border border-indigo-500/30'
+                      ? 'bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30' 
+                      : 'bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30'
                   }`}
                 >
                   {showAllFields ? 'Showing All Fields' : 'Active Branch Only'}
@@ -264,7 +264,7 @@ export default function FormTemplateViewer({
           <button
             onClick={onSaveMappings}
             disabled={isSavingMappings || (rules?.length || 0) === 0}
-            className="w-full mt-3 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg font-semibold flex justify-center items-center gap-2 transition-colors disabled:opacity-50 text-xs"
+            className="w-full mt-3 py-2 bg-emerald-50 dark:bg-emerald-500/10 hover:bg-emerald-100 dark:hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20 rounded-lg font-semibold flex justify-center items-center gap-2 transition-colors disabled:opacity-50 text-xs"
           >
             {isSavingMappings ? (
               <>
@@ -287,8 +287,8 @@ export default function FormTemplateViewer({
                 <div className="w-12 h-12 bg-indigo-500/10 text-indigo-400 rounded-xl flex items-center justify-center mb-4 border border-indigo-500/20">
                     <UploadCloud className="w-6 h-6" />
                 </div>
-                <h4 className="text-sm font-bold text-white mb-2">No Form Loaded</h4>
-                <p className="text-xs text-slate-400">
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-2">No Form Loaded</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                     Upload an <strong>MCA Instruction Kit PDF</strong> above to auto-generate the complete validated form schema with dynamic branching.
                 </p>
             </div>
@@ -299,8 +299,8 @@ export default function FormTemplateViewer({
                 <div className="w-12 h-12 bg-amber-500/10 text-amber-400 rounded-xl flex items-center justify-center mb-4 border border-amber-500/20">
                     <AlertCircle className="w-6 h-6" />
                 </div>
-                <h4 className="text-sm font-bold text-white mb-2">Empty Template</h4>
-                <p className="text-xs text-slate-400">
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-2">Empty Template</h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
                     No fields found in template. Re-upload the Instruction Kit PDF.
                 </p>
             </div>
@@ -329,8 +329,8 @@ export default function FormTemplateViewer({
                 isSatisfied 
                   ? 'border-emerald-500/30 bg-emerald-500/5' 
                   : isLinkable 
-                      ? 'border-indigo-400 cursor-pointer bg-indigo-500/10 shadow-[0_0_15px_rgba(99,102,241,0.2)] transform scale-[1.01]' 
-                      : 'border-white/5 bg-black/10'
+                      ? 'border-indigo-500 dark:border-indigo-400 cursor-pointer bg-indigo-50 dark:bg-indigo-500/10 shadow-[0_0_15px_rgba(99,102,241,0.2)] transform scale-[1.01]' 
+                      : 'border-slate-200 dark:border-white/5 bg-white dark:bg-black/10 shadow-sm'
               }`}
             >
               <div className="flex flex-col gap-1.5">
@@ -338,15 +338,15 @@ export default function FormTemplateViewer({
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 overflow-hidden">
                     {isDependent && (
-                      <CornerDownRight className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                      <CornerDownRight className="w-3.5 h-3.5 text-indigo-500 dark:text-indigo-400 shrink-0" />
                     )}
                     {field.canonical_no && (
-                      <span className="text-[0.65rem] font-mono font-bold px-1.5 py-0.5 rounded bg-white/10 text-slate-200 shrink-0">
+                      <span className="text-[0.65rem] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-white/10 text-slate-700 dark:text-slate-200 shrink-0 border border-slate-200 dark:border-transparent">
                         {field.canonical_no}
                       </span>
                     )}
                     <label className={`text-xs font-bold uppercase tracking-wider truncate ${
-                      isSatisfied ? 'text-emerald-400' : isLinkable ? 'text-indigo-400' : 'text-slate-200'
+                      isSatisfied ? 'text-emerald-600 dark:text-emerald-400' : isLinkable ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-800 dark:text-slate-200'
                     }`} title={field.label}>
                       {field.label}
                     </label>
@@ -356,8 +356,8 @@ export default function FormTemplateViewer({
 
                 {/* Conditional Dependency Tag */}
                 {isDependent && field.depends_on && (
-                  <div className="text-[0.65rem] text-indigo-300/90 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 w-fit flex items-center gap-1">
-                    <Sparkles className="w-2.5 h-2.5 text-indigo-400" />
+                  <div className="text-[0.65rem] text-indigo-700 dark:text-indigo-300/90 bg-indigo-50 dark:bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-200 dark:border-indigo-500/20 w-fit flex items-center gap-1">
+                    <Sparkles className="w-2.5 h-2.5 text-indigo-500 dark:text-indigo-400" />
                     <span>Revealed by: {field.depends_on.value}</span>
                   </div>
                 )}
@@ -378,7 +378,7 @@ export default function FormTemplateViewer({
                           className={`text-[0.7rem] px-2.5 py-1 rounded-md font-medium transition-all ${
                             isSelected 
                               ? 'bg-indigo-600 text-white font-bold shadow-md ring-2 ring-indigo-400' 
-                              : 'bg-black/40 hover:bg-white/10 text-slate-300 border border-white/5'
+                              : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 dark:bg-black/40 dark:hover:bg-white/10 dark:text-slate-300 dark:border-white/5'
                           }`}
                         >
                           {opt}
@@ -390,59 +390,59 @@ export default function FormTemplateViewer({
                 
                 {/* Mapped State or Unmapped Action Slot */}
                 {rule ? (
-                    <div className="mt-1.5 flex items-center justify-between bg-black/30 p-2 rounded-lg border border-white/5">
+                    <div className="mt-1.5 flex items-center justify-between bg-slate-50 dark:bg-black/30 p-2 rounded-lg border border-slate-200 dark:border-white/5">
                         <div className="flex flex-col overflow-hidden">
                             <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
-                                <span className="text-[0.65rem] text-slate-400">Linked to:</span>
+                                <span className="text-[0.65rem] text-slate-500 dark:text-slate-400">Linked to:</span>
                                 {rule.scope_type === 'COMPANY' ? (
-                                    <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                    <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30">
                                         Company ({rule.scope_id})
                                     </span>
                                 ) : rule.scope_type === 'SCENARIO' ? (
-                                    <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                    <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/30">
                                         Scenario ({rule.scope_id})
                                     </span>
                                 ) : (
-                                    <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded bg-slate-500/20 text-slate-300 border border-slate-500/30">
+                                    <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded bg-slate-500/20 text-slate-700 dark:text-slate-300 border border-slate-500/30">
                                         Global
                                     </span>
                                 )}
                                 {rule.source === 'markdown_ast' ? (
-                                    <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">
+                                    <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
                                         DOM ({Math.round((rule.confidence || 0.98) * 100)}%)
                                     </span>
                                 ) : (
-                                    <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-400">
+                                    <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-600 dark:text-indigo-400">
                                         Spatial ({Math.round((rule.confidence || 0.85) * 100)}%)
                                     </span>
                                 )}
                             </div>
 
-                            <span className="text-xs font-medium text-slate-200 truncate" title={rule.extracted_key}>
+                            <span className="text-xs font-medium text-slate-800 dark:text-slate-200 truncate" title={rule.extracted_key}>
                               "{rule.extracted_key}"
                             </span>
                         </div>
                         <button 
                             onClick={(e) => { e.stopPropagation(); onDeleteRule(rule.rule_id); }}
-                            className="text-xs text-red-400 hover:text-red-300 font-medium px-2 py-1 transition-colors"
+                            className="text-xs text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 font-medium px-2 py-1 transition-colors"
                         >
                             Unlink
                         </button>
                     </div>
                 ) : isNoSelected ? (
-                    <div className="mt-1.5 flex items-center justify-between bg-slate-800/40 p-2 rounded-lg border border-slate-700/60">
+                    <div className="mt-1.5 flex items-center justify-between bg-slate-100 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-200 dark:border-slate-700/60">
                         <div className="flex items-center gap-2">
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                            <span className="text-xs font-bold text-slate-200">
-                                Selected: <span className="text-white font-mono bg-slate-700 px-1.5 py-0.5 rounded">No</span>
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                                Selected: <span className="text-slate-900 dark:text-white font-mono bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded">No</span>
                             </span>
-                            <span className="text-[0.65rem] text-slate-400 bg-slate-800/80 px-2 py-0.5 rounded font-medium border border-slate-700">
+                            <span className="text-[0.65rem] text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-800/80 px-2 py-0.5 rounded font-medium border border-slate-200 dark:border-slate-700">
                                 No document mapping required
                             </span>
                         </div>
                     </div>
                 ) : (
-                    <div className="bg-black/20 border border-white/5 rounded-lg p-1.5 min-h-[32px] flex items-center justify-center mt-1">
+                    <div className="bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/5 rounded-lg p-1.5 min-h-[32px] flex items-center justify-center mt-1">
                         <span className="text-xs italic text-slate-500 font-medium">
                             {isLinkable ? 'Click to link selected text' : (String(activeChoice).toLowerCase() === 'yes' ? 'Requires document mapping (Select text from document)' : 'Unmapped')}
                         </span>
