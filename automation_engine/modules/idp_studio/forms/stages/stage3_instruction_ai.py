@@ -178,11 +178,15 @@ class Stage3InstructionAI:
         if any(k in name_l for k in ["attachment", "copy of", "upload", "copy(s) of"]) or c_no in {"Attachments", "(a)", "(b)", "(c)", "(d)", "(e)"}:
             f_type = "file"
 
-        # 2. Dates
+        # 2. Declarations (text/declaration, not date, even if "dated" appears in text)
+        elif name_l.startswith("declaration") or "declare that" in name_l:
+            f_type = "text"
+
+        # 3. Dates
         elif re.search(r"\bdd[/\-]mm[/\-]yyyy\b|\bdate\b", name_l) or "dd/mm/yyyy" in inst_l:
             f_type = "date"
 
-        # 3. Numeric Fields
+        # 4. Numeric Fields
         elif re.search(r"\bnumber\s+of\b|\bcount\b|\bamount\b|\bno\.\s+of\b", name_l) and not any(k in name_l for k in ["pan", "cin", "din"]):
             # If it's "Number of resolutions", provide selectable counts
             if "resolution" in name_l:
@@ -191,22 +195,31 @@ class Stage3InstructionAI:
             else:
                 f_type = "number"
 
-        # 4. Radio / Boolean Options
+        # 5. Radio / Boolean Options
         elif "whether" in name_l or ("yes" in name_l and "no" in name_l):
             f_type = "radio"
             options = ["Yes", "No"]
-        elif "associate" in name_l and "fellow" in name_l:
+        elif "associate" in name_l and ("fellow" in name_l or "felow" in name_l):
             f_type = "radio"
             options = ["Associate", "Fellow"]
         elif "category of auditor" in name_l:
             f_type = "radio"
             options = ["Auditor's Firm", "Individual"]
+        elif "designation" in name_l:
+            f_type = "select"
+            options = [
+                "Director", "Manager", "Company Secretary", "CEO", "CFO",
+                "Insolvency Resolution Professional (IRP)", "Resolution Professional (RP)", "Liquidator"
+            ]
 
-        # 5. Natural Language Radio / Dropdown Options
+        # 6. Natural Language Radio / Dropdown Options
         elif "select" in inst_l or "dropdown" in inst_l or "radio" in inst_l:
             if "radio" in inst_l and ("yes" in inst_l and "no" in inst_l and "whether" in inst_l):
                 f_type = "radio"
                 options = ["Yes", "No"]
+            elif "associate" in inst_l and ("fellow" in inst_l or "felow" in inst_l):
+                f_type = "select"
+                options = ["Associate", "Fellow"]
             else:
                 f_type = "select"
                 options = self._extract_clean_options(inst, name)
@@ -236,6 +249,9 @@ class Stage3InstructionAI:
         for opt in q_opts:
             opt_str = opt.strip()
             opt_lower = opt_str.lower()
+            if opt_lower == "felow":
+                opt_str = "Fellow"
+                opt_lower = "fellow"
             if len(opt_str) < 2 or len(opt_str) > 45:
                 continue
             if any(ex in opt_lower for ex in EXCLUDED_OPTION_PHRASES):
@@ -254,25 +270,37 @@ class Stage3InstructionAI:
         if not inst:
             return None, [], None
 
+        def _clean_val(v: str) -> str:
+            v = v.strip()
+            v = re.sub(r'\s*\(\s*s\s*\)', '(s)', v)
+            # Strip trailing clause indicators like (a), (b), (i) but NOT (s)
+            v = re.sub(r'\s*\([a-rt-z0-9ivx]+\)$', '', v, flags=re.I).strip()
+            if v.lower() == "felow":
+                v = "Fellow"
+            return v
+
         COND_PAT = re.compile(
-            r"(?:in\s+case\s+(?:where\s+|of\s+)?|if\s+)(?:either\s+)?(?:of\s+the\s+options?\s+)?(?:[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\']+)[\x27\u2019\u201d\'](?:\s+or\s+[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\']+)[\x27\u2019\u201d\'])?|([A-Za-z0-9\s]{3,40}?))\s+(?:is\s+)?selected\s+in\s+(?:field\s+(?:number\s+)?)?([0-9]+(?:\s*\([a-zA-Z0-9]+\))*)",
+            r"(?:in\s+case\s+(?:where\s+|of\s+)?|if\s+)(?:(?:only\s+)?single\s+)?(?:either\s+)?(?:(?:either\s+)?(?:of\s+the\s+)?options?\s+)?(?:[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\']+)[\x27\u2019\u201d\'](?:\s+or\s+[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\']+)[\x27\u2019\u201d\'])?|([A-Za-z0-9\s]{3,40}?))\s+(?:is\s+)?selected\s+in\s+(?:field\s+(?:number\s+)?)?([0-9]+(?:\s*\([a-zA-Z0-9]+\))*)(?:\s*i\.e\.)?",
             re.I
         )
 
-        m = COND_PAT.search(inst)
-        if m:
+        for m in COND_PAT.finditer(inst):
             v1 = m.group(1)
             v2 = m.group(2)
             v3 = m.group(3)
             p_no = m.group(4)
             vals = []
             if v1 and v2:
-                vals = [v1.strip(), v2.strip()]
+                vals = [_clean_val(v1), _clean_val(v2)]
             elif v1:
-                vals = [v1.strip()]
+                vals = [_clean_val(v1)]
             elif v3:
-                vals = [v3.strip()]
-            return p_no.strip(), vals, m.group(0)
+                v3_clean = v3.strip()
+                if v3_clean.lower() in {'more than one option', 'any option', 'any of the options', 'option'}:
+                    continue
+                vals = [_clean_val(v3_clean)]
+            if vals:
+                return p_no.strip(), vals, m.group(0)
 
         # Alternative pattern: selects X from the dropdown present in field number Y
         m2 = re.search(
@@ -281,6 +309,6 @@ class Stage3InstructionAI:
             re.I
         )
         if m2:
-            return m2.group(2).strip(), [m2.group(1).strip()], m2.group(0)
+            return m2.group(2).strip(), [_clean_val(m2.group(1).strip())], m2.group(0)
 
         return None, [], None

@@ -155,7 +155,8 @@ class Stage4DagEngine:
             for val_str in target_list:
                 s_val = str(val_str).strip()
                 if s_val and s_val not in parent_node.options:
-                    parent_node.options.append(s_val)
+                    if not any(s_val.lower() == existing.lower() for existing in parent_node.options):
+                        parent_node.options.append(s_val)
 
             # Ensure parent type is selectable if options exist
             if parent_node.options:

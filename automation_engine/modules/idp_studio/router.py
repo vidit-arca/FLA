@@ -249,7 +249,14 @@ async def detect_form_branch(
         except Exception as e:
             print(f"[!] Error in detect_form_branch: {e}")
 
-    result = detect_operative_statutory_branch(full_text, filename=filename)
+    candidate_options = []
+    for fld in schema.get("fields", []):
+        if fld.get("canonical_no") in ["3(b)", "3", "1"] or "nature of appointment" in fld.get("label", "").lower():
+            if fld.get("options"):
+                candidate_options = fld.get("options")
+                break
+
+    result = detect_operative_statutory_branch(full_text, filename=filename, candidate_options=candidate_options)
     return {
         "status": "success",
         "form_id": form_id,
@@ -356,14 +363,27 @@ async def autofill_mca_form(
     scenario_key = context.get("scenario")
     if not scenario_key and context.get("confirmed_branch"):
         cb = str(context["confirmed_branch"]).lower()
-        if "casual" in cb:
+        if "first auditor" in cb:
+            if "member" in cb or "egm" in cb:
+                scenario_key = "first_auditor_members"
+            else:
+                scenario_key = "first_auditor_board"
+        elif "c&ag" in cb or "cag" in cb:
+            scenario_key = "cag_appointment"
+        elif "casual" in cb:
             scenario_key = "casual_vacancy"
+        elif "re-appointment" in cb and "agm" in cb:
+            scenario_key = "agm_reappointment"
         elif "agm" in cb:
             scenario_key = "agm_appointment"
         elif "tribunal" in cb:
             scenario_key = "tribunal_order"
         elif "central" in cb:
             scenario_key = "central_gov"
+        elif "removal" in cb or "non-re-appointment" in cb:
+            scenario_key = "removal_appointment"
+        else:
+            scenario_key = re.sub(r'[^a-z0-9]+', '_', cb).strip('_')
         context["scenario"] = scenario_key
 
     if scenario_key:

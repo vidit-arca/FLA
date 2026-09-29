@@ -24,56 +24,129 @@ export default function ExtractionBranchGateModal({
   if (!isOpen) return null;
 
   const detected = detectedData?.detected || {};
-  const recommendedBranch = detected.recommended_branch || "Appointment/ Re-appointment in AGM";
+  const recommendedBranch = detected.recommended_branch || "Appointment of Auditors in AGM";
   const subReason = detected.sub_reason || "Resignation";
   const confidence = detected.confidence ? Math.round(detected.confidence * 100) : 95;
   const evidenceSnippet = detected.evidence_snippet || "";
   const sectionCited = detected.section_cited || "";
 
-  const [selectedBranch, setSelectedBranch] = useState(recommendedBranch);
-  const [selectedSubReason, setSelectedSubReason] = useState(subReason);
-  const [cinInput, setCinInput] = useState(companyId);
-
   const branches = [
     {
-      id: "Appointment/ Re-appointment in AGM",
-      scenario: "agm_appointment",
-      title: "Appointment / Re-appointment in AGM",
-      section: "Section 139(1)",
-      description: "Standard periodic appointment for 5-year block or single AGM"
+      id: "First auditor by Board of directors",
+      scenario: "first_auditor_board",
+      title: "First Auditor by Board of Directors",
+      section: "Section 139(6)",
+      description: "First auditor appointed by Board of Directors within 30 days of incorporation"
     },
     {
-      id: "Casual Vacancy",
+      id: "First auditor by members",
+      scenario: "first_auditor_members",
+      title: "First Auditor by Members (EGM)",
+      section: "Section 139(6)",
+      description: "First auditor appointed by members at an EGM within 90 days upon Board failure"
+    },
+    {
+      id: "Appointment/ Re-appointment by C&AG",
+      scenario: "cag_appointment",
+      title: "Appointment / Re-appointment by C&AG",
+      section: "Section 139(5) / 139(7)",
+      description: "Statutory auditor for Government or C&AG governed companies"
+    },
+    {
+      id: "Appointment of Auditors in AGM",
+      alternateIds: ["Appointment/ Re-appointment in AGM"],
+      scenario: "agm_appointment",
+      title: "Appointment of Auditors in AGM",
+      section: "Section 139(1)",
+      description: "Standard periodic appointment for 5-year tenure or single AGM"
+    },
+    {
+      id: "Re-appointment of Auditors in AGM",
+      scenario: "agm_reappointment",
+      title: "Re-appointment of Auditors in AGM",
+      section: "Section 139(1)",
+      description: "Re-appointment of retiring auditor at Annual General Meeting"
+    },
+    {
+      id: "Auditor appointed in case of casual vacancy",
+      alternateIds: ["Casual Vacancy"],
       scenario: "casual_vacancy",
-      title: "Casual Vacancy",
+      title: "Auditor appointed in case of Casual Vacancy",
       section: "Section 139(8)",
       description: "Vacancy caused due to resignation, death, or disqualification of auditor"
     },
     {
-      id: "Auditor appointed by the Tribunal",
-      scenario: "tribunal_order",
-      title: "Auditor appointed by Tribunal",
-      section: "Section 140(5)",
-      description: "Appointment ordered by National Company Law Tribunal (NCLT)"
+      id: "Auditor appointed in case of non-re-appointment/ removal",
+      alternateIds: ["Removal of Auditor"],
+      scenario: "removal_appointment",
+      title: "Auditor Appointed on Removal / Non-re-appointment",
+      section: "Section 140(1) / 140(4)",
+      description: "Removal of auditor before term expiry or appointment of replacement auditor"
     },
     {
       id: "Auditor appointed by Central Government",
+      alternateIds: ["Central Government"],
       scenario: "central_gov",
-      title: "Auditor appointed by Central Government",
+      title: "Auditor Appointed by Central Government",
       section: "Section 139(5)",
-      description: "CAG appointment for Government or statutory companies"
+      description: "Appointment made directly by the Central Government"
+    },
+    {
+      id: "Auditor appointed by the Tribunal",
+      alternateIds: ["Tribunal Order"],
+      scenario: "tribunal_order",
+      title: "Auditor Appointed by Tribunal (NCLT)",
+      section: "Section 140(5)",
+      description: "Appointment directed by National Company Law Tribunal order"
     }
   ];
 
+  const findMatchingBranchId = (branchName) => {
+    if (!branchName) return branches[3].id;
+    const lower = branchName.toLowerCase();
+    const found = branches.find(b => 
+      b.id.toLowerCase() === lower ||
+      (b.alternateIds && b.alternateIds.some(alt => alt.toLowerCase() === lower)) ||
+      (lower.includes("board") && b.scenario === "first_auditor_board") ||
+      (lower.includes("member") && b.scenario === "first_auditor_members") ||
+      (lower.includes("c&ag") && b.scenario === "cag_appointment") ||
+      (lower.includes("casual") && b.scenario === "casual_vacancy") ||
+      (lower.includes("tribunal") && b.scenario === "tribunal_order") ||
+      (lower.includes("central") && b.scenario === "central_gov") ||
+      (lower.includes("removal") && b.scenario === "removal_appointment") ||
+      (lower.includes("re-appoint") && b.scenario === "agm_reappointment") ||
+      (lower.includes("agm") && b.scenario === "agm_appointment")
+    );
+    return found ? found.id : branches[3].id;
+  };
+
+  const initialBranchId = findMatchingBranchId(recommendedBranch);
+  const [selectedBranch, setSelectedBranch] = useState(initialBranchId);
+  const [selectedSubReason, setSelectedSubReason] = useState(subReason);
+  const [cinInput, setCinInput] = useState(companyId);
+
+  // Sync state whenever detectedData changes
+  React.useEffect(() => {
+    if (detected.recommended_branch) {
+      setSelectedBranch(findMatchingBranchId(detected.recommended_branch));
+    }
+    if (detected.sub_reason) {
+      setSelectedSubReason(detected.sub_reason);
+    }
+  }, [detectedData]);
+
   const handleConfirm = () => {
-    const selectedBranchObj = branches.find(b => b.id === selectedBranch) || branches[0];
+    const selectedBranchObj = branches.find(b => b.id === selectedBranch) || branches[3];
     onConfirm({
-      confirmed_branch: selectedBranch,
+      confirmed_branch: selectedBranchObj.id,
+      branch_display: selectedBranchObj.title,
       scenario: selectedBranchObj.scenario,
-      casual_vacancy_reason: selectedBranch === "Casual Vacancy" ? selectedSubReason : null,
+      casual_vacancy_reason: selectedBranchObj.scenario === "casual_vacancy" ? selectedSubReason : null,
       company_id: cinInput.trim() || "default"
     });
   };
+
+  const activeRecommendedId = findMatchingBranchId(recommendedBranch);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -159,14 +232,17 @@ export default function ExtractionBranchGateModal({
 
           {/* Radio Buttons for Branches */}
           <div className="space-y-2.5">
-            <label className="text-xs font-medium text-slate-300">
-              Select Governing Legal Pathway:
-            </label>
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-slate-300">
+                Select Governing Statutory Pathway ({branches.length} pathways available):
+              </label>
+              <span className="text-[11px] text-slate-500">Scroll to view all</span>
+            </div>
             
-            <div className="space-y-2">
+            <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1.5 custom-scrollbar">
               {branches.map((b) => {
                 const isSelected = selectedBranch === b.id;
-                const isAIRecommended = recommendedBranch === b.id;
+                const isAIRecommended = b.id === activeRecommendedId;
 
                 return (
                   <div
@@ -207,7 +283,7 @@ export default function ExtractionBranchGateModal({
                       </p>
 
                       {/* Sub-reason radio for Casual Vacancy */}
-                      {isSelected && b.id === "Casual Vacancy" && (
+                      {isSelected && b.scenario === "casual_vacancy" && (
                         <div className="mt-3 pt-3 border-t border-blue-500/20 flex items-center gap-4">
                           <span className="text-xs font-medium text-slate-300">Vacancy Reason:</span>
                           {["Resignation", "Death", "Disqualification"].map((reason) => (

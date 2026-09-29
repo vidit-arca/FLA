@@ -127,12 +127,21 @@ class TestInstructionKitParser(unittest.TestCase):
         f_3 = next((f for f in fields if f["canonical_no"] == "3"), None)
         self.assertIsNotNone(f_3, "Field 3 ('Registration of') must exist in MGT-14!")
         self.assertIn("Resolution(s)", f_3["options"], "Reverse Option Harvesting must populate 'Resolution(s)' in Field 3 options!")
+        self.assertIn("Agreement", f_3["options"], "Reverse Option Harvesting must populate 'Agreement' in Field 3 options!")
 
         f_6 = next((f for f in fields if f["canonical_no"] == "6"), None)
         self.assertIsNotNone(f_6, "Field 6 ('Number of resolution(s)') must exist in MGT-14!")
         self.assertIn("1", f_6["options"], "Field 6 must offer selectable resolution counts!")
         self.assertIsNotNone(f_6["depends_on"], "Field 6 must have dependency on Field 3!")
         self.assertIn("field_3", f_6["depends_on"]["field"], "Field 6 must depend on Field 3!")
+
+        # Attachment (b) dependency verification
+        f_b = next((f for f in fields if f["canonical_no"] == "(b)"), None)
+        self.assertIsNotNone(f_b, "Attachment (b) ('Copy of agreement') must exist in MGT-14!")
+        self.assertEqual(f_b["type"], "file", "Attachment (b) must be of type 'file'!")
+        self.assertIsNotNone(f_b.get("depends_on"), "Attachment (b) must depend on Field 3!")
+        self.assertIn("field_3", f_b["depends_on"]["field"], "Attachment (b) must depend on Field 3!")
+        self.assertEqual(f_b["depends_on"]["value"], "Agreement", "Attachment (b) must depend on 'Agreement'!")
 
     def test_mgt7_statutory_extraction(self):
         """Verify MGT-7 captures Roman numeral field numbers (I, II, IV) and 50+ granular fields."""
