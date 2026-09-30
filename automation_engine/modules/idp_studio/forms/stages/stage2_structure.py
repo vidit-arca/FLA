@@ -93,15 +93,18 @@ class Stage2DocumentStructure:
 
                 is_field_no = bool(FIELD_NO_PAT.match(c1_clean))
                 matched_sec = next((s for s in SECTION_HEADERS if full_line_clean.startswith(s)), None) if (c2 or full_line_clean.startswith("part")) else None
+                is_purpose_sec = bool(not c1 and not c3 and re.match(r"^for\s+(?:declaration|change|creation|modification|satisfaction|appointment|cessation)\b", c2.strip(), re.I))
+                is_table_start = bool(not c1 and (c2.lower().strip().startswith("table:") or c2.lower().strip().startswith("table :") or c2.lower().strip() == "table"))
                 is_unnumbered = next((u for u in UNNUMBERED_FIELDS if (c2.lower().startswith(u) or full_line_clean.startswith(u))), None)
 
-                if matched_sec:
-                    sec_slug = re.sub(r'[^a-z0-9]+', '_', matched_sec).strip('_')
+                if matched_sec or is_purpose_sec:
+                    sec_title = full_line if matched_sec else c2
+                    sec_slug = re.sub(r'[^a-z0-9]+', '_', sec_title.lower()).strip('_')[:40]
                     if section_blocks:
                         section_blocks[-1].end_row_idx = len(raw_rows) - 1
                     section_blocks.append(SectionBlock(
                         section_slug=sec_slug,
-                        title=full_line,
+                        title=sec_title,
                         start_row_idx=len(raw_rows)
                     ))
                     current_section = sec_slug
@@ -111,8 +114,26 @@ class Stage2DocumentStructure:
                         page=p_layout.page_number,
                         row_type="section_header",
                         canonical_no="",
-                        field_name=full_line,
+                        field_name=sec_title,
                         instructions="",
+                        section_slug=current_section,
+                        is_numbered=False
+                    ))
+                elif is_table_start:
+                    canonical = ""
+                    if raw_rows:
+                        prev_fields = [r for r in raw_rows if r.row_type == "field" and r.canonical_no]
+                        if prev_fields:
+                            prev_c = prev_fields[-1].canonical_no
+                            base_c = re.sub(r"\([ivxlcdm0-9]+\)$", "", prev_c, flags=re.I).strip()
+                            canonical = f"{base_c}_table" if base_c else f"{prev_c}_table"
+                    raw_rows.append(RawStatutoryRow(
+                        physical_idx=len(raw_rows),
+                        page=p_layout.page_number,
+                        row_type="field",
+                        canonical_no=canonical or "table",
+                        field_name=c2,
+                        instructions=c3,
                         section_slug=current_section,
                         is_numbered=False
                     ))
@@ -139,13 +160,12 @@ class Stage2DocumentStructure:
                         is_numbered=False
                     ))
                 elif raw_rows:
-                    # Continuation line for the previous field
+                    # Continuation line for the previous field or section header
                     last = raw_rows[-1]
-                    if last.row_type == "field":
-                        if c2:
-                            last.field_name = (last.field_name + " " + c2).strip()
-                        if c3:
-                            last.instructions = (last.instructions + " " + c3).strip()
+                    if c2:
+                        last.field_name = (last.field_name + " " + c2).strip()
+                    if c3 and last.row_type == "field":
+                        last.instructions = (last.instructions + " " + c3).strip()
 
         if section_blocks:
             section_blocks[-1].end_row_idx = len(raw_rows) - 1

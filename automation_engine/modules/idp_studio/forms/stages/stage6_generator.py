@@ -26,7 +26,7 @@ class Stage6FormGenerator:
 
         fields_payload = []
         for n in nodes:
-            fields_payload.append({
+            f_data = {
                 "id": n.id,
                 "canonical_no": n.canonical_no,
                 "label": n.label,
@@ -38,7 +38,17 @@ class Stage6FormGenerator:
                 "validation_rules": getattr(n, "validation_rules", []),
                 "is_prefilled": getattr(n, "is_prefilled", False),
                 "prefill_source": getattr(n, "prefill_source", None)
-            })
+            }
+            if n.type == "table":
+                f_data["table_archetype"] = getattr(n, "table_archetype", "web_dynamic_grid")
+                f_data["repeat_count_field"] = getattr(n, "repeat_count_field", None)
+                f_data["min_rows"] = getattr(n, "min_rows", 1)
+                f_data["max_rows"] = getattr(n, "max_rows", 10)
+                f_data["columns"] = getattr(n, "columns", [])
+                f_data["row_template_fields"] = getattr(n, "row_template_fields", [])
+                if getattr(n, "table_metadata", None):
+                    f_data["table_metadata"] = n.table_metadata
+            fields_payload.append(f_data)
 
         return {
             "form_id": form_slug,

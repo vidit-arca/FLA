@@ -204,13 +204,15 @@ class FormRegistry:
             f_type = str(f.get("type") or "text").lower()
 
             # Standardize type enum
-            if f_type not in ["text", "number", "date", "select", "radio", "textarea", "file", "email", "cin", "pan", "din"]:
+            if f_type not in ["text", "number", "date", "select", "radio", "textarea", "file", "email", "cin", "pan", "din", "table"]:
                 if "date" in f_type:
                     f_type = "date"
                 elif "select" in f_type or "dropdown" in f_type:
                     f_type = "select"
                 elif "radio" in f_type:
                     f_type = "radio"
+                elif "table" in f_type:
+                    f_type = "table"
                 else:
                     f_type = "text"
 
@@ -229,7 +231,7 @@ class FormRegistry:
             else:
                 dep_cleaned = None
 
-            standardized_fields.append({
+            f_std = {
                 "id": f_id,
                 "canonical_no": c_no,
                 "label": label,
@@ -239,7 +241,19 @@ class FormRegistry:
                 "depends_on": dep_cleaned,
                 "validation": f.get("validation", {}),
                 "instructions": f.get("instructions", "")
-            })
+            }
+
+            if f_type == "table":
+                f_std["table_archetype"] = f.get("table_archetype", "web_dynamic_grid")
+                f_std["repeat_count_field"] = f.get("repeat_count_field")
+                f_std["min_rows"] = f.get("min_rows", 1)
+                f_std["max_rows"] = f.get("max_rows", 10)
+                f_std["columns"] = f.get("columns", [])
+                f_std["row_template_fields"] = f.get("row_template_fields", [])
+                if f.get("table_metadata"):
+                    f_std["table_metadata"] = f["table_metadata"]
+
+            standardized_fields.append(f_std)
 
         return {
             "form_id": form_id,

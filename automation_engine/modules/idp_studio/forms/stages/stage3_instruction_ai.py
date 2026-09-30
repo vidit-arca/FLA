@@ -17,7 +17,7 @@ class SemanticFieldDefinition:
     canonical_no: str
     label: str
     instructions: str
-    field_type: str  # 'text' | 'number' | 'date' | 'radio' | 'select' | 'file'
+    field_type: str  # 'text' | 'number' | 'date' | 'radio' | 'select' | 'file' | 'table'
     options: List[str] = field(default_factory=list)
     required: bool = False
     section_slug: str = "main"
@@ -28,6 +28,13 @@ class SemanticFieldDefinition:
     validation_rules: List[Dict[str, Any]] = field(default_factory=list)
     is_prefilled: bool = False
     prefill_source: Optional[str] = None
+    table_archetype: Optional[str] = None
+    repeat_count_field: Optional[str] = None
+    columns: List[Dict[str, Any]] = field(default_factory=list)
+    min_rows: int = 1
+    max_rows: int = 10
+    table_metadata: Optional[Dict[str, Any]] = None
+    row_template_fields: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class Stage3InstructionAI:
@@ -107,7 +114,7 @@ class Stage3InstructionAI:
 
         root_branch_options = [b["option"] for b in root_branches] if root_branches else []
 
-        for row in raw_rows:
+        for r_idx, row in enumerate(raw_rows):
             if row.row_type == "section_header":
                 continue
 
@@ -116,8 +123,18 @@ class Stage3InstructionAI:
             c_no = row.canonical_no.strip()
             sec = row.section_slug
 
+            # Check if this row is a dynamic table or repeating group
+            table_meta = self._extract_table_metadata(c_no, name, inst, raw_rows, r_idx)
+
             # 1. Infer field type, options, and mandatory flag via heuristics
             f_type, options, is_req = self._infer_semantics(c_no, name, inst, root_branch_options)
+
+            if table_meta:
+                f_type = "table"
+                is_req = True
+                if name.lower().startswith("table:"):
+                    col_names = [c["label"] for c in table_meta.get("columns", [])]
+                    name = f"Summary Table ({', '.join(col_names[:2])})" if col_names else "Dynamic Table"
 
             # 2. Extract statutory condition clause
             parent_ref, trigger_vals, raw_cond = self._extract_trigger_clause(inst)
@@ -160,10 +177,138 @@ class Stage3InstructionAI:
                 is_root_selector=is_root,
                 validation_rules=val_rules,
                 is_prefilled=is_prefilled,
-                prefill_source=prefill_src
+                prefill_source=prefill_src,
+                table_archetype=table_meta.get("table_archetype") if table_meta else None,
+                repeat_count_field=table_meta.get("repeat_count_field") if table_meta else None,
+                columns=table_meta.get("columns", []) if table_meta else [],
+                min_rows=table_meta.get("min_rows", 1) if table_meta else 1,
+                max_rows=table_meta.get("max_rows", 10) if table_meta else 10,
+                table_metadata=table_meta
             ))
 
         return results
+
+    def _extract_table_metadata(
+        self,
+        c_no: str,
+        name: str,
+        inst: str,
+        raw_rows: List[RawStatutoryRow],
+        current_idx: int
+    ) -> Optional[Dict[str, Any]]:
+        name_l = name.lower()
+        inst_l = inst.lower()
+
+        # Archetype 1: Web Dynamic Grid (e.g. BEN-2 5(a)_table, 5(b)_table)
+        is_archetype_1 = bool(
+            c_no.endswith("_table") or 
+            name_l.startswith("table:") or 
+            name_l.startswith("table :") or 
+            re.search(r"\btable:\s*column-", name_l)
+        )
+
+        # Archetype 2: Excel Utility Bridge (e.g. LLP-8 Field 7 Download Excel)
+        is_archetype_2 = bool(
+            "download excel" in name_l or 
+            re.search(r"download\s+excel.*?import", inst_l, re.DOTALL) or
+            ("excel" in name_l and ("import" in name_l or "template" in inst_l))
+        )
+
+        if not is_archetype_1 and not is_archetype_2:
+            return None
+
+        archetype = "web_dynamic_grid" if is_archetype_1 else "excel_utility_bridge"
+        columns = []
+        repeat_count_field = None
+        min_rows = 1
+        max_rows = 10
+
+        if is_archetype_1:
+            # 1. Parse columns from "Column-..." tokens
+            raw_cols = re.split(r"Column\s*-\s*", name, flags=re.I)[1:]
+            for c in raw_cols:
+                c_clean = re.sub(r"\s+", " ", c).strip()
+                if not c_clean:
+                    continue
+                key = re.sub(r"[^a-z0-9]+", "_", c_clean.lower())[:30].strip("_")
+                is_num = any(k in c_clean.lower() for k in ["number", "count"])
+                is_sbo = any(k in c_clean.lower() for k in ["sbo", "beneficial owner"])
+                col_def = {
+                    "key": key,
+                    "label": c_clean,
+                    "type": "number" if is_num else "text",
+                    "readonly": is_sbo,
+                    "required": is_num
+                }
+                if is_sbo:
+                    col_def["default_pattern"] = "SBO{index}"
+                if is_num:
+                    col_def["min"] = 1
+                    col_def["max"] = 10
+                columns.append(col_def)
+
+            # 2. Extract repeat count field
+            m_rep = re.search(r"Basis the number entered in field number\s+([0-9\(\)\sA-Za-z]+?)(?:[\“\”\"\'\‘\’]|i\.e\.|\,|$)", inst, re.I)
+            if m_rep:
+                repeat_count_field = re.sub(r"\s+", "", m_rep.group(1))
+
+            # 3. Min/Max rows
+            if "greater than zero" in inst_l:
+                min_rows = 1
+            m_max = re.search(r"equal to or less than\s+([0-9]+)", inst, re.I)
+            if m_max:
+                max_rows = int(m_max.group(1))
+
+        elif is_archetype_2:
+            # 1. Extract repeat count field
+            m_rep = re.search(r"field number\s+([0-9\(\)\sA-Za-z]+?)(?:\s+i\.e\.|\s*[\“\”\"\'\‘\’]|\s+to\b|\,|$)", inst, re.I)
+            if not m_rep:
+                m_rep = re.search(r"equal to the number of rows entered in field number\s+([0-9\(\)\sA-Za-z]+)", inst, re.I)
+            if m_rep:
+                repeat_count_field = re.sub(r"\s+", "", m_rep.group(1))
+
+            max_rows = 50
+
+            # 2. Look ahead for detail fields under the same section (e.g. 8(b), 8(d)...)
+            detail_prefix = None
+            for next_r in raw_rows[current_idx + 1:current_idx + 20]:
+                next_c = next_r.canonical_no
+                if not next_c or next_r.row_type != "field":
+                    continue
+                if "import" in next_r.field_name.lower():
+                    continue
+                if "(" in next_c and not next_c.endswith("(a)"):
+                    m_pfx = re.match(r"^([0-9]+)\(", next_c)
+                    if m_pfx:
+                        pfx = m_pfx.group(1)
+                        if detail_prefix is None:
+                            detail_prefix = pfx
+                        elif pfx != detail_prefix:
+                            break
+                    c_clean = next_r.field_name.strip()
+                    key = re.sub(r"[^a-z0-9]+", "_", c_clean.lower())[:25].strip("_")
+                    c_type = "select" if "category" in c_clean.lower() else "text"
+                    col_def = {
+                        "canonical_no": next_c,
+                        "key": key,
+                        "label": c_clean,
+                        "type": c_type,
+                        "required": True
+                    }
+                    if "category" in c_clean.lower():
+                        col_def["options"] = ["Bank", "Financial Institution", "Non-Banking Financial Company", "Others"]
+                    columns.append(col_def)
+                elif not "(" in next_c and columns:
+                    break
+
+        return {
+            "table_archetype": archetype,
+            "repeat_count_field": repeat_count_field,
+            "min_rows": min_rows,
+            "max_rows": max_rows,
+            "columns": columns
+        }
+
 
     def _infer_semantics(self, c_no: str, name: str, inst: str, root_branch_options: List[str]) -> Tuple[str, List[str], bool]:
         """

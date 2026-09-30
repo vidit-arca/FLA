@@ -16,7 +16,7 @@ class ConnectedDagNode:
     canonical_no: str
     label: str
     instructions: str
-    type: str  # 'text' | 'number' | 'date' | 'radio' | 'select' | 'file'
+    type: str  # 'text' | 'number' | 'date' | 'radio' | 'select' | 'file' | 'table'
     options: List[str]
     required: bool
     section: str
@@ -25,6 +25,13 @@ class ConnectedDagNode:
     validation_rules: List[Dict[str, Any]] = field(default_factory=list)
     is_prefilled: bool = False
     prefill_source: Optional[str] = None
+    table_archetype: Optional[str] = None
+    repeat_count_field: Optional[str] = None
+    columns: List[Dict[str, Any]] = field(default_factory=list)
+    min_rows: int = 1
+    max_rows: int = 10
+    table_metadata: Optional[Dict[str, Any]] = None
+    row_template_fields: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class Stage4DagEngine:
@@ -79,7 +86,14 @@ class Stage4DagEngine:
                 physical_idx=sf.physical_idx,
                 validation_rules=list(sf.validation_rules),
                 is_prefilled=sf.is_prefilled,
-                prefill_source=sf.prefill_source
+                prefill_source=sf.prefill_source,
+                table_archetype=sf.table_archetype,
+                repeat_count_field=sf.repeat_count_field,
+                columns=list(sf.columns),
+                min_rows=sf.min_rows,
+                max_rows=sf.max_rows,
+                table_metadata=sf.table_metadata,
+                row_template_fields=list(sf.row_template_fields)
             )
             nodes.append(node)
 
@@ -100,9 +114,21 @@ class Stage4DagEngine:
                     "value": sec_branch_opt
                 }
 
-        # 3. Intra-section and Cross-field Trigger Resolution
+        # 3. Intra-section and Cross-field Trigger Resolution & Repeat Count Field Resolution
         for i, sf in enumerate(semantic_fields):
             node = nodes[i]
+
+            # Resolve repeat_count_field to DAG node ID
+            if node.repeat_count_field:
+                clean_rep = re.sub(r'\s+', '', node.repeat_count_field.lower())
+                parent_rep_id = canonical_map.get(node.section, {}).get(clean_rep)
+                if not parent_rep_id:
+                    for s_map in canonical_map.values():
+                        if clean_rep in s_map:
+                            parent_rep_id = s_map[clean_rep]
+                            break
+                if parent_rep_id:
+                    node.repeat_count_field = parent_rep_id
 
             if sf.trigger_parent_ref:
                 clean_ref = re.sub(r'\s+', '', sf.trigger_parent_ref.lower())

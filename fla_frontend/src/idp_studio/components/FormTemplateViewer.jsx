@@ -1,6 +1,7 @@
 import React, { useRef, useState, useMemo, useEffect } from 'react';
 import { LayoutDashboard, UploadCloud, Loader2, Save, CornerDownRight, Filter, AlertCircle, Sparkles, CheckCircle2 } from 'lucide-react';
 import { idpClient } from '../api/idpClient';
+import DynamicTableGrid from './DynamicTableGrid';
 
 export default function FormTemplateViewer({ 
   templateId, 
@@ -23,6 +24,7 @@ export default function FormTemplateViewer({
   const [internalSelections, setInternalSelections] = useState({});
   const activeSelections = externalSelections || internalSelections;
   const [showAllFields, setShowAllFields] = useState(false);
+  const [tableValues, setTableValues] = useState({});
 
   // When schema changes, reset selections and log to console for debugging
   useEffect(() => {
@@ -186,6 +188,8 @@ export default function FormTemplateViewer({
 
   const getTypeBadge = (type) => {
     switch ((type || '').toLowerCase()) {
+      case 'table':
+        return <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">TABLE</span>;
       case 'radio':
         return <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30">RADIO</span>;
       case 'select':
@@ -385,6 +389,34 @@ export default function FormTemplateViewer({
                         </button>
                       );
                     })}
+                  </div>
+                )}
+
+                {/* Interactive Dynamic Table Grid */}
+                {field.type === 'table' && field.columns && field.columns.length > 0 && (
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <DynamicTableGrid
+                      field={field}
+                      value={tableValues[field.id]}
+                      onChange={(newRows) => {
+                        setTableValues(prev => ({ ...prev, [field.id]: newRows }));
+                      }}
+                      selectedExtractedData={selectedExtractedData}
+                      onLinkColumn={(targetColId) => {
+                        if (onLinkField) onLinkField(targetColId);
+                      }}
+                      rules={rules}
+                      repeatCount={
+                        field.repeat_count_field 
+                          ? activeSelections[field.repeat_count_field] || activeSelections[field.repeat_count_field.split('.').pop()] 
+                          : null
+                      }
+                      onRepeatCountChange={(newCount) => {
+                        if (field.repeat_count_field) {
+                          handleOptionSelect(field.repeat_count_field, newCount);
+                        }
+                      }}
+                    />
                   </div>
                 )}
                 
