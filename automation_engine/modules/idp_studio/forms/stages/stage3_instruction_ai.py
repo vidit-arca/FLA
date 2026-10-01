@@ -202,27 +202,35 @@ class Stage3InstructionAI:
         name_l = name.lower()
         inst_l = inst.lower()
 
-        # Archetype 1: Web Dynamic Grid (e.g. BEN-2 5(a)_table, 5(b)_table)
+        # Archetype 1: Web Dynamic Grid (e.g. BEN-2 5(a)_table, LLP-11 Field 10 Penalties, Field 11 Compounding)
         is_archetype_1 = bool(
             c_no.endswith("_table") or 
             name_l.startswith("table:") or 
             name_l.startswith("table :") or 
-            re.search(r"\btable:\s*column-", name_l)
+            re.search(r"\btable:\s*column-", name_l) or
+            ("number of row required" in inst_l and ("penalties" in name_l or "compounding" in name_l)) or
+            (c_no == "10" and "penalties" in name_l) or
+            (c_no == "11" and "compounding" in name_l)
         )
 
-        # Archetype 2: Excel Utility Bridge (e.g. LLP-8 Field 7 Download Excel)
+        # Archetype 2: Excel Utility Bridge (e.g. LLP-8 Field 7 Download Excel, LLP-11 Field 7 & 8 Partners)
         is_archetype_2 = bool(
             "download excel" in name_l or 
             re.search(r"download\s+excel.*?import", inst_l, re.DOTALL) or
-            ("excel" in name_l and ("import" in name_l or "template" in inst_l))
+            ("excel" in name_l and ("import" in name_l or "template" in inst_l)) or
+            ("excel file that user can download" in inst_l and ("partner" in name_l or "details" in name_l)) or
+            (c_no == "7" and "individual" in name_l and "partner" in name_l) or
+            (c_no == "8" and "bodies corporate" in name_l and "partner" in name_l)
         )
 
-        # Archetype 3: Financial Statement Matrix (e.g. LLP-8 Field 5 Part B: Statement of Account)
+        # Archetype 3: Financial Statement & Summary Matrix (e.g. LLP-8 Field 5 Part B, LLP-11 Field 9 Summary of Partners)
         is_archetype_3 = bool(
             ('statement of account' in name_l and 'solvency' not in name_l and 'as at' not in name_l) or
             ('part b: statement of account' in name_l) or
             ('statement of assets and liabilities' in name_l) or
-            ('statement of account' in inst_l and 'rupees only' in inst_l and 'as at' not in name_l)
+            ('statement of account' in inst_l and 'rupees only' in inst_l and 'as at' not in name_l) or
+            ('summary of designated partner' in name_l) or
+            (c_no == '9' and 'tabular format' in inst_l)
         )
 
         if not is_archetype_1 and not is_archetype_2 and not is_archetype_3:
@@ -259,10 +267,31 @@ class Stage3InstructionAI:
                     col_def["max"] = 10
                 columns.append(col_def)
 
+            # Special case for LLP-11 Field 10 (Penalties) and Field 11 (Compounding)
+            if not columns and "penalties" in name_l:
+                repeat_count_field = "10(a)"
+                columns = [
+                    {"key": "section", "label": "Section of the Act / Rule", "type": "text", "required": True},
+                    {"key": "offence", "label": "Particulars of offence / default", "type": "text", "required": True},
+                    {"key": "person_name", "label": "Name of Person", "type": "text", "required": True},
+                    {"key": "order_date", "label": "Order Number & Date", "type": "text", "required": True},
+                    {"key": "penalty_amount", "label": "Penalty Imposed (in ₹)", "type": "number", "required": True}
+                ]
+            elif not columns and "compounding" in name_l:
+                repeat_count_field = "11(a)"
+                columns = [
+                    {"key": "section", "label": "Section of the Act / Rule", "type": "text", "required": True},
+                    {"key": "offence", "label": "Particulars of offence", "type": "text", "required": True},
+                    {"key": "order_date", "label": "Date of Compounding", "type": "date", "required": True},
+                    {"key": "authority", "label": "Compounding Authority", "type": "text", "required": True},
+                    {"key": "fee_amount", "label": "Fee / Amount (in ₹)", "type": "number", "required": True}
+                ]
+
             # 2. Extract repeat count field
-            m_rep = re.search(r"Basis the number entered in field number\s+([0-9\(\)\sA-Za-z]+?)(?:[\“\”\"\'\‘\’]|i\.e\.|\,|$)", inst, re.I)
-            if m_rep:
-                repeat_count_field = re.sub(r"\s+", "", m_rep.group(1))
+            if not repeat_count_field:
+                m_rep = re.search(r"Basis the number entered in field number\s+([0-9\(\)\sA-Za-z]+?)(?:[\“\”\"\'\‘\’]|i\.e\.|\,|$)", inst, re.I)
+                if m_rep:
+                    repeat_count_field = re.sub(r"\s+", "", m_rep.group(1))
 
             # 3. Min/Max rows
             if "greater than zero" in inst_l:
@@ -281,73 +310,171 @@ class Stage3InstructionAI:
 
             max_rows = 50
 
-            # 2. Look ahead for detail fields under the same section (e.g. 8(b), 8(d)...)
-            detail_prefix = None
-            for next_r in raw_rows[current_idx + 1:current_idx + 20]:
-                next_c = next_r.canonical_no
-                if not next_c or next_r.row_type != "field":
-                    continue
-                if "import" in next_r.field_name.lower():
-                    continue
-                if "(" in next_c and not next_c.endswith("(a)"):
-                    m_pfx = re.match(r"^([0-9]+)\(", next_c)
-                    if m_pfx:
-                        pfx = m_pfx.group(1)
-                        if detail_prefix is None:
-                            detail_prefix = pfx
-                        elif pfx != detail_prefix:
-                            break
-                    c_clean = next_r.field_name.strip()
-                    key = re.sub(r"[^a-z0-9]+", "_", c_clean.lower())[:25].strip("_")
-                    c_type = "select" if "category" in c_clean.lower() else "text"
-                    col_def = {
-                        "canonical_no": next_c,
-                        "key": key,
-                        "label": c_clean,
-                        "type": c_type,
-                        "required": True
-                    }
-                    if "category" in c_clean.lower():
-                        col_def["options"] = ["Bank", "Financial Institution", "Non-Banking Financial Company", "Others"]
-                    columns.append(col_def)
-                elif not "(" in next_c and columns:
-                    break
+            # 2. Schema definition for Archetype 2
+            if ("partner" in name_l and "individual" in name_l) or (c_no == "7" and "individual" in name_l):
+                columns = [
+                    {"key": "designation", "label": "Designation", "type": "select", "options": ["Designated Partner", "Partner"], "required": True},
+                    {"key": "dpin_pan", "label": "DPIN / PAN / Passport", "type": "text", "required": True},
+                    {"key": "partner_name", "label": "Name of Partner", "type": "text", "required": True},
+                    {"key": "obligation_contribution", "label": "Obligation of Contribution (in ₹)", "type": "number", "required": True},
+                    {"key": "contribution_received", "label": "Contribution Received & Accounted for (in ₹)", "type": "number", "required": True},
+                    {"key": "is_resident", "label": "Resident in India", "type": "select", "options": ["Yes", "No"], "required": True},
+                    {"key": "llp_count", "label": "No. of LLPs as partner", "type": "number", "required": False},
+                    {"key": "company_count", "label": "No. of Companies as director", "type": "number", "required": False}
+                ]
+            elif ("partner" in name_l and ("bodies corporate" in name_l or "body corporate" in name_l)) or (c_no == "8" and "bodies corporate" in name_l):
+                columns = [
+                    {"key": "body_type", "label": "Type of Body Corporate", "type": "select", "options": ["LLP", "Company", "Foreign Body Corporate", "Others"], "required": True},
+                    {"key": "cin_llpin", "label": "CIN / LLPIN / Reg No.", "type": "text", "required": True},
+                    {"key": "company_name", "label": "Name of Body Corporate", "type": "text", "required": True},
+                    {"key": "obligation_contribution", "label": "Obligation of Contribution (in ₹)", "type": "number", "required": True},
+                    {"key": "contribution_received", "label": "Contribution Received & Accounted for (in ₹)", "type": "number", "required": True},
+                    {"key": "nominee_name", "label": "Name of Nominee", "type": "text", "required": True},
+                    {"key": "nominee_dpin", "label": "DPIN / PAN of Nominee", "type": "text", "required": True},
+                    {"key": "is_resident", "label": "Resident in India", "type": "select", "options": ["Yes", "No"], "required": True}
+                ]
+            else:
+                # Look ahead for detail fields under the same section (e.g. LLP-8 Field 7 -> 8(b), 8(d)...)
+                detail_prefix = None
+                for next_r in raw_rows[current_idx + 1:current_idx + 20]:
+                    next_c = next_r.canonical_no
+                    if not next_c or next_r.row_type != "field":
+                        continue
+                    if "import" in next_r.field_name.lower():
+                        continue
+                    if "(" in next_c and not next_c.endswith("(a)"):
+                        m_pfx = re.match(r"^([0-9]+)\(", next_c)
+                        if m_pfx:
+                            pfx = m_pfx.group(1)
+                            if detail_prefix is None:
+                                detail_prefix = pfx
+                            elif pfx != detail_prefix:
+                                break
+                        c_clean = next_r.field_name.strip()
+                        key = re.sub(r"[^a-z0-9]+", "_", c_clean.lower())[:25].strip("_")
+                        c_type = "select" if "category" in c_clean.lower() else "text"
+                        col_def = {
+                            "canonical_no": next_c,
+                            "key": key,
+                            "label": c_clean,
+                            "type": c_type,
+                            "required": True
+                        }
+                        if "category" in c_clean.lower():
+                            col_def["options"] = ["Bank", "Financial Institution", "Non-Banking Financial Company", "Others"]
+                        columns.append(col_def)
+                    elif not "(" in next_c and columns:
+                        break
 
         elif is_archetype_3:
-            min_rows = 1
-            max_rows = 35
-            columns = [
-                {
-                    "key": "financial_head",
-                    "label": "Particulars / Financial Head",
-                    "type": "text",
-                    "readonly": True,
-                    "required": True
-                },
-                {
-                    "key": "current_year",
-                    "label": "Current Financial Year (in ₹)",
-                    "type": "number",
-                    "required": True,
-                    "placeholder": "Enter amount in ₹"
-                },
-                {
-                    "key": "previous_year",
-                    "label": "Previous Financial Year (in ₹)",
-                    "type": "number",
-                    "required": True,
-                    "placeholder": "0 if first financial year"
-                }
-            ]
-            default_rows = [
-                # Statement of Assets and Liabilities
-                {"financial_head": "I. Contribution received by all partners", "current_year": "", "previous_year": ""},
-                {"financial_head": "II. Reserves and Surplus", "current_year": "", "previous_year": ""},
-                {"financial_head": "III. Secured Loans", "current_year": "", "previous_year": ""},
-                {"financial_head": "IV. Unsecured Loans", "current_year": "", "previous_year": ""},
-                {"financial_head": "V. Short-term Borrowings", "current_year": "", "previous_year": ""},
-                {"financial_head": "VI. Trade Payables", "current_year": "", "previous_year": ""},
-                {"financial_head": "VII. Other Liabilities", "current_year": "", "previous_year": ""},
+            if "summary of designated partner" in name_l or (c_no == "9" and "partner" in name_l) or (c_no == "9" and "tabular format" in inst_l):
+                min_rows = 1
+                max_rows = 10
+                columns = [
+                    {
+                        "key": "category",
+                        "label": "Category of Partner",
+                        "type": "text",
+                        "readonly": True,
+                        "required": True
+                    },
+                    {
+                        "key": "num_designated_partners",
+                        "label": "Number of Designated Partners",
+                        "type": "number",
+                        "required": True,
+                        "placeholder": "0"
+                    },
+                    {
+                        "key": "num_partners",
+                        "label": "Number of Partners",
+                        "type": "number",
+                        "required": True,
+                        "placeholder": "0"
+                    },
+                    {
+                        "key": "total_partners",
+                        "label": "Total Number of Partners",
+                        "type": "number",
+                        "required": True,
+                        "placeholder": "0"
+                    },
+                    {
+                        "key": "obligation_contribution",
+                        "label": "Obligation of Contribution (in ₹)",
+                        "type": "number",
+                        "required": True,
+                        "placeholder": "Enter amount in ₹"
+                    },
+                    {
+                        "key": "contribution_received",
+                        "label": "Contribution Received & Accounted for (in ₹)",
+                        "type": "number",
+                        "required": True,
+                        "placeholder": "Enter amount in ₹"
+                    }
+                ]
+                default_rows = [
+                    {
+                        "category": "(a) Individuals",
+                        "num_designated_partners": "",
+                        "num_partners": "",
+                        "total_partners": "",
+                        "obligation_contribution": "",
+                        "contribution_received": ""
+                    },
+                    {
+                        "category": "(b) Bodies Corporate",
+                        "num_designated_partners": "",
+                        "num_partners": "",
+                        "total_partners": "",
+                        "obligation_contribution": "",
+                        "contribution_received": ""
+                    },
+                    {
+                        "category": "Total",
+                        "num_designated_partners": "",
+                        "num_partners": "",
+                        "total_partners": "",
+                        "obligation_contribution": "",
+                        "contribution_received": ""
+                    }
+                ]
+            else:
+                min_rows = 1
+                max_rows = 35
+                columns = [
+                    {
+                        "key": "financial_head",
+                        "label": "Particulars / Financial Head",
+                        "type": "text",
+                        "readonly": True,
+                        "required": True
+                    },
+                    {
+                        "key": "current_year",
+                        "label": "Current Financial Year (in ₹)",
+                        "type": "number",
+                        "required": True,
+                        "placeholder": "Enter amount in ₹"
+                    },
+                    {
+                        "key": "previous_year",
+                        "label": "Previous Financial Year (in ₹)",
+                        "type": "number",
+                        "required": True,
+                        "placeholder": "0 if first financial year"
+                    }
+                ]
+                default_rows = [
+                    # Statement of Assets and Liabilities
+                    {"financial_head": "I. Contribution received by all partners", "current_year": "", "previous_year": ""},
+                    {"financial_head": "II. Reserves and Surplus", "current_year": "", "previous_year": ""},
+                    {"financial_head": "III. Secured Loans", "current_year": "", "previous_year": ""},
+                    {"financial_head": "IV. Unsecured Loans", "current_year": "", "previous_year": ""},
+                    {"financial_head": "V. Short-term Borrowings", "current_year": "", "previous_year": ""},
+                    {"financial_head": "VI. Trade Payables", "current_year": "", "previous_year": ""},
+                    {"financial_head": "VII. Other Liabilities", "current_year": "", "previous_year": ""},
                 {"financial_head": "Total Liabilities", "current_year": "", "previous_year": ""},
                 {"financial_head": "VIII. Gross Fixed Assets", "current_year": "", "previous_year": ""},
                 {"financial_head": "IX. Less: Depreciation / Amortisation", "current_year": "", "previous_year": ""},

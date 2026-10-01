@@ -80,6 +80,54 @@ class TestDynamicTableParser(unittest.TestCase):
         self.assertIn("8(f)", col_keys, "Expected 8(f) Address column in LLP-8")
         self.assertIn("8(g)", col_keys, "Expected 8(g) Email column in LLP-8")
 
+        # Also verify LLP-8 Field 5 Financial Statement Matrix (28 rows) is completely intact
+        t_5 = next((f for f in table_fields if f.get("canonical_no") == "5"), None)
+        self.assertIsNotNone(t_5, "Missing Field 5 table in LLP-8")
+        self.assertEqual(t_5.get("table_archetype"), "financial_matrix")
+        self.assertEqual(len(t_5.get("columns", [])), 3)
+        self.assertEqual(len(t_5.get("default_rows", [])), 28)
+
+    def test_llp11_dynamic_tables(self):
+        pdf_path = os.path.join(REPO_ROOT, "document", "instructions", "Instruction Kit_LLP Form No. 11_clean copy.pdf")
+        self.assertTrue(os.path.exists(pdf_path), f"LLP-11 PDF not found: {pdf_path}")
+
+        schema = self.pipeline.run(pdf_path)
+        self.assertEqual(schema["template_name"], "LLP Form No. 11")
+
+        table_fields = [f for f in schema["fields"] if f.get("type") == "table"]
+        self.assertEqual(len(table_fields), 5, "Expected exactly 5 tables in LLP-11 (7, 8, 9, 10, 11)")
+
+        # Field 7: Individual partners (Archetype 2)
+        t_7 = next((f for f in table_fields if f.get("canonical_no") == "7"), None)
+        self.assertIsNotNone(t_7)
+        self.assertEqual(t_7.get("table_archetype"), "excel_utility_bridge")
+        self.assertEqual(len(t_7.get("columns", [])), 8)
+
+        # Field 8: Bodies corporate partners (Archetype 2)
+        t_8 = next((f for f in table_fields if f.get("canonical_no") == "8"), None)
+        self.assertIsNotNone(t_8)
+        self.assertEqual(t_8.get("table_archetype"), "excel_utility_bridge")
+        self.assertEqual(len(t_8.get("columns", [])), 8)
+
+        # Field 9: Summary matrix (Archetype 3)
+        t_9 = next((f for f in table_fields if f.get("canonical_no") == "9"), None)
+        self.assertIsNotNone(t_9)
+        self.assertEqual(t_9.get("table_archetype"), "financial_matrix")
+        self.assertEqual(len(t_9.get("columns", [])), 6)
+        self.assertEqual(len(t_9.get("default_rows", [])), 3)
+
+        # Field 10: Penalties (Archetype 1)
+        t_10 = next((f for f in table_fields if f.get("canonical_no") == "10"), None)
+        self.assertIsNotNone(t_10)
+        self.assertEqual(t_10.get("table_archetype"), "web_dynamic_grid")
+        self.assertEqual(len(t_10.get("columns", [])), 5)
+
+        # Field 11: Compounding offences (Archetype 1)
+        t_11 = next((f for f in table_fields if f.get("canonical_no") == "11"), None)
+        self.assertIsNotNone(t_11)
+        self.assertEqual(t_11.get("table_archetype"), "web_dynamic_grid")
+        self.assertEqual(len(t_11.get("columns", [])), 5)
+
     def test_registry_persistence_and_retrieval(self):
         # Verify BEN-2 retrieval from registry
         ben2_schema = FormRegistry.get_form_schema("Form No. BEN-2")
