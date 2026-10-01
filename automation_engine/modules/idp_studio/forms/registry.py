@@ -244,12 +244,15 @@ class FormRegistry:
             }
 
             if f_type == "table":
+                f_std["options"] = []
                 f_std["table_archetype"] = f.get("table_archetype", "web_dynamic_grid")
                 f_std["repeat_count_field"] = f.get("repeat_count_field")
                 f_std["min_rows"] = f.get("min_rows", 1)
                 f_std["max_rows"] = f.get("max_rows", 10)
                 f_std["columns"] = f.get("columns", [])
                 f_std["row_template_fields"] = f.get("row_template_fields", [])
+                if f.get("default_rows"):
+                    f_std["default_rows"] = f["default_rows"]
                 if f.get("table_metadata"):
                     f_std["table_metadata"] = f["table_metadata"]
 

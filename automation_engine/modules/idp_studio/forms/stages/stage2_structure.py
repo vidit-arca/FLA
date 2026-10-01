@@ -48,11 +48,14 @@ SECTION_HEADERS = [
 ]
 
 UNNUMBERED_FIELDS = [
-    'attachments', 'attachment', 'verification', 'certificate',
-    'declaration', 'instrument of creation', 'instrument evidencing',
+    'attachments', 'attachment', 'atachments', 'atachment',
+    'remove attachment', 'remove atachment', 'optional attachment', 'optional atachment',
+    'verification', 'certificate', 'declaration', 'instrument of creation', 'instrument evidencing',
     'letter of charge holder', 'copy of agreement', 'copy(s) of resolution',
-    'optional attachment', 'designation', 'director identification',
-    'whether associate or fellow', 'category', 'din or pan of the manager'
+    'designation', 'director identification', 'signature of',
+    'to be digitally signed', 'to be digitaly signed',
+    'particulars of the person signing', 'particulars of person signing',
+    'dpin', 'whether associate or fellow', 'category', 'din or pan of the manager'
 ]
 
 

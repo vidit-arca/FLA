@@ -16,7 +16,8 @@ export default function FormTemplateViewer({
   onSaveMappings, 
   isSavingMappings,
   activeSelections: externalSelections = null,
-  onOptionSelect = null
+  onOptionSelect = null,
+  extractedData = []
 }) {
   const fileInputRef = useRef(null);
   const [isUploading, setIsUploading] = useState(false);
@@ -367,7 +368,7 @@ export default function FormTemplateViewer({
                 )}
 
                 {/* Interactive Radio / Select Option Pills */}
-                {field.options && field.options.length > 0 && (
+                {field.type !== 'table' && field.options && field.options.length > 0 && (
                   <div className="mt-1 flex flex-wrap gap-1.5 pt-0.5">
                     {field.options.map(opt => {
                       const isSelected = activeChoice === opt;
@@ -405,7 +406,12 @@ export default function FormTemplateViewer({
                       onLinkColumn={(targetColId) => {
                         if (onLinkField) onLinkField(targetColId);
                       }}
+                      onLinkCell={(targetCellId, explicitData) => {
+                        if (onLinkField) onLinkField(targetCellId, explicitData);
+                      }}
+                      onDeleteRule={onDeleteRule}
                       rules={rules}
+                      extractedData={extractedData}
                       repeatCount={
                         field.repeat_count_field 
                           ? activeSelections[field.repeat_count_field] || activeSelections[field.repeat_count_field.split('.').pop()] 
@@ -421,7 +427,8 @@ export default function FormTemplateViewer({
                 )}
                 
                 {/* Mapped State or Unmapped Action Slot */}
-                {rule ? (
+                {field.type !== 'table' && (
+                  rule ? (
                     <div className="mt-1.5 flex items-center justify-between bg-slate-50 dark:bg-black/30 p-2 rounded-lg border border-slate-200 dark:border-white/5">
                         <div className="flex flex-col overflow-hidden">
                             <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
@@ -461,7 +468,7 @@ export default function FormTemplateViewer({
                             Unlink
                         </button>
                     </div>
-                ) : isNoSelected ? (
+                  ) : isNoSelected ? (
                     <div className="mt-1.5 flex items-center justify-between bg-slate-100 dark:bg-slate-800/40 p-2 rounded-lg border border-slate-200 dark:border-slate-700/60">
                         <div className="flex items-center gap-2">
                             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
@@ -473,12 +480,13 @@ export default function FormTemplateViewer({
                             </span>
                         </div>
                     </div>
-                ) : (
+                  ) : (
                     <div className="bg-slate-50 dark:bg-black/20 border border-slate-200 dark:border-white/5 rounded-lg p-1.5 min-h-[32px] flex items-center justify-center mt-1">
                         <span className="text-xs italic text-slate-500 font-medium">
                             {isLinkable ? 'Click to link selected text' : (String(activeChoice).toLowerCase() === 'yes' ? 'Requires document mapping (Select text from document)' : 'Unmapped')}
                         </span>
                     </div>
+                  )
                 )}
               </div>
             </div>

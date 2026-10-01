@@ -35,6 +35,7 @@ class SemanticFieldDefinition:
     max_rows: int = 10
     table_metadata: Optional[Dict[str, Any]] = None
     row_template_fields: List[Dict[str, Any]] = field(default_factory=list)
+    default_rows: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class Stage3InstructionAI:
@@ -129,15 +130,16 @@ class Stage3InstructionAI:
             # 1. Infer field type, options, and mandatory flag via heuristics
             f_type, options, is_req = self._infer_semantics(c_no, name, inst, root_branch_options)
 
+            # 2. Extract statutory condition clause
+            parent_ref, trigger_vals, raw_cond = self._extract_trigger_clause(inst)
+
             if table_meta:
                 f_type = "table"
                 is_req = True
+                options = []
                 if name.lower().startswith("table:"):
                     col_names = [c["label"] for c in table_meta.get("columns", [])]
                     name = f"Summary Table ({', '.join(col_names[:2])})" if col_names else "Dynamic Table"
-
-            # 2. Extract statutory condition clause
-            parent_ref, trigger_vals, raw_cond = self._extract_trigger_clause(inst)
 
             is_root = bool(root_branch_options and row.physical_idx == 0)
             if is_root:
@@ -183,7 +185,8 @@ class Stage3InstructionAI:
                 columns=table_meta.get("columns", []) if table_meta else [],
                 min_rows=table_meta.get("min_rows", 1) if table_meta else 1,
                 max_rows=table_meta.get("max_rows", 10) if table_meta else 10,
-                table_metadata=table_meta
+                table_metadata=table_meta,
+                default_rows=table_meta.get("default_rows", []) if table_meta else []
             ))
 
         return results
@@ -214,14 +217,23 @@ class Stage3InstructionAI:
             ("excel" in name_l and ("import" in name_l or "template" in inst_l))
         )
 
-        if not is_archetype_1 and not is_archetype_2:
+        # Archetype 3: Financial Statement Matrix (e.g. LLP-8 Field 5 Part B: Statement of Account)
+        is_archetype_3 = bool(
+            ('statement of account' in name_l and 'solvency' not in name_l and 'as at' not in name_l) or
+            ('part b: statement of account' in name_l) or
+            ('statement of assets and liabilities' in name_l) or
+            ('statement of account' in inst_l and 'rupees only' in inst_l and 'as at' not in name_l)
+        )
+
+        if not is_archetype_1 and not is_archetype_2 and not is_archetype_3:
             return None
 
-        archetype = "web_dynamic_grid" if is_archetype_1 else "excel_utility_bridge"
+        archetype = "web_dynamic_grid" if is_archetype_1 else ("excel_utility_bridge" if is_archetype_2 else "financial_matrix")
         columns = []
         repeat_count_field = None
         min_rows = 1
         max_rows = 10
+        default_rows = []
 
         if is_archetype_1:
             # 1. Parse columns from "Column-..." tokens
@@ -301,12 +313,72 @@ class Stage3InstructionAI:
                 elif not "(" in next_c and columns:
                     break
 
+        elif is_archetype_3:
+            min_rows = 1
+            max_rows = 35
+            columns = [
+                {
+                    "key": "financial_head",
+                    "label": "Particulars / Financial Head",
+                    "type": "text",
+                    "readonly": True,
+                    "required": True
+                },
+                {
+                    "key": "current_year",
+                    "label": "Current Financial Year (in ₹)",
+                    "type": "number",
+                    "required": True,
+                    "placeholder": "Enter amount in ₹"
+                },
+                {
+                    "key": "previous_year",
+                    "label": "Previous Financial Year (in ₹)",
+                    "type": "number",
+                    "required": True,
+                    "placeholder": "0 if first financial year"
+                }
+            ]
+            default_rows = [
+                # Statement of Assets and Liabilities
+                {"financial_head": "I. Contribution received by all partners", "current_year": "", "previous_year": ""},
+                {"financial_head": "II. Reserves and Surplus", "current_year": "", "previous_year": ""},
+                {"financial_head": "III. Secured Loans", "current_year": "", "previous_year": ""},
+                {"financial_head": "IV. Unsecured Loans", "current_year": "", "previous_year": ""},
+                {"financial_head": "V. Short-term Borrowings", "current_year": "", "previous_year": ""},
+                {"financial_head": "VI. Trade Payables", "current_year": "", "previous_year": ""},
+                {"financial_head": "VII. Other Liabilities", "current_year": "", "previous_year": ""},
+                {"financial_head": "Total Liabilities", "current_year": "", "previous_year": ""},
+                {"financial_head": "VIII. Gross Fixed Assets", "current_year": "", "previous_year": ""},
+                {"financial_head": "IX. Less: Depreciation / Amortisation", "current_year": "", "previous_year": ""},
+                {"financial_head": "X. Net Fixed Assets", "current_year": "", "previous_year": ""},
+                {"financial_head": "XI. Investments", "current_year": "", "previous_year": ""},
+                {"financial_head": "XII. Inventories", "current_year": "", "previous_year": ""},
+                {"financial_head": "XIII. Trade Receivables", "current_year": "", "previous_year": ""},
+                {"financial_head": "XIV. Cash and Bank Balances", "current_year": "", "previous_year": ""},
+                {"financial_head": "XV. Loans and Advances", "current_year": "", "previous_year": ""},
+                {"financial_head": "XVI. Other Assets", "current_year": "", "previous_year": ""},
+                {"financial_head": "Total Assets", "current_year": "", "previous_year": ""},
+                # Statement of Income and Expenditure
+                {"financial_head": "XVII. Turnover / Gross Revenue", "current_year": "", "previous_year": ""},
+                {"financial_head": "XVIII. Other Income", "current_year": "", "previous_year": ""},
+                {"financial_head": "Total Revenue", "current_year": "", "previous_year": ""},
+                {"financial_head": "XIX. Purchases / Cost of Goods Sold", "current_year": "", "previous_year": ""},
+                {"financial_head": "XX. Personnel Expenses", "current_year": "", "previous_year": ""},
+                {"financial_head": "XXI. Administrative & Other Expenses", "current_year": "", "previous_year": ""},
+                {"financial_head": "Total Expenses", "current_year": "", "previous_year": ""},
+                {"financial_head": "XXII. Profit / (Loss) Before Tax", "current_year": "", "previous_year": ""},
+                {"financial_head": "XXIII. Provision for Tax", "current_year": "", "previous_year": ""},
+                {"financial_head": "XXIV. Profit / (Loss) After Tax", "current_year": "", "previous_year": ""},
+            ]
+
         return {
             "table_archetype": archetype,
             "repeat_count_field": repeat_count_field,
             "min_rows": min_rows,
             "max_rows": max_rows,
-            "columns": columns
+            "columns": columns,
+            "default_rows": default_rows
         }
 
 

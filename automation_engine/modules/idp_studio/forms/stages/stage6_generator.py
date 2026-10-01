@@ -46,6 +46,8 @@ class Stage6FormGenerator:
                 f_data["max_rows"] = getattr(n, "max_rows", 10)
                 f_data["columns"] = getattr(n, "columns", [])
                 f_data["row_template_fields"] = getattr(n, "row_template_fields", [])
+                if getattr(n, "default_rows", None):
+                    f_data["default_rows"] = n.default_rows
                 if getattr(n, "table_metadata", None):
                     f_data["table_metadata"] = n.table_metadata
             fields_payload.append(f_data)

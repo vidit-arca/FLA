@@ -32,6 +32,7 @@ class ConnectedDagNode:
     max_rows: int = 10
     table_metadata: Optional[Dict[str, Any]] = None
     row_template_fields: List[Dict[str, Any]] = field(default_factory=list)
+    default_rows: List[Dict[str, Any]] = field(default_factory=list)
 
 
 class Stage4DagEngine:
@@ -93,7 +94,8 @@ class Stage4DagEngine:
                 min_rows=sf.min_rows,
                 max_rows=sf.max_rows,
                 table_metadata=sf.table_metadata,
-                row_template_fields=list(sf.row_template_fields)
+                row_template_fields=list(sf.row_template_fields),
+                default_rows=list(getattr(sf, 'default_rows', []))
             )
             nodes.append(node)
 

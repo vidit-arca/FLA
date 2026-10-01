@@ -184,23 +184,26 @@ export default function IdpStudio() {
 
   const [isSavingMappings, setIsSavingMappings] = useState(false);
 
-  const handleLinkField = (formFieldId) => {
-    if (!selectedExtractedData) return;
+  const handleLinkField = (formFieldId, explicitExtracted = null) => {
+    const dataToLink = explicitExtracted || selectedExtractedData;
+    if (!dataToLink) return;
 
     const newRule = {
-      rule_id: `temp_${Date.now()}`,
+      rule_id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       template_name: templateName,
       form_field: formFieldId,
-      extracted_key: selectedExtractedData.key,
-      extracted_value: selectedExtractedData.value,
-      spatial_meta: selectedExtractedData._spatial_meta
+      extracted_key: dataToLink.key,
+      extracted_value: dataToLink.value,
+      spatial_meta: dataToLink._spatial_meta
     };
 
     setRules(prev => {
       const filtered = prev.filter(r => r.form_field !== formFieldId);
       return [...filtered, newRule];
     });
-    setSelectedExtractedData(null);
+    if (!explicitExtracted) {
+      setSelectedExtractedData(null);
+    }
   };
 
   const handleOptionSelect = (fieldId, optionValue) => {
@@ -512,6 +515,7 @@ export default function IdpStudio() {
                     isSavingMappings={isSavingMappings}
                     activeSelections={activeSelections}
                     onOptionSelect={handleOptionSelect}
+                    extractedData={extractedData}
                 />
               </div>
               
