@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.env
+.env.*
+venv/
+env/
+.venv/
+
+# Node / React Frontend
+node_modules/
+dist/
+build/
+.npm/
+
+# Data and Outputs (FLA specific)
+data/
+output/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+
+# Miscellaneous Project Files
+Screenrecoding/
+*.zip
+*.jpg
+*.jpeg
+comparsion_dump.json
+new_fla.json
+old_fla.json

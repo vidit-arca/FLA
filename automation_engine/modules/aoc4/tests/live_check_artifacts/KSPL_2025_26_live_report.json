@@ -1,0 +1,71 @@
+{
+  "input_folder": "Y:\\FLA-main\\FLA-main\\testing\\Kripya solution\\Input for Common error\\ocr_output_2025_2026",
+  "documents": [
+    "KSPL - Notes to Standalone FS - FY 2025-26 - In Thousands.md",
+    "KSPL - Standalone AR - 2025-26.md",
+    "KSPL - Standalone FS - FY 2025-26 - In Thousands.md"
+  ],
+  "full_text_chars": 184165,
+  "rules_workbook": "Y:\\FLA-main\\FLA-main\\automation_engine\\modules\\aoc4\\excel\\Annual Filing common error Output.xlsx",
+  "ollama_url": "http://127.0.0.1:11434",
+  "model": "llama3.2",
+  "ollama_reachable": true,
+  "ollama_detail": "['llama3.2:latest']",
+  "deterministic_seconds": 0.1,
+  "execute_seconds": 32.12,
+  "judged_rules": 5,
+  "llm_decided": 5,
+  "llm_fallback": 0,
+  "calls": [
+    {
+      "particulars": "Whether Shareholding more than 5% is mentioned in Schedule.",
+      "rule_id": "RULE_6",
+      "llm_value": "Yes",
+      "llm_reason": "The Schedule explicitly mentions Mr. Veeraraghavan holding 1,00,200 shares, which is more than 5% of the equity share capital.",
+      "seconds": 4.62,
+      "window_chars": 6000,
+      "document_chars": 184165,
+      "error": null
+    },
+    {
+      "particulars": "Whether reconciliation  of shares O/S at the beginning and end of the year is given",
+      "rule_id": "RULE_10",
+      "llm_value": "Yes",
+      "llm_reason": "The financial statements provide a reconciliation of the number of shares outstanding at the beginning and end of the year, explicitly tied to the reconciliation of equity shares O/S.",
+      "seconds": 4.03,
+      "window_chars": 6000,
+      "document_chars": 184165,
+      "error": null
+    },
+    {
+      "particulars": "Whether promoter holding is disclosed as per format in Jamku>Services>ANNUAL FILING >PROMOTER HOLDING",
+      "rule_id": "RULE_11",
+      "llm_value": "Yes",
+      "llm_reason": "Promoter-wise shareholding with percentages is disclosed in the table, including Mr. inivasan, Mr. Kamesh Gupta, Mr. V.G.Veeraraghavan, Mr. G.Ramaswamy, and Mr. N. Ravichandran.",
+      "seconds": 5.98,
+      "window_chars": 6000,
+      "document_chars": 184165,
+      "error": null
+    },
+    {
+      "particulars": "Check whether Notes to Accounts last page is Signed by both the directors and the Auditors.",
+      "rule_id": "RULE_15",
+      "llm_value": "Yes",
+      "llm_reason": "The Notes to Accounts last page contains a director signature block with 'Director' and 'DIN: 10265669' (R V Krishnan), and an auditor signature block with 'For Kripya Solutions Private Limited' and 'FRN: 015063S' (RVK & Co. Chartered Accountants).",
+      "seconds": 13.66,
+      "window_chars": 6000,
+      "document_chars": 184165,
+      "error": null
+    },
+    {
+      "particulars": "Check if the financials and audit report has the seal of the auditor/firm",
+      "rule_id": "RULE_17",
+      "llm_value": "No",
+      "llm_reason": "The seal of the auditor/firm is missing from the financials and audit report.",
+      "seconds": 3.7,
+      "window_chars": 6000,
+      "document_chars": 184165,
+      "error": null
+    }
+  ]
+}

@@ -1,0 +1,248 @@
+{
+  "company": "Input for Common error",
+  "folder": "testing/Kripya solution/Input for Common error/ocr_output_2025_2026",
+  "files_used": [
+    "KSPL - Notes to Standalone FS - FY 2025-26 - In Thousands.md",
+    "KSPL - Standalone AR - 2025-26.md",
+    "KSPL - Standalone FS - FY 2025-26 - In Thousands.md"
+  ],
+  "files_skipped": [],
+  "full_text_chars": 184165,
+  "dry_run": false,
+  "model": "qwen3.5:4b (shipped default)",
+  "baseline_seconds": 26.2,
+  "hybrid_seconds": 33.13,
+  "llm": {
+    "calls": 27,
+    "seconds": 31.6,
+    "min": 0.98,
+    "max": 1.59,
+    "models": [
+      "qwen3.5:4b"
+    ],
+    "http_errors": 0
+  },
+  "facts": {
+    "company_type": "private limited company",
+    "is_listed": null,
+    "is_ind_as": "no",
+    "is_subsidiary_or_holding": "no",
+    "mca_small_company": null,
+    "paid_up_capital": 2294.0,
+    "net_worth": 228986.0,
+    "turnover": 504583.0,
+    "total_revenue": 519433.0,
+    "net_profit_before_tax": 131578.0,
+    "borrowings": null,
+    "long_term_borrowings": null,
+    "short_term_borrowings": null,
+    "loan_from_directors": null,
+    "dues_to_msme": null,
+    "investments_made": 537.0,
+    "loan_given_by_company": null,
+    "loan_to_directors_assets": null,
+    "corporate_guarantees": null
+  },
+  "rows": [
+    {
+      "id": "COMP_AOC_1",
+      "particulars": "AOC 1",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Not Applicable"
+    },
+    {
+      "id": "COMP_AOC_2",
+      "particulars": "AOC 2",
+      "baseline": "Applicable",
+      "hybrid": "Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "RPT Transactions Total = 9,250.00 > 0."
+    },
+    {
+      "id": "COMP_BEN_2",
+      "particulars": "Ben 2",
+      "baseline": "Missing Data",
+      "hybrid": "Missing Data",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Missing Shareholders data."
+    },
+    {
+      "id": "COMP_CARO",
+      "particulars": "CARO Applicability",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Exempt because it is a Small Company or OPC."
+    },
+    {
+      "id": "COMP_CHARGE_FORM",
+      "particulars": "Charge form",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Secured Loan = 0."
+    },
+    {
+      "id": "COMP_COST_AUDIT",
+      "particulars": "Cost Audit",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Not automatically evaluated. (Requires manual verification if applicable)"
+    },
+    {
+      "id": "COMP_CSR",
+      "particulars": "Corporate Social Responsibility",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Net Worth (0.02 Cr) < 500 Cr, Turnover (0.05 Cr) < 1000 Cr, Net Profit (0.01 Cr) < 5 Cr."
+    },
+    {
+      "id": "COMP_CSR_COMMITTEE",
+      "particulars": "CSR Committee",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Estimated CSR Spend (2% of PBT 0.01 Cr * 3 yrs) <= 50 Lakhs."
+    },
+    {
+      "id": "COMP_DEPOSIT_DEC",
+      "particulars": "Deposit declaration",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "No loans from Directors/Relatives detected."
+    },
+    {
+      "id": "COMP_DPT_3",
+      "particulars": "DPT 3",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Borrowings and Customer Advances are 0."
+    },
+    {
+      "id": "COMP_IFC",
+      "particulars": "Internal Financial Controls",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Private company with Turnover (0.05 Cr) < 50 Cr AND Borrowings (0.00 Cr) < 25 Cr."
+    },
+    {
+      "id": "COMP_IND_AS",
+      "particulars": "IND AS applicability",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Unlisted, non-Ind AS, with Net Worth (0.02 Cr) < 250 Cr."
+    },
+    {
+      "id": "COMP_INT_AUDIT",
+      "particulars": "Internal Audit",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Turnover (0.05 Cr) < 200 Cr AND Borrowings (0.00 Cr) < 100 Cr."
+    },
+    {
+      "id": "COMP_KMP",
+      "particulars": "KMP appointment",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "PUC (0.00 Cr) < 10 Cr."
+    },
+    {
+      "id": "COMP_LOAN_186",
+      "particulars": "Loan Investment Guarantee - 186",
+      "baseline": "Applicable",
+      "hybrid": "Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Found loans, investments, or guarantees in financials."
+    },
+    {
+      "id": "COMP_LOAN_DIRECTOR",
+      "particulars": "Loan to Director or Related entities",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "No asset loans to directors detected."
+    },
+    {
+      "id": "COMP_MGT_7_CERT",
+      "particulars": "Certification of MGT 7",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Exempt because it is a Small Company."
+    },
+    {
+      "id": "COMP_MGT_8",
+      "particulars": "MGT 8 Applicability",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "PUC (0.00 Cr) < 10 Cr AND Turnover (0.05 Cr) < 50 Cr."
+    },
+    {
+      "id": "COMP_MSME",
+      "particulars": "MSME",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "No Dues to MSME detected."
+    },
+    {
+      "id": "COMP_ROTATION",
+      "particulars": "Rotation of Auditors",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Private unlisted company with Paid-up Capital (0.00 Cr) < 50 Cr."
+    },
+    {
+      "id": "COMP_RPT_OMNIBUS",
+      "particulars": "RPT Resolution for omnibus approval",
+      "baseline": "Applicable",
+      "hybrid": "Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "RPT Transactions Total = 9,250.00 > 0."
+    },
+    {
+      "id": "COMP_SEC_AUDIT",
+      "particulars": "Secretarial Audit",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Borrowings (0.00 Cr) < 100 Cr (and not a public/listed co matching limits)."
+    },
+    {
+      "id": "COMP_SMALL_CO",
+      "particulars": "Is it a Small Company?",
+      "baseline": "Yes",
+      "hybrid": "Yes",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Turnover (0.05 Cr) <= 100 Cr AND PUC (0.00 Cr) <= 10 Cr AND Not Holding/Sub."
+    },
+    {
+      "id": "COMP_VIGIL",
+      "particulars": "Vigil Mechanism",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Total Borrowings (0.00 Cr) <= 50 Cr."
+    },
+    {
+      "id": "COMP_XBRL",
+      "particulars": "XBRL filing",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "PUC (0.00 Cr) < 5 Cr AND Turnover (0.05 Cr) < 100 Cr (Unlisted, non-Ind AS)."
+    }
+  ]
+}

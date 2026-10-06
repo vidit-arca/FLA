@@ -1,0 +1,86 @@
+You are a strict statutory-audit judge for an Indian Companies Act AOC-4 annual-filing review. Adjudicate ONE compliance checkpoint using ONLY the extract below. Do not speculate and do not rely on text outside the extract.
+
+CHECKPOINT:
+Check whether Notes to Accounts last page is Signed by both the directors and the Auditors.
+
+ADJUDICATION GUIDANCE:
+Find (a) an auditor signature block - a firm name with 'Chartered Accountants' and usually 'FRN' or 'Membership No.'/'M. No.' - and (b) a director signature block - a person designated 'Director', 'Managing Director', 'MD & CEO' or 'Chairman', usually with a DIN. OCR may have split these blocks across lines and they may sit next to the audit report rather than inside the notes. If both (a) and (b) can be found in the extract, answer Yes; if only one or neither is found, answer No.
+
+Reply with JSON ONLY in this exact shape:
+{"verdict": "Yes" | "No" | "Cannot determine", "reason": "<concise audit explanation>"}
+
+RELEVANT DOCUMENT EXTRACT:
+=====
+iv) of the Order is not applicable to the Company.
+- (xv) According to the information and explanations given to us, in our opinion the Company has not entered into any non-cash transactions with its directors or persons connected with its directors and hence provisions of section 192 of the Companies Act, 2013 are not applicable to the Company.
+- (xvi) (a) According to the information and explanations given to us, the Company is not required to be registered under section 45-IA of the Reserve Bank of India Act, 1934.
+  - (b) According to the information and explanations given to us, the Company has not conducted any Non-Banking Financial or Housing Finance activities.
+  - (c) The Company is not a Core Investment Company (CIC) as defined in the regulations made by the Reserve Bank of India. Accordingly, reporting under clause 3(xvi)(c) and (d) of the Order are not applicable.
+- (xvii) According to the information and explanations given to us and on an overall examination of the financial statements of the Company, the Company has not incurred cash losses in the financial year and in the immediately preceding financial year.
+- (xviii)There has been no resignation of the statutory auditors during the year and accordingly reporting under clause 3(xviii) of the Order is not applicable.
+- (xix) According to the information and explanations given to us and on the basis of the financial ratios, ageing and expected dates of realization of financial assets and payment of financial lia
+[...]
+                                     | 24          | 428         | 478         |
+| (2) Diluted EPS                                                         | 24          | 428         | 472         |
+
+As per our Report of even date
+
+For RVK & Co. Chartered Accountants FRN: 015063S For Kripya Solutions Private Limited
+
+R V Krishnan Proprietor M. No. 028364 UDIN: Parthasarathy MadhavanRamaswamy GopalaswamyMD & CEODirector(DIN: 10265669)(DIN: 00650290)
+
+Place: Chennai Date: 21-Aug-2026
+
+| M/S. KRIPYA SOLUTIONS PRIVATE LIMITED                     |             |             |
+|-----------------------------------------------------------|-------------|-------------|
+| (CIN: U72501TN2006PTC061013)                              |             |             |
+| Cash Flow Statement for the year ended 31st March, 2026   |             |             |
+| Particulars                                               | FY 2025-26  | FY 2024-25  |
+|                                                           | (₹ in '000) | (₹ in '000) |
+| A. CASH FLOW FROM OPERATING ACTIVITIES                    |             |             |
+| Net profit before tax and extraordinary items             | 1,31,578    | 1,38,402    |
+| Adjustments for:                                          |             |             |
+| Depreciation and amortisation expense                     | 5,608       | 4,800       |
+| (Profit) / Loss on sale of fixed assets                   | 18          | 26          |
+| Gain on Sale of Mutu
+[...]
+comprise of Cash on Hand  | -       | -      |
+| Balances with Banks - In Current Accounts            | 13,900  | 16,037 |
+| Total                                                | 13,900  | 16,037 |
+
+As per our Report of even date For RVK & Co.
+
+Chartered Accountants FRN: 015063S
+
+For Kripya Solutions Private Limited
+
+R V Krishnan Proprietor M. No. 028364 UDIN: Parthasarathy Madhavan Ramaswamy Gopalaswamy
+MD & CEO Director
+(DIN: 10265669) (DIN: 00650290)
+
+Place: Chennai Date: 21-Aug-2026
+
+| Note 3 - Share Capital                                                                                   |          |          |
+|----------------------------------------------------------------------------------------------------------|----------|----------|
+| AUTHORISED 500000 equity shares of Rs.10/- each                                                          | 5,000    | 5,000    |
+| ISSUED, SUBSCRIBED & PAID UP Equity Shares of Rs. 10/- each, Fully Paid-up                               | 2,294    | 2,287    |
+| (a) Reconciliation of number of shares                                                                   |          |          |
+| Equity Shares at the beginning of the year                                                               | 2,28,700 | 2,28,700 |
+| Add: Additional Shares Issued on Rights Basis<br>Add: Shares Allotted under ESOP Scheme [Refer Note - A] | -<br>700 | -<br>-   |
+| Equity Shares at the end of the year                                     
+[...]
+ulars                                                | As at 31.03.2026 | As at 31.03.2025 |  |
+| Opening balance                                              | 2,950            | 8,900            |  |
+| Add: Granted during the year Less: Exercised during the year | (1,650)          | (3,450)          |  |
+| Less: Vested Options Lapsed during the year                  | (1,300)          | (2,100)          |  |
+| Less: Unvested Options Lapsed during the year                | -                |
+[...]
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              
+[...]
+                                                                                                                                   | 275                 | 362                 |
+
+| M/S. KRIPYA SOLUTIONS PRIVATE LIMITED                          | AS AT      | AS AT      |
+|----------------------------------------------------------------|------------|------------|
+| Schedule forming part of Accounts                              | 31.03.2026 | 31.03.2025 |
+| CTDI CLARA E                 
+=====

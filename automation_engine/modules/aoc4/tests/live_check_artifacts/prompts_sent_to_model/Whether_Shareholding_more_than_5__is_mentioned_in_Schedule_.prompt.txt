@@ -1,0 +1,102 @@
+You are a strict statutory-audit judge for an Indian Companies Act AOC-4 annual-filing review. Adjudicate ONE compliance checkpoint using ONLY the extract below. Do not speculate and do not rely on text outside the extract.
+
+CHECKPOINT:
+Whether Shareholding more than 5% is mentioned in Schedule.
+
+ADJUDICATION GUIDANCE:
+Check whether the Share Capital Notes / Schedule disclose that a shareholder holds more than 5% of the equity share capital. The schedule is usually an OCR'd markdown table: read its ROWS literally and do not discard a row because a column header was mangled by OCR. PASS if there is an explicit statement or a schedule row naming a shareholder with a holding STRICTLY ABOVE 5% (e.g. '5.01 %', '6%', '12.5%'). A bare mention of '5%' with no shareholder exceeding it, or no shareholding schedule at all, is a FAIL.
+
+Reply with JSON ONLY in this exact shape:
+{"verdict": "Yes" | "No" | "Cannot determine", "reason": "<concise audit explanation>"}
+
+RELEVANT DOCUMENT EXTRACT:
+=====
+s and Restrictions attached to Shares
+
+M/S. KRIPYA SOLUTIONS PRIVATE LIMITED
+
+Schedule forming part of Accounts
+
+The company has one class of equity shares having a par value of Rs.10 per share. Each shareholder is eligible for one vote per share held. The dividend proposed by the Board of Directors is subject to the approval of the shareholders in the ensuing Annual General Meeting, except in case of interim dividend. In the event of liquidation, the equity shareholders are eligible to receive the remaining assets of the Company after distribution of all preferential amounts, in proportion to their shareholding.
+
+## (c) Details of shares held by shareholders holding more than 5% of the aggregate shares in the Company
+
+| Name of the Shareholders | As at 31.0    | )3.2026      | As at 31.03.2025 |              |  |
+|--------------------------|---------------|--------------|------------------|--------------|--|
+|                          | No. of Shares | % of Holding | No. of Shares    | % of Holding |  |
+|                          |               |              |                  |              |  |
+| Equity Shares:           |               |              |                  |              |  |
+| Mr.Veeraraghavan         | 1,00,200      | 43.68%       | 1,00,200         | 43.81%       |  |
+| Mr. N. Venkatesh         | 31,938        | 13.92%       | 42,921           | 18.77%       |  |
+| Mr. Madhavan Srinivasan  | 33,900        | 14.78%       | 33,900           | 14.82%       
+[...]
+rnover / Average Trade payables
+- h. Net Capital Turnover Ratio = Turnover / Working Capital
+- i. Net Profit Ratio = Profits After Tax / Turnover
+- j. Return on Capital employed = Profits After Tax / Shareholder's Funds
+- k. Return on Investment (Assets) = Profits After Tax / Total Fixed Assets
+
+## Reasons for variations more than 25%:
+
+### 1. Current Ratio (Increase 62.19%)
+
+The increase in the current ratio is due to higher cash inflows during the year as a result of profits during the year majorly held in fixed deposits and mutual funds.
+
+## 2. Return on Equity (Decrease 43.89%)
+
+The increase in return on equity is due to decline in net profits, besides increase in the turnover.
+
+## 3. Inventory Turnover Ratio (Decrease 91.93%)
+
+The decrease in the inventory turnover ratio is due to a significant increase in closing inventory held by the entity.
+
+## 4. Trade Payables Turnover Ratio (Increase 30.86%)
+
+The increase in the trade payables turnover ratio is due to significant increase the turnover during the year, while maintaining low variance in the average trade payables.
+
+## 5. Net profit Ratio (Decrease 26.46%)
+
+The decrease in the net profit ratio is due to reduction in profit after tax in current year.
+
+## 6. Return on capital employed (Decrease 37.04%)
+
+The decrease in the return on capital employed ratio is due to reduction in profit after tax in current year.
+
+### 7. Return on Investment (Decrease 42.14%)
+
+The decrease in the return on investment ratio is due to reduc
+[...]
+te: 21-Aug-2026
+
+#### (CIN: U72501TN2006PTC061013) Balance Sheet as at 31st March, 2026 Note AS AT AS AT **Particulars** No. 31.03.2026 31.03.2025 (₹ in '000) (₹ in '000) I. EOUITY AND LIABILITIES 1. Shareholders' Funds (a) Share Capital 3 2,294 2,287 (b) Stock Options Outstanding 4 2,153 (c) Reserves & Surplus 5 3.27.991 2,26,692 2. Non-current liabilities (a) Long-term Borrowings (b) Deferred Tax Liability (Net) 6 457 437 (c) Other Long-term Liabilities (d) Long-term Provisions 3. Current Liabilities (a) Short-term Borrowings (b) Trade Payables - Total Outstanding dues of MSME 7 2,450 - Total Outstanding dues other than MSME 3,834 (c) Other Current Liabilities 8 14,672 11,537 (d) Short-term Provisions 1,093 Total 3,46,113 2,49,784 II. ASSETS 1. Non-current Assets (a) Property, Plant and Equipment and Intangible Assets (i) Property, Plant and Equipment 18 15,876 10,205 (ii) Intangible Assets 18 5 5 (b) Non-current Investments 10 537 537 (c) Long-term loans and advances (d) Other Non-current assets 11 4,611 1,500 2. Current Assets (a) Current Investments 12 57.608 (b) Inventories 13 1.180 8 (c) Trade Receivables 14 2,020 1,202 (d) Cash and Cash Equivalents 15 2,05,418 1,93,267 (e) Short-term Loans and Advances 16 45,106 37,224 (f) Other Current Assets 17 13,752 5,836 2,49,784 Total 3,46,113
+
+Significant Accounting Policies & Notes on accounts
+
+M/S. KRIPYA SOLUTIONS PRIVATE LIMITED
+
+1 & 2
+
+# As per our Report of even date
+
+For RVK & Co. Chartered Accountants FRN:
+[...]
+ulars                                                | As at 31.03.2026 | As at 31.03.2025 |  |
+| Opening balance                                              | 2,950            | 8,900            |  |
+| Add: Granted during the year Less: Exercised during the year | (1,650)          | (3,450)     
+[...]
+ like on behalf of the Ultimate Beneficiaries.
+
+- (c) Based on the audit procedures performed that have been considered reasonable and appropriate in the circumstances, nothing has come to our notice that has caused us to believe that the representations under sub-clause (i) and (ii) of Rule 11(e
+[...]
+           |             | -           | -           |
+| VII. Profit before extraordinary items and tax (V - VI)                 | -           | 1,31,578    | 1,38,402    |
+| VIII. Extraordinary Items                                               |             | -           | -           |
+| I
+[...]
+                                                                                                                                                                                                                                                                                                   
+[...]
+                                                                                                                                   | 275                 | 362                 |
+
+| M/S. KRIPYA SOLUTIONS PRIVATE LIMITED                          | AS AT      | AS AT      |
+|-------------
+=====

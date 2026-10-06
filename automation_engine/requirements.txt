@@ -1,0 +1,28 @@
+# Core Excel, Math & Data manipulation
+openpyxl>=3.1.2
+pandas>=2.0.0
+numpy>=1.24.0
+
+# PDF & Document Parsing
+pypdf>=4.0.0
+pdfplumber>=0.10.0
+PyMuPDF>=1.23.0
+python-docx>=1.0.0
+
+# Web API, Database & Data Models
+fastapi>=0.100.0
+uvicorn>=0.22.0
+python-multipart>=0.0.6
+pydantic>=2.0.0
+sqlalchemy>=2.0.0
+requests>=2.28.0
+
+# Triton Client for IDP Studio
+tritonclient[http]>=2.30.0
+
+# Orchestration
+langgraph>=0.0.26
+
+# VLM OCR Pipeline (Marker PDF)
+# Note: marker requires torch and layout transformers.
+# It can be installed globally or in a conda environment.

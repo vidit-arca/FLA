@@ -1,0 +1,221 @@
+{
+  "private_compliance_rules": [
+    {
+      "particular": "Paidup capital",
+      "source": "Financials",
+      "keywords": [
+        "paid up capital",
+        "paid up share capital",
+        "subscribed and paid up",
+        "equity share capital",
+        "preference share capital",
+        "share capital"
+      ]
+    },
+    {
+      "particular": "Reserves and Surplus",
+      "source": "Financials",
+      "keywords": [
+        "reserves and surplus",
+        "reserves & surplus",
+        "other equity",
+        "retained earnings"
+      ]
+    },
+    {
+      "particular": "Total Borrowings",
+      "source": "Financials",
+      "keywords": [
+        "borrowings",
+        "long term borrowings",
+        "short term borrowings",
+        "secured loans",
+        "unsecured loans"
+      ]
+    },
+    {
+      "particular": "Loan given by Company to Directors or Director related entities (assets)",
+      "source": "Financials",
+      "keywords": [
+        "loans and advances to directors",
+        "due from directors",
+        "loans to related parties",
+        "advance to KMP"
+      ]
+    },
+    {
+      "particular": "Loans given by Company (assets)",
+      "source": "Financials",
+      "keywords": [
+        "loans and advances",
+        "loans given",
+        "inter corporate deposits given",
+        "icd given"
+      ]
+    },
+    {
+      "particular": "Investments made by Company (assets)",
+      "source": "Financials",
+      "keywords": [
+        "investments",
+        "non current investments",
+        "current investments",
+        "investment in subsidiaries",
+        "investment in associates"
+      ]
+    },
+    {
+      "particular": "Corporate Guarantees given by Company",
+      "source": "Financials",
+      "keywords": [
+        "corporate guarantee",
+        "guarantees given",
+        "contingent liabilities guarantee"
+      ]
+    },
+    {
+      "particular": "Loan from Directors or their relatives (Liabilities)",
+      "source": "Financials",
+      "keywords": [
+        "loan from directors",
+        "unsecured loan from director",
+        "due to directors",
+        "loans from relatives of directors"
+      ]
+    },
+    {
+      "particular": "Loan from Shareholders (Liabilities)",
+      "source": "Financials",
+      "keywords": [
+        "loan from shareholders",
+        "unsecured loan from shareholder",
+        "icd from shareholder"
+      ]
+    },
+    {
+      "particular": "Secured Loan",
+      "source": "Financials",
+      "keywords": [
+        "secured loan",
+        "term loan (secured loan)",
+        "loan against hypothecation",
+        "secured borrowings"
+      ]
+    },
+    {
+      "particular": "Advance from Customers, Shareholders, Security Deposits (Liabilitys)",
+      "source": "Financials",
+      "keywords": [
+        "advance from customers",
+        "advance from shareholders",
+        "security deposits"
+      ]
+    },
+    {
+      "particular": "Dues to MSME",
+      "source": "Financials",
+      "keywords": [
+        "advance from customers",
+        "security deposit received",
+        "advance received",
+        "customer advances",
+        "dues to msme"
+      ]
+    },
+    {
+      "particular": "Networth",
+      "source": "Computed",
+      "keywords": [
+        "capital",
+        "reserves & surplus"
+      ]
+    },
+    {
+      "particular": "Turnover",
+      "source": "Financials",
+      "keywords": [
+        "revenue from operations",
+        "total turnover",
+        "sales turnover",
+        "gross turnover"
+      ]
+    },
+    {
+      "particular": "Total Revenue",
+      "source": "Financials",
+      "keywords": [
+        "total revenue",
+        "total income",
+        "revenue and other income"
+      ]
+    },
+    {
+      "particular": "Profit Before Tax",
+      "source": "Financials",
+      "note": "take from fla",
+      "keywords": [
+        "profit before tax",
+        "pbt",
+        "profit/(loss) before tax"
+      ]
+    },
+    {
+      "particular": "ED / WTD Monthly Remuneration",
+      "source": "Financials",
+      "keywords": [
+        "annual remuneration",
+        "remuneration paid to directors",
+        "managerial remuneration"
+      ]
+    },
+    {
+      "particular": "Exprt",
+      "source": "Financials",
+      "keywords": [
+        "export sales",
+        "export turnover",
+        "revenue from export",
+        "fob value of exports"
+      ]
+    },
+    {
+      "particular": "Sitting Fees to Directors",
+      "source": "Financials",
+      "keywords": [
+        "sitting fees",
+        "fees to directors",
+        "director sitting fee"
+      ]
+    },
+    {
+      "particular": "Number of Bodies Corporate Shareholder holding more than 10%",
+      "source": "Financials",
+      "note": "section 3 fla -- >> add it here",
+      "keywords": [
+        "corporate shareholder",
+        "holding more than 10%",
+        "shareholding pattern"
+      ]
+    },
+    {
+      "particular": "Is the Company a Holding or a Subsidiary Company",
+      "source": "Financials",
+      "note": "check it in related party for the 'Is the Company a Holding or a Subsidiary Company'.",
+      "keywords": [
+        "holding company",
+        "subsidiary company",
+        "is a subsidiary"
+      ]
+    },
+    {
+      "particular": "Is the Company a Holding, Subsidiary or Associate of IND AS applicable Companies",
+      "source": "Financials",
+      "note": "check it in related party for the 'Is the Company a Holding, Subsidiary or Associate of IND AS applicable Companies'",
+      "keywords": [
+        "associate company",
+        "joint venture",
+        "related party as per ind as 24"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,248 @@
+{
+  "company": "Cargo",
+  "folder": "Y:\\Main-OCR-main\\Main-OCR-main\\data\\Cargo\\ocr_output",
+  "files_used": [
+    "CARGO Annual Report 2024 - 25.md"
+  ],
+  "files_skipped": [
+    "previous year Financials and Boards Report.md"
+  ],
+  "full_text_chars": 289024,
+  "dry_run": false,
+  "model": "qwen3.5:4b (shipped default)",
+  "baseline_seconds": 2.59,
+  "hybrid_seconds": 44.99,
+  "llm": {
+    "calls": 27,
+    "seconds": 41.58,
+    "min": 1.23,
+    "max": 2.1,
+    "models": [
+      "qwen3.5:4b"
+    ],
+    "http_errors": 0
+  },
+  "facts": {
+    "company_type": "private limited company",
+    "is_listed": null,
+    "is_ind_as": "no",
+    "is_subsidiary_or_holding": "no",
+    "mca_small_company": null,
+    "paid_up_capital": 31300000.0,
+    "net_worth": 31300000.0,
+    "turnover": 20200000.0,
+    "total_revenue": null,
+    "net_profit_before_tax": 2050000.0,
+    "borrowings": null,
+    "long_term_borrowings": null,
+    "short_term_borrowings": null,
+    "loan_from_directors": null,
+    "dues_to_msme": null,
+    "investments_made": null,
+    "loan_given_by_company": null,
+    "loan_to_directors_assets": null,
+    "corporate_guarantees": null
+  },
+  "rows": [
+    {
+      "id": "COMP_AOC_1",
+      "particulars": "AOC 1",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The company is not a holding/subsidiary company and no subsidiaries, associates, or joint ventures are listed in the financial statements. Evidence: Holding/subsidiary company: no"
+    },
+    {
+      "id": "COMP_AOC_2",
+      "particulars": "AOC 2",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The financial facts show no related-party transactions that are not at arm's length or not in the ordinary course of business. The preliminary answer is correct based on the financial thresholds. Evidence: The company reports no related-party transactions that are not at arm's length or not in the ordinary course of business."
+    },
+    {
+      "id": "COMP_BEN_2",
+      "particulars": "Ben 2",
+      "baseline": "Missing Data",
+      "hybrid": "Missing Data",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Missing Shareholders data."
+    },
+    {
+      "id": "COMP_CARO",
+      "particulars": "CARO Applicability",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Exempt because it is a Small Company or OPC."
+    },
+    {
+      "id": "COMP_CHARGE_FORM",
+      "particulars": "Charge form",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - No evidence of secured loans, charges, or Form CHG-1/CHG-4 filings found in the extract; financial data for secured loans is 'not available'."
+    },
+    {
+      "id": "COMP_COST_AUDIT",
+      "particulars": "Cost Audit",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - Company turnover is Rs 2.02 crore, which is below the Rs 20 crore threshold for cost audit applicability under the Cost Records and Audit Rules. Evidence: Turnover (Rs): 20,200,000 (Rs 2.02 crore)"
+    },
+    {
+      "id": "COMP_CSR",
+      "particulars": "Corporate Social Responsibility",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The company's net worth (Rs 3.13 crore), turnover (Rs 2.02 crore), and profit before tax (Rs 0.20 crore) are all below the Section 135 thresholds (Rs 500 crore, Rs 1000 crore, and Rs 5 crore respectively). No CSR disclosure is present in the provided documents. Evidence: Net worth (Rs): 31,300,000 (Rs 3.13 crore); Turnover (Rs): 20,200,000 (Rs 2.02 crore); Profit before tax (Rs): 2,050,000 (Rs 0.20 crore)"
+    },
+    {
+      "id": "COMP_CSR_COMMITTEE",
+      "particulars": "CSR Committee",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The CSR obligation threshold is based on Net Worth, Turnover, or Profit before Tax. The company's Net Worth is Rs 31.30 crore, Turnover is Rs 2.02 crore, and Profit before Tax is Rs 0.20 crore. None of these figures exceed the Rs 50 lakh threshold required to mandate a CSR Committee. The financial facts provided do not indicate that the CSR obligation exceeds Rs 50 lakh, making the requirement not applicable."
+    },
+    {
+      "id": "COMP_DEPOSIT_DEC",
+      "particulars": "Deposit declaration",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The company explicitly declared in Note 12 that no deposits were invited from public/shareholders, and no loans from directors/relatives were found in the financial facts or notes. Evidence: During the year under review, your Company has not invited any deposits from public/shareholders as per Section 73 of the Companies Act, 2013 read with Companies (Acceptance of Deposits) Rules, 2014."
+    },
+    {
+      "id": "COMP_DPT_3",
+      "particulars": "DPT 3",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The company has no available data on total borrowings or customer advances, and the preliminary rule engine answer is 'Not Applicable' based on financial thresholds. Evidence: Total borrowings (Rs): not available"
+    },
+    {
+      "id": "COMP_IFC",
+      "particulars": "Internal Financial Controls",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The company is a private limited company with a turnover of Rs 2.02 crore, which is below the Rs 5 crore threshold for IFC reporting. Total borrowings are not available, but the turnover alone is insufficient to meet the threshold. Evidence: Turnover (Rs): 20,200,000 (Rs 2.02 crore); Total borrowings (Rs): not available"
+    },
+    {
+      "id": "COMP_IND_AS",
+      "particulars": "IND AS applicability",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The financial facts explicitly state 'Ind AS applicable: no', and the basis of preparation note references 'Accounting Standards as adopted consistently by the company' without specifying Ind AS, while the company is unlisted and below the turnover threshold for Ind AS applicability. Evidence: Ind AS applicable: no"
+    },
+    {
+      "id": "COMP_INT_AUDIT",
+      "particulars": "Internal Audit",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - Company is a private limited company with turnover of Rs 2.02 crore, which is below the Rs 200 crore threshold for mandatory internal audit. No internal audit report or appointment is referenced in the filing. Evidence: Turnover (Rs): 20,200,000 (Rs 2.02 crore)"
+    },
+    {
+      "id": "COMP_KMP",
+      "particulars": "KMP appointment",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - Company is a private limited company with paid-up capital of Rs 3.13 crore, which is below the Rs 5 crore threshold for mandatory Company Secretary appointment and below the Rs 10 crore threshold for mandatory KMP appointment. Evidence: Paid-up capital (Rs): 31,300,000 (Rs 3.13 crore)"
+    },
+    {
+      "id": "COMP_LOAN_186",
+      "particulars": "Loan Investment Guarantee - 186",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "No relevant loans, investments, or guarantees detected."
+    },
+    {
+      "id": "COMP_LOAN_DIRECTOR",
+      "particulars": "Loan to Director or Related entities",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - Financial facts show 'not available' for loans to directors/relatives; no evidence of such advances in the provided extract. Evidence: Loan to Director or Related entities"
+    },
+    {
+      "id": "COMP_MGT_7_CERT",
+      "particulars": "Certification of MGT 7",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - Company is a private limited company with paid-up capital of Rs 3.13 crore and turnover of Rs 2.02 crore, both below the thresholds of Rs 10 crore and Rs 50 crore respectively. No evidence of MGT-7 certification by a practising company secretary is present in the extract. Evidence: Paid-up capital (Rs): 31,300,000 (Rs 3.13 crore)"
+    },
+    {
+      "id": "COMP_MGT_8",
+      "particulars": "MGT 8 Applicability",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - Company is a private limited company with paid-up capital of Rs 3.13 crore (below Rs 10 crore threshold) and turnover of Rs 2.02 crore (below Rs 50 crore threshold). Total borrowings are not available, so the Rs 25 crore borrowing threshold cannot be determined. However, since the company is not listed and does not meet the known financial thresholds, MGT-8 is not applicable. Evidence: Paid-up capital (Rs): 31,300,000 (Rs 3.13 crore); Turnover (Rs): 20,200,000 (Rs 2.02 crore); Total borrowings (Rs): not available"
+    },
+    {
+      "id": "COMP_MSME",
+      "particulars": "MSME",
+      "baseline": "Not Applicable",
+      "hybrid": "Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Complied: Yes - The balance sheet explicitly discloses dues to MSME separately under Trade payables, and the auditor's report includes a clause on delays in payment. Evidence: MSME<br>Others"
+    },
+    {
+      "id": "COMP_ROTATION",
+      "particulars": "Rotation of Auditors",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Private unlisted company with Paid-up Capital (3.13 Cr) < 50 Cr."
+    },
+    {
+      "id": "COMP_RPT_OMNIBUS",
+      "particulars": "RPT Resolution for omnibus approval",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The rule engine's preliminary answer is correct. The company is not a listed company, and the financial thresholds for mandatory related-party transaction disclosures are not met based on the provided financial facts. There is no mention of omnibus approval for related-party transactions in the provided document extract."
+    },
+    {
+      "id": "COMP_SEC_AUDIT",
+      "particulars": "Secretarial Audit",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The company is a private limited company with paid-up capital of Rs 3.13 crore, which is below the Rs 50 crore threshold. Turnover is Rs 2.02 crore, below the Rs 250 crore threshold. Total borrowings are 'not available', so the Rs 100 crore threshold cannot be determined. However, the rule engine's preliminary answer is 'Not Applicable' based on available financial thresholds, and no evidence of a Secretarial Audit Report (Form MR-3) or appointment is found in the provided documents. Evidence: Paid-up capital (Rs): 31,300,000 (Rs 3.13 crore)"
+    },
+    {
+      "id": "COMP_SMALL_CO",
+      "particulars": "Is it a Small Company?",
+      "baseline": "Yes",
+      "hybrid": "Yes",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Turnover (2.02 Cr) <= 100 Cr AND PUC (3.13 Cr) <= 10 Cr AND Not Holding/Sub."
+    },
+    {
+      "id": "COMP_VIGIL",
+      "particulars": "Vigil Mechanism",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - Total borrowings are not available in the financial facts extract, and no vigil mechanism policy is disclosed in the provided document extract. Evidence: Total borrowings (Rs): not available"
+    },
+    {
+      "id": "COMP_XBRL",
+      "particulars": "XBRL filing",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The company is not listed, does not apply Ind AS, and its paid-up capital (Rs 3.13 crore) and turnover (Rs 2.02 crore) are below the mandatory thresholds (Rs 5 crore and Rs 100 crore respectively). No explicit XBRL mention found. Evidence: Paid-up capital (Rs): 31,300,000 (Rs 3.13 crore); Turnover (Rs): 20,200,000 (Rs 2.02 crore); Listed company: not available; Ind AS applicable: no"
+    }
+  ]
+}

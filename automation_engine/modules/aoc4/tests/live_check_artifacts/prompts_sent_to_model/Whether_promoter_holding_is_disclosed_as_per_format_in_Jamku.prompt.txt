@@ -1,0 +1,82 @@
+You are a strict statutory-audit judge for an Indian Companies Act AOC-4 annual-filing review. Adjudicate ONE compliance checkpoint using ONLY the extract below. Do not speculate and do not rely on text outside the extract.
+
+CHECKPOINT:
+Whether promoter holding is disclosed as per format in Jamku>Services>ANNUAL FILING >PROMOTER HOLDING
+
+ADJUDICATION GUIDANCE:
+Check whether promoter holding is disclosed in the prescribed schedule format: a promoter-wise table (name of promoters / promoter group, shares held at beginning, shares held at end, % holding, and change during the year). The table is usually an OCR'd markdown table: read its ROWS literally even if a header is mangled. PASS if promoter-wise shareholding with percentages is disclosed. FAIL if only a single aggregate 'promoter holding' figure is present without the schedule, or no promoter disclosure at all.
+
+Reply with JSON ONLY in this exact shape:
+{"verdict": "Yes" | "No" | "Cannot determine", "reason": "<concise audit explanation>"}
+
+RELEVANT DOCUMENT EXTRACT:
+=====
+inivasan  | 33,900        | 14.78%       | 33,900           | 14.82%       |  |
+| Mr. Kamesh Gupta         | 14,000        | 6.10%        | 7,867            | 3.44%        |  |
+
+## (d) Shares held by promoters at the end of the period
+
+| Promoter Name         | No. of Shares | % of total shares | % Change in holding during the year |
+|-----------------------|---------------|-------------------|-------------------------------------|
+| Mr. V.G.Veeraraghavan | 1,00,200      | 43.68%            | 0.00%                               |
+| Mr. G.Ramaswamy       | 8,366         | 3.65%             | 0.00%                               |
+| Mr. N. Ravichandran   | 6,626         | 2.89%             | 0.00%                               |
+
+| M/S. KRIPYA SOLUTIONS PRIVATE LIMITED Schedule forming part of Accounts | AS AT<br>31.03.2026 | AS AT<br>31.03.2025 |
+|-------------------------------------------------------------------------|---------------------|---------------------|
+| Note 4 - Stock Options Outstanding                                      |                     |                     |
+| Balance as at the beginning of the year                                 | 2,153               | 2,196               |
+| Add: Employee Compensation Expenses booked                              | 815                 | 2,973               |
+| Less: Capitalization on Exercise of Options                             | (2,020)             | (2,418)             |
+| Less: Reversal due to Forfeiture / Vested Options lapsed                | (949)               | (597)               |
+| Balance as at the end of the year                                       |                     | 2,153               |
+| Note 5 - Reserves 
+[...]
+ulars                                                | As at 31.03.2026 | As at 31.03.2025 |  |
+| Opening balance                                              | 2,950            | 8,900            |  |
+| Add: Granted during the year Less: Exercised during the year | (1,650)          | (3,450)          |  |
+| Less: Vested Options Lapsed during the year                  | (1,300)          | (2,100)          |  |
+| Less: Unvested Options Lapsed during the year                | -                | (400)            |  |
+| Closing Balance                                              | -                | 2,950 
+[...]
+ease in the inventory turnover ratio is due to a significant increase in closing inventory held by the entity.
+
+## 4. Trade Payables Turnover Ratio (Increase 30.86%)
+
+The increase in the trade payables turnover ratio is due to significant increase the turnover during the year, while maintaining low variance in the average trade payables.
+
+## 5. Net profit Ratio (Decrease 26.46%)
+
+The decrease in the net profit ratio is due to reduction in profit after tax in current year.
+
+## 6. Return on capital employed (Decrease 37.04%)
+
+The decrease in the return on capital employed ratio is due to reduction in pro
+[...]
+ like on behalf of the Ultimate Beneficiaries.
+
+- (c) Based on the audit procedures performed that have been considered reasonable and appropriate in the circumstances, nothing has come to our notice that has caused us to believe that the representations under sub-clause (i) and (ii) of Rule 11(e) contain any material misstatement.
+- v. The Company has not declared or paid any dividend during the financial year.
+- vi. Based on our examination, which included test checks, the Company has used accounting software for maintaining its books of account for the financial year ended 31st March, 2026. The aud
+[...]
+me during the reporting period nor the company has taken any fresh loans or borrowings from banks, financial institutions, or any other entity. Accordingly, reporting under clause 3(ix) of the Order is not applicable to the company.
+- (x) (a) The Company has not raised any money by way of initial public offer or further public offer (including debt instruments) during the year. Accordingly, reporting under clause 3(x)(a) of the Order is not applicable.
+  - (b) According to the information provided and explanations given to us, and on the basis of our examination of the records of the Company, the Com
+[...]
+           |             | -           | -           |
+| VII. Profit before extraordinary items and tax (V - VI)                 | -           | 1,31,578    | 1,38,402    |
+| VIII. Extraordinary Items                                               |             | -           | -           |
+| IX. Profit before tax (VII - VIII)                                      | -           | 1,31,578    | 1,38,402    |
+| X. Tax Expense                                                          |             |             |             |
+| Current Tax                                                             |  
+[...]
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         
+[...]
+                                                                                                                                   | 275                 | 362                 |
+
+| M/S. KRIPYA SOLUTIONS PRIVATE LIMITED                          | AS AT      | AS AT      |
+|----------------------------------------------------------------|------------|------------|
+| Schedule forming part of Accounts                              | 31.03.2026 | 31.03.2025 |
+| CTDI CLARA E                                                   | 250        | 27.5       |
+| STPI Statutory Fees                        
+=====

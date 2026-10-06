@@ -1,0 +1,71 @@
+{
+  "input_folder": "Y:\\FLA-main\\FLA-main\\testing\\Kripya solution\\Input for Common error\\ocr_output_2025_2026",
+  "documents": [
+    "KSPL - Notes to Standalone FS - FY 2025-26 - In Thousands.md",
+    "KSPL - Standalone AR - 2025-26.md",
+    "KSPL - Standalone FS - FY 2025-26 - In Thousands.md"
+  ],
+  "full_text_chars": 184165,
+  "rules_workbook": "Y:\\FLA-main\\FLA-main\\automation_engine\\modules\\aoc4\\excel\\Annual Filing common error Output.xlsx",
+  "ollama_url": "http://192.168.112.2:11434",
+  "model": "qwen3.5:4b",
+  "ollama_reachable": true,
+  "ollama_detail": "['qwen3.5:4b', 'qwen2.5:14b', 'qwen2.5-coder:7b', 'medgemma:27b', 'ministral-3:3b-instruct-2512-q4_K_M', 'qwen3.5:2b', 'mistral:latest']",
+  "deterministic_seconds": 0.17,
+  "execute_seconds": 7.52,
+  "judged_rules": 5,
+  "llm_decided": 5,
+  "llm_fallback": 0,
+  "calls": [
+    {
+      "particulars": "Whether Shareholding more than 5% is mentioned in Schedule.",
+      "rule_id": "RULE_6",
+      "llm_value": "Yes",
+      "llm_reason": "The Schedule explicitly discloses shareholders with holdings strictly above 5%: Mr. Veeraraghavan (43.68% - 43.81%) and Mr. N. Venkatesh (13.92% - 18.77%). Mr. Madhavan Srinivasan also holds 14.78% - 14.82%. This satisfies the requirement to disclose shareholding exceeding 5%.",
+      "seconds": 1.56,
+      "window_chars": 6000,
+      "document_chars": 184165,
+      "error": null
+    },
+    {
+      "particulars": "Whether reconciliation  of shares O/S at the beginning and end of the year is given",
+      "rule_id": "RULE_10",
+      "llm_value": "Yes",
+      "llm_reason": "The extract explicitly provides a reconciliation table showing 'Equity Shares at the beginning of the year' (2,28,700), additions (Additional Shares Issued on Rights Basis and Shares Allotted under ESOP Scheme), and 'Equity Shares at the end of the year' (2,29,400), satisfying the requirement for opening/closing share reconciliation.",
+      "seconds": 1.42,
+      "window_chars": 6000,
+      "document_chars": 184165,
+      "error": null
+    },
+    {
+      "particulars": "Whether promoter holding is disclosed as per format in Jamku>Services>ANNUAL FILING >PROMOTER HOLDING",
+      "rule_id": "RULE_11",
+      "llm_value": "No",
+      "llm_reason": "The extract contains a promoter table with individual names and shareholding percentages, but it lacks the required 'shares held at beginning' and 'shares held at end' columns for each promoter. The table only shows 'No. of Shares' and '% of total shares' without the beginning/end breakdown or change during the year.",
+      "seconds": 1.3,
+      "window_chars": 6000,
+      "document_chars": 184165,
+      "error": null
+    },
+    {
+      "particulars": "Check whether Notes to Accounts last page is Signed by both the directors and the Auditors.",
+      "rule_id": "RULE_15",
+      "llm_value": "No",
+      "llm_reason": "The extract contains auditor and director signature blocks (RVK & Co. Chartered Accountants and R V Krishnan, Parthasarathy Madhavan Ramaswamy Gopalaswamy), but these are located within the body of the document (likely the Audit Report) rather than on the last page of the Notes to Accounts. The last visible page of the extract ends with 'Schedule forming part of Accounts' and does not show a signature block.",
+      "seconds": 1.52,
+      "window_chars": 6000,
+      "document_chars": 184165,
+      "error": null
+    },
+    {
+      "particulars": "Check if the financials and audit report has the seal of the auditor/firm",
+      "rule_id": "RULE_17",
+      "llm_value": "No",
+      "llm_reason": "The extract contains the auditor's name, FRN, DINs, and signature block details for RVK & Co., but there is no explicit mention of a 'seal' or 'stamp', nor is there any image placeholder (e.g., ![..](..)) representing a firm's round seal or stamp near the auditor's signature block.",
+      "seconds": 1.35,
+      "window_chars": 6000,
+      "document_chars": 184165,
+      "error": null
+    }
+  ]
+}

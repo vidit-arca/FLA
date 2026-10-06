@@ -1,0 +1,101 @@
+You are a strict statutory-audit judge for an Indian Companies Act AOC-4 annual-filing review. Adjudicate ONE compliance checkpoint using ONLY the extract below. Do not speculate and do not rely on text outside the extract.
+
+CHECKPOINT:
+Whether reconciliation  of shares O/S at the beginning and end of the year is given
+
+ADJUDICATION GUIDANCE:
+Check whether the financial statements give a reconciliation of the number of shares outstanding at the beginning and end of the year (e.g. opening shares, allotments, buy-backs/cancellations and closing shares, explicitly tied to the reconciliation of equity shares O/S). PASS if such an opening/closing share reconciliation is given even in a compact form. FAIL if only a share capital total/face-value ledger is shown with no beginning-versus-end reconciliation.
+
+Reply with JSON ONLY in this exact shape:
+{"verdict": "Yes" | "No" | "Cannot determine", "reason": "<concise audit explanation>"}
+
+RELEVANT DOCUMENT EXTRACT:
+=====
+                                       | 5,000    | 5,000    |
+| ISSUED, SUBSCRIBED & PAID UP Equity Shares of Rs. 10/- each, Fully Paid-up                               | 2,294    | 2,287    |
+| (a) Reconciliation of number of shares                                                                   |          |          |
+| Equity Shares at the beginning of the year                                                               | 2,28,700 | 2,28,700 |
+| Add: Additional Shares Issued on Rights Basis<br>Add: Shares Allotted under ESOP Scheme [Refer Note - A] | -<br>700 | -<br>-   |
+| Equity Shares at the end of the year                                                                     | 2,29,400 | 2,28,700 |
+
+AS AT
+
+31.03.2026
+
+AS AT
+
+31.03.2025
+
+#### Note:
+
+A. During FY 2023-24 and FY 2025-26, the Company allotted 8,700 equity shares and 700 equity shares, respectively, of ₹10 each to Kripya Solutions ESOP Trust at a premium of ₹90 per share, pursuant to the ESOP 2022 Scheme, at an exercise price of ₹100 per share. The said allotments were made in tranches corresponding to the vesting schedules under the Scheme, wherein 4,300 equity shares were allotted upon exercise of options under the First Vesting, 3,450 equity shares under the Second Vesting, and 1,650 equity shares under the Third Vesting of the ESOP 2022 Scheme.
+
+### (b) Rights, Preferences and Restrictions attached to Shares
+
+M/S. KRIPYA SOLUTIONS PRIVATE LIMITED
+
+Schedule forming part of Accounts
+
+The company has one class of equity shares having a par value of Rs.10 per share. Each shareholder is eligible for one vote per share held. The dividend proposed by the Board of Directors is subject to the approval of the shareholders in the ensuing Annual General Meeting, except in case of interim dividend. In the event of liquidation, the equity shareholders are eligible to receive the remaining assets of the Company after distribution of all preferential amounts, in proportion to their shareholding.
+
+## (c) Details of shares held by shareholders holding more than 5% of the aggregate shares in the Company
+
+| Name of the Shareholders | As at 31.0    | )3.2026      | As at 31.03.2025 |              |  |
+|--------------------------|---------------|-----------
+[...]
+ Limited Employees Gratuity Trust", an irrevocable, company-sponsored trust.
+- No scheme curtailments, settlements or plan amendments (other than the initial funding) occurred during the year.
+
+# (i) Reconciliation of Opening and Closing Balances of Defined Benefit Obligation (₹ in '000)
+
+| Particulars                                             | FY 2025-26 | FY 2024-25 |
+|---------------------------------------------------------|------------|------------|
+| Defined Benefit Obligation at the beginning of the year | 10,239     | -          |
+| PV of Past Service Cost                                 | -          | 9,428      |
+| Current Service Cost                                    | 2,948      | 2,232      |
+| Interest Cost                                           | 742        | 684        |
+| Acturial Gain                                           | -2,981     | -2,105     |
+| Benefits Paid                                           | -1,713     | -          |
+|                                                         |            |            |
+| Defined Benefit Obligation at the end of the year       | 9,233      | 10,239     |
+
+## (ii) Reconciliation of Opening and Closing Balances of Planned Asset (₹ in '000)
+
+| Particulars Particulars                                | FY 2025-26 | FY 2024-25 |
+|--------------------------------------------------------|------------|------------|
+| Fair Value of Plan Assets at the beginning of the year | 11,738     | -          |
+| Contribution to Plan Assets                            | 3,014      | 11,659     |
+| Return on Plan Assets (Interest Earned)                | 788        | 79         |
+| Benefits Paid during the year                          | -1,713     | -          |
+| Additional Funds Transferred                           | 25         | -          |
+| Incidental Expenses                                    | -8         | -          |
+| Fair Value of Plan Assets at the end of the year       | 13,844     | 11,738     |
+
+## (iii) Reconciliation of Fair value of Assets and Obligations (₹ in '000)
+
+| Particulars                                           | FY 2025-26      | FY 2024-25       |
+|-------------------------------------------------------|------------
+[...]
+ease in the inventory turnover ratio is due to a significant increase in closing inventory held by the entity.
+
+## 4. Trade Payables Turnover Ratio (Increase 30.86%)
+
+The increase in the trade payables turnover ratio is due to significant increase 
+[...]
+ like on behalf of the Ultimate Beneficiaries.
+
+- (c) Based on the audit procedures performed that have been considered reasonable and appropriate in the circumstances, nothing has come to our notice that has caused us to believe that the represen
+[...]
+me during the reporting period nor the company has taken any fresh loans or borrowings from banks, financial institutions, or any other entity. Accordingly, reporting under clause 3(ix) of the Order is not applicable to the company.
+- (x) (a) The
+[...]
+           |             | -           | -           |
+| VII. Profit before extraordinary items and tax (V - VI)                 | -           | 1,31,578    | 1,38,402    |
+| VIII. Extraordinary Items                                           
+[...]
+                                                                                                                                                                                                                                                
+[...]
+                                                                                                                                   | 275                 | 362                 |
+
+| M/S. KRIPYA SOLUTIONS PRIVATE LIMITED                 
+=====

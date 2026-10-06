@@ -1,0 +1,95 @@
+You are a strict statutory-audit judge for an Indian Companies Act AOC-4 annual-filing review. Adjudicate ONE compliance checkpoint using ONLY the extract below. Do not speculate and do not rely on text outside the extract.
+
+CHECKPOINT:
+Check if the financials and audit report has the seal of the auditor/firm
+
+ADJUDICATION GUIDANCE:
+Check whether the financials and audit report bear the seal/stamp of the auditor or the audit firm. Evidence: explicit words 'seal' or 'stamp' near auditor details, or an embedded image of a firm's round seal/stamp near the auditor signature block (images appear in markdown text as ![..](..) placeholders near 'Chartered Accountants', 'Partner', 'Membership No.', 'FRN'). PASS if text or image evidence of the auditor's seal/stamp exists. FAIL if there is no seal/stamp text and no image near the auditor signature.
+
+Reply with JSON ONLY in this exact shape:
+{"verdict": "Yes" | "No" | "Cannot determine", "reason": "<concise audit explanation>"}
+
+RELEVANT DOCUMENT EXTRACT:
+=====
+Figures
+
+The previous year figures have been reclassified / regrouped wherever necessary, for the purposes of comparison with the current year figures.
+
+As per out report of even date
+
+For RVK & Co.
+
+FRN: 015063S
+
+**Chartered Accountants** 
+
+For Kripya Solutions Private Limited
+
+R V Krishnan Proprietor M. No. 028364 HDIN:
+
+Parthasarathy Madhavan Ramaswamy Gopalaswamy MD & CEO Director (DIN: 00650290)
+
+(DIN: 10265669)
+
+Place: Chennai Date: 21-Aug-2026
+
+### INDEPENDENT AUDITOR'S REPORT
+
+To The Members, M/s. Kripya Solutions Private Limited
+
+### **Report on the Financial Statements**
+
+## **Opinion**
+
+We have audited the accompanying financial statements of M/s. Kripya Solutions Private Limited ('the company') which comprise the Balance sheet as at 31<sup>st</sup> March 2026, the Statement of Profit and Loss and the Statement of Cash Flows for the year ended, and notes to the financial statements, including a summary of significant accounting policies and other explanatory information.
+
+In our opinion and to the best of our information and according to the explanations given to us, the aforesaid standalone financial statements give the information required by the Companies Act, 2013 (the 'Act') in the manner so required and give a true and fair view in conformity with the Accounting Standards prescribed under Section 133 of the Act, and other accounting principles generally accepted in India, of the State of affairs of the Company as at March 31, 2026, and its Profit and other co
+[...]
+ovisions of Section 197 read with Schedule V to the Act, relating to managerial remuneration, are not applicable to the Company, it being a private limited company.
+- 3. As required by the Companies (Auditor's Report) Order, 2020 ("the Order") issued by the Central Government of India in terms of sub-section (11) of section 143 of the Companies Act, 2013, we give in "Annexure A" a statement on the matters specified in paragraphs 3 and 4 of the Order to the extent applicable.
+
+#### For RVK & Co
+
+Chartered Accountants FRN: 015063S
+
+#### R V Krishnan
+
+Proprietor M. No: 028364 UDIN:
+
+Place: Chennai Date: 21-Aug-2026
+
+### "ANNEXURE A" TO THE INDEPENDENT AUDITOR'S REPORT
+
+(Referred to in Paragraph 2 under 'Report on Other Legal and Regulatory Requirements' section of our report to the members of the Company of our report of even date)
+
+- (i) (a) (A) According to the information and explanations given to us and audit procedures performed by us, the Company has maintained proper records showing full particulars, including quantitative details and situation of Property, Plant and Equipment.
+  According to the information and explanations given to us and audit procedures performed by us, the Company has maintained proper records showing full particulars of intangible assets
+  - (b) Some of the fixed assets were physically verified during the year by the Management in accordance with a program of verification, which in our opinion provides for physical verification of all the fixed asse
+[...]
+e 3 (xi)(a) of the order is not applicable.
+  - (b) According to the information and explanations given to us, no report under sub-section 12 of section 143 of the Act, in ADT-4 has been filed by the auditors during the year and hence clause 3 (xi)(b) of the order is not applicable.
+  - (c) As represented to us by the management, there are no whistle blower complaints received by the Company during the year.
+
+- (xii) The Company is not a Nidhi Company and hence, reporting under clause 3(xii) of the Order is not applicable.
+- (xiii) In our opinion and according to the information and explanations given to us, the transactions entered with the related parties are in compliance with sections 177 and 188 of Companies Act, 2013 where applicable and details have been disclosed in the financial statements as required by the applicable Accounting Standards.
+- (xiv) The Company does not have an internal audit system, since the provisions of Section 138 of Companies Act, 2013 is not mandatory for the company. Accordingly, reporting under clause 3(xiv) of the Order is not applicable to the Company.
+- (xv) According to the information and explanations given to us, in our opinion the Company has not entered into any non-cash transactions with its directors or persons connected with its directors and hence provisions of section 192 of the Companies Act, 2013 are not applicable to the Company.
+- (xvi) (a) According to the information and explanations given to us, the Company i
+[...]
+ulars                                                | As at 31.03.2026 | As at 31.03.2025 |  |
+| Opening balance                                              | 2,950            | 8,900            |  |
+| Add: Granted during the year Less: Exercised during the year | (1,650)          | (3,450)          |  |
+| Less: Vested Options Lapsed during the year                  | (1,300)          | (2,100)          |  |
+| Less: Unvested Options Lapsed during the year                | -                | (400)            |  |
+| Closing Balance                                              | -                | 2,950            |  |
+
+### 8. Defined Benefit Plan - Gratuity (Funded)
+
+- The Company provides gratuity to its employees under a defined-benefit plan. With effect from FY 2024-25 the plan is funded through a recognized gratuity trust administered by the Life Insurance Corporation of India (LIC). The liability is actuarially valued each year using the Projected Unit Credit Method; actuarial gains and losses are recognized immediately in the Statement of Profit and Loss.
+- To facilitate funding and administration of the gratuity plan, the Company has constituted the "Kripya Solutions Private Limited Employees Gratuity Trust", an irrevocable, company-sponsored trust.
+- No scheme curtailments, settlements or plan amendments (other than the initial funding) occurred during the year.
+
+# (i) Reconciliation of Opening and Closing Balances of Defined Benefit Obligation (₹ in '000)
+
+| P
+=====

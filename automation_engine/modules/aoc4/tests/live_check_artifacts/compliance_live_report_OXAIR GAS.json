@@ -1,0 +1,251 @@
+{
+  "company": "OXAIR GAS",
+  "folder": "Y:\\Main-OCR-main\\Main-OCR-main\\data\\OXAIR GAS\\ocr_output",
+  "files_used": [
+    "Current year Accounting Policies 25-26.md",
+    "Current year CARO 25-26.md",
+    "Current year Financials  25-26.md",
+    "MASTER DATA.md"
+  ],
+  "files_skipped": [
+    "Previous year financials and audit report 24-25.md"
+  ],
+  "full_text_chars": 820451,
+  "dry_run": false,
+  "model": "qwen3.5:4b (shipped default)",
+  "baseline_seconds": 10.01,
+  "hybrid_seconds": 105.47,
+  "llm": {
+    "calls": 27,
+    "seconds": 93.65,
+    "min": 1.09,
+    "max": 50.61,
+    "models": [
+      "qwen3.5:4b"
+    ],
+    "http_errors": 0
+  },
+  "facts": {
+    "company_type": "private limited company",
+    "is_listed": null,
+    "is_ind_as": "no",
+    "is_subsidiary_or_holding": "no",
+    "mca_small_company": "no",
+    "paid_up_capital": 691780.0,
+    "net_worth": 691778.0,
+    "turnover": 170378944.0,
+    "total_revenue": null,
+    "net_profit_before_tax": 15347040.0,
+    "borrowings": -120518301.0,
+    "long_term_borrowings": 2.8563623286328014e+91,
+    "short_term_borrowings": 2.8563623286328014e+91,
+    "loan_from_directors": -9.0,
+    "dues_to_msme": null,
+    "investments_made": 0.0,
+    "loan_given_by_company": null,
+    "loan_to_directors_assets": null,
+    "corporate_guarantees": null
+  },
+  "rows": [
+    {
+      "id": "COMP_AOC_1",
+      "particulars": "AOC 1",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The rule engine's preliminary answer is based on financial thresholds, and the financial facts extract does not show any subsidiaries, associates, or joint ventures. The document extract mentions a Joint Venture (Oxair Gas systems Pty. Limited and Agastya Aeroworks Private Limited) for the company's inception, but the financial facts extract does not list any subsidiaries, associates, or joint ventures. The rule engine's preliminary answer is based on financial thresholds, and the financial facts extract does not show any subsidiaries, associates, or joint ventures. The document extract mentions a Joint Venture (Oxair Gas systems Pty. Limited and Agastya Aeroworks Private Limited) for the company's inception, but the financial facts extract does not list any subsidiaries, associates, or joint ventures. The rule engine's preliminary answer is based on financial thresholds, and the financial facts extract does not show any subsidiaries, associates, or joint ventures. The document extract mentions a Joint Venture (Oxair Gas systems Pty. Limited and Agastya Aeroworks Private Limited) for the company's inception, but the financial facts extract does not list any subsidiaries, associates, or joint ventures."
+    },
+    {
+      "id": "COMP_AOC_2",
+      "particulars": "AOC 2",
+      "baseline": "Not Applicable",
+      "hybrid": "Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Complied: Yes - The company has disclosed transactions with related parties (Holding Company and Associate Companies) in the AOC-2 annexure, which requires Form AOC-2 filing. Evidence: AOC-2 annexure, related party transaction notes"
+    },
+    {
+      "id": "COMP_BEN_2",
+      "particulars": "Ben 2",
+      "baseline": "Missing Data",
+      "hybrid": "Missing Data",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Missing Shareholders data."
+    },
+    {
+      "id": "COMP_CARO",
+      "particulars": "CARO Applicability",
+      "baseline": "Applicable",
+      "hybrid": "Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Threshold Exceeded: PUC+Reserves (0.07 Cr) > 1 Cr OR Borrowings (-12.05 Cr) > 1 Cr OR Turnover (17.04 Cr) > 10 Cr."
+    },
+    {
+      "id": "COMP_CHARGE_FORM",
+      "particulars": "Charge form",
+      "baseline": "Applicable",
+      "hybrid": "Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Complied: Yes - The Index of Charges contains a registered charge (SRN AC4919326) for Indian Overseas Bank, which requires filing of Form CHG-1 or CHG-4. Evidence: Index of Charges shows SRN AC4919326 for Indian Overseas Bank with amount 3,62,60,000"
+    },
+    {
+      "id": "COMP_COST_AUDIT",
+      "particulars": "Cost Audit",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The document explicitly states that cost records maintenance is not specified by the Central Government for the company's business activities, making reporting under clause 3(vi) of the Order not applicable. Evidence: The maintenance of cost records has not been specified by the Central Government under Section 148(1) of the Companies Act, 2013 for the business activities carried out by the company. Thus, reporting under 3(vi) of the Order is not applicable to the company."
+    },
+    {
+      "id": "COMP_CSR",
+      "particulars": "Corporate Social Responsibility",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The company's net worth (Rs 0.07 crore), turnover (Rs 17.04 crore), and net profit (Rs 1.53 crore) are all below the statutory thresholds (Rs 500 crore, Rs 1000 crore, and Rs 5 crore respectively). The CA report explicitly states CSR is not applicable. Evidence: In our opinion and according to the information and explanations given to us, CSR is not applicable under sub-section (5) of Section 135 of the Companies Act, 2013 pursuant to any project. Accordingly, clauses 3(xx) (a) and 3(xx) (b) of the Order are not applicable."
+    },
+    {
+      "id": "COMP_CSR_COMMITTEE",
+      "particulars": "CSR Committee",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Estimated CSR Spend (2% of PBT 1.53 Cr * 3 yrs) <= 50 Lakhs."
+    },
+    {
+      "id": "COMP_DEPOSIT_DEC",
+      "particulars": "Deposit declaration",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The company explicitly states in the document extract that it has not accepted deposits and the provision is not applicable. Evidence: The Company has not accepted deposits during the year and does not have any unclaimed deposits as at 31st March 2026 and therefore, the provision of the clause 3 (v) of the order are not applicable to the company."
+    },
+    {
+      "id": "COMP_DPT_3",
+      "particulars": "DPT 3",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - DPT-3 is required only if the company has borrowings/advances that are exempt deposits or has accepted deposits. The company has negative total borrowings and no explicit mention of exempt deposits or customer advances in the balance sheet, making DPT-3 not applicable. Evidence: Total borrowings (Rs): -120,518,301 (Rs -12.05 crore)"
+    },
+    {
+      "id": "COMP_IFC",
+      "particulars": "Internal Financial Controls",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - Company is a private limited company with turnover of Rs 17.04 crore (below Rs 50 crore threshold) and negative total borrowings of Rs -12.05 crore (below Rs 25 crore threshold). IFC reporting is not required. Evidence: Turnover (Rs): 170,378,944 (Rs 17.04 crore); Total borrowings (Rs): -120,518,301 (Rs -12.05 crore)"
+    },
+    {
+      "id": "COMP_IND_AS",
+      "particulars": "IND AS applicability",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The document explicitly states the company is an SME and has complied with SME accounting standards, not Ind AS. Evidence: The company has complied with accounting standards as applicable to Small and Medium Sized Company (SME)."
+    },
+    {
+      "id": "COMP_INT_AUDIT",
+      "particulars": "Internal Audit",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The company is a private limited company with turnover of Rs 17.04 crore (below Rs 200 crore threshold) and total borrowings of Rs -12.05 crore (negative value, below Rs 100 crore threshold). The company explicitly states in the relevant document extract that internal audit is not applicable. Evidence: Internal audit is not applicable to the company; hence this clause is not applicable"
+    },
+    {
+      "id": "COMP_KMP",
+      "particulars": "KMP appointment",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The company is a private limited company with paid-up capital of Rs 0.07 crore, which is below the Rs 5 crore threshold for mandatory Company Secretary appointment and below the Rs 10 crore threshold for other KMP requirements. Evidence: Paid-up capital (Rs): 691,780 (Rs 0.07 crore)"
+    },
+    {
+      "id": "COMP_LOAN_186",
+      "particulars": "Loan Investment Guarantee - 186",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - Section 186 applies only when loans, investments, or guarantees exceed prescribed limits. Evidence shows investments made are Rs 0, loans given are not available, and corporate guarantees are not available. Since no transactions exist or amounts are nil, the requirement is not applicable. Evidence: Investments made (Rs): 0 (Rs 0.00 crore)"
+    },
+    {
+      "id": "COMP_LOAN_DIRECTOR",
+      "particulars": "Loan to Director or Related entities",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The auditor's report explicitly states that no loan was granted during the year under Section 185, and the financial facts show 'not available' for loans to directors. Evidence: There was no loan granted during the year under section 185 of the Act."
+    },
+    {
+      "id": "COMP_MGT_7_CERT",
+      "particulars": "Certification of MGT 7",
+      "baseline": "Applicable",
+      "hybrid": "Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Complied: Yes - Turnover of Rs 17.04 crore exceeds the Rs 50 crore threshold for MGT-7 certification requirement. Evidence: Turnover (Rs): 170,378,944 (Rs 17.04 crore)"
+    },
+    {
+      "id": "COMP_MGT_8",
+      "particulars": "MGT 8 Applicability",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - Company is a private limited company with turnover of Rs 17.04 crore (below Rs 50 crore threshold) and total borrowings of Rs -12.05 crore (negative value, below Rs 25 crore threshold). No MGT-8 reference found in documents. Evidence: Paid-up capital (Rs): 691,780 (Rs 0.07 crore)"
+    },
+    {
+      "id": "COMP_MSME",
+      "particulars": "MSME",
+      "baseline": "Not Applicable",
+      "hybrid": "Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Complied: Yes - The filing explicitly discloses dues to micro and small enterprises (Rs 21,73,972) in the balance sheet notes, satisfying the requirement to disclose MSME dues separately. Evidence: Details of dues to micro and small enterprises as defined under the MSMED Act, 2006 | Particulars | As at March 31, 2026 Rs. | As at March 31, 2025 Rs. | <ul><li>Trade Payables</li><li>Due to micro and small enterprises</li></ul> | 21,73,972 | 12,42,359 | - Others | 2,96,10,418 | 2,50,97,447 | Total"
+    },
+    {
+      "id": "COMP_ROTATION",
+      "particulars": "Rotation of Auditors",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Private unlisted company with Paid-up Capital (0.07 Cr) < 50 Cr."
+    },
+    {
+      "id": "COMP_RPT_OMNIBUS",
+      "particulars": "RPT Resolution for omnibus approval",
+      "baseline": "Not Applicable",
+      "hybrid": "Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Complied: No - The company has related-party transactions with an associate and holding company. The preliminary answer was incorrect because the rule engine only checked financial thresholds, but the requirement applies when related-party transactions exist, regardless of size. The company has disclosed these transactions in A12, indicating they are not in the ordinary course of business at arm's length, thus requiring specific approval rather than omnibus approval. However, the requirement for omnibus approval is triggered if such repetitive transactions exist. The company has disclosed these transactions, making the requirement applicable. The company has not explicitly mentioned omnibus approval in the extract, but the requirement is to decide if it is required and evidenced. Since the transactions are with an associate and holding company, they may not be considered 'ordinary course of business and at arm's length' in the strict sense, but the requirement for omnibus approval is triggered if such repetitive transactions exist. The company has not provided evidence of omnibus approval, hence 'No' for compliance. Evidence: Related Party Transactions table shows transactions with Agastya Aero works Pvt. Ltd. (Holding Company) and Oxair Pressure Vessel Manufacturing Pvt. Ltd. (Associate Company) for purchases, sales, and advances."
+    },
+    {
+      "id": "COMP_SEC_AUDIT",
+      "particulars": "Secretarial Audit",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - Company is a private limited company with paid-up capital of Rs 6,91,780 (Rs 0.07 crore), turnover of Rs 17.04 crore, and total borrowings of -Rs 12.05 crore. None of the thresholds for secretarial audit (listed, paid-up capital >= Rs 50 crore, turnover >= Rs 250 crore, or borrowings >= Rs 100 crore) are met. No Secretarial Audit Report (Form MR-3) or secretarial auditor's appointment/signature is found in the filing."
+    },
+    {
+      "id": "COMP_SMALL_CO",
+      "particulars": "Is it a Small Company?",
+      "baseline": "No",
+      "hybrid": "No",
+      "hybrid_judge": null,
+      "hybrid_rationale": "Master Data Match: Explicitly defined as NOT a Small Company in Validation Sheet."
+    },
+    {
+      "id": "COMP_VIGIL",
+      "particulars": "Vigil Mechanism",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - The company's total borrowings are negative (-12.05 crore), which is below the Rs 50 crore threshold for mandatory vigil mechanism establishment. No vigil mechanism policy is disclosed in the board's report or notes. Evidence: Total borrowings (Rs): -120,518,301 (Rs -12.05 crore)"
+    },
+    {
+      "id": "COMP_XBRL",
+      "particulars": "XBRL filing",
+      "baseline": "Not Applicable",
+      "hybrid": "Not Applicable",
+      "hybrid_judge": "llm",
+      "hybrid_rationale": "Not applicable - Company is not listed, Ind AS is not applicable, paid-up capital is Rs 0.07 crore (below Rs 5 crore threshold), and turnover is Rs 17.04 crore (below Rs 100 crore threshold). No explicit XBRL mention found. Evidence: Paid-up capital (Rs): 691,780 (Rs 0.07 crore)"
+    }
+  ]
+}
