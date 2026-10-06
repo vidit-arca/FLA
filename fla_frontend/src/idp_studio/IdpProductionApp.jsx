@@ -100,8 +100,11 @@ export default function IdpProductionApp() {
     setUploadedFiles(prev => [...prev, ...newQueue]);
     setActiveFileIndex(0);
     setIsExtracting(true);
-    // Reset consolidated output so preview re-generates after next extraction
+    // Reset consolidated output and scenario state so preview and scenarios re-generate cleanly
     setConsolidatedState(null);
+    setActiveScenario(null);
+    setDetectedBranchData(null);
+    setUserOverrides({});
 
     try {
       const batchResults = await idpClient.extractBatchDocuments(selectedFiles, templateName);
@@ -354,11 +357,13 @@ export default function IdpProductionApp() {
       if (branchRes?.has_branches) {
         setShowBranchModal(true);
       } else {
-        // No branching required (e.g. FLA, LLP-8, etc.) — proceed directly
+        // No branching required (e.g. FLA, PAS-6, etc.) — clear scenario and proceed directly
+        setActiveScenario(null);
         await executeConsolidation(null);
       }
     } catch (err) {
       console.warn("Branch detection skipped or failed, using default consolidation:", err);
+      setActiveScenario(null);
       await executeConsolidation(null);
     } finally {
       setIsDetectingBranch(false);
@@ -404,16 +409,17 @@ export default function IdpProductionApp() {
 
         const finalPayload = { ...payload };
         
-        // Explicitly inject confirmed branch & sub-reasons into statutory payload
+        // Dynamically inject confirmed branch into statutory payload (no form-specific hardcoding)
         if (scenarioData?.confirmed_branch) {
-          finalPayload['3b_nature_of_appointment'] = scenarioData.confirmed_branch;
-          finalPayload['nature_of_appointment'] = scenarioData.confirmed_branch;
-          finalPayload['field_nature_of_appointment'] = scenarioData.confirmed_branch;
+          const branchFieldId = detectedBranchData?.branch_field_id || scenarioData.branch_field_id;
+          if (branchFieldId) {
+            finalPayload[branchFieldId] = scenarioData.confirmed_branch;
+          }
+          finalPayload['statutory_scenario'] = scenarioData.confirmed_branch;
+          finalPayload['statutory_branch'] = scenarioData.confirmed_branch;
         }
         if (scenarioData?.casual_vacancy_reason) {
           finalPayload['casual_vacancy_reason'] = scenarioData.casual_vacancy_reason;
-          finalPayload['field_casual_vacancy_reason'] = scenarioData.casual_vacancy_reason;
-          finalPayload['7a_casual_vacancy_reason'] = scenarioData.casual_vacancy_reason;
         }
 
         // Unpack active DAG fields from backend (supports both list and dictionary representations)
@@ -574,7 +580,17 @@ export default function IdpProductionApp() {
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Schema:</span>
             <select
               value={templateName}
-              onChange={(e) => setTemplateName(e.target.value)}
+              onChange={(e) => {
+                const newTpl = e.target.value;
+                setTemplateName(newTpl);
+                setActiveScenario(null);
+                setDetectedBranchData(null);
+                setConsolidatedState(null);
+                setUserOverrides({});
+                setUploadedFiles([]);
+                setActiveFileIndex(0);
+                setCurrentStage('batch_queue');
+              }}
               className="px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10 text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
             >
               {templates.length > 0 ? (
@@ -947,7 +963,8 @@ export default function IdpProductionApp() {
           </div>
 
           {/* HITL Statutory Scenario Decision Banner */}
-          {!templateName.toLowerCase().includes("fla") && (
+          {/* Statutory Scenario Banner - only rendered if activeScenario has a confirmed branch */}
+          {!templateName.toLowerCase().includes("fla") && activeScenario?.confirmed_branch && (
             <div className="px-8 py-3 bg-gradient-to-r from-indigo-900/60 to-purple-900/40 border-b border-indigo-500/20 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-3">
                 <div className="p-2 rounded-xl bg-indigo-500/20 border border-indigo-500/30 text-indigo-400">
@@ -959,7 +976,7 @@ export default function IdpProductionApp() {
                       HITL Confirmed Statutory Scenario
                     </span>
                     <h4 className="text-sm font-bold text-white">
-                      {activeScenario?.confirmed_branch || 'Appointment / Re-appointment in AGM (Section 139(1))'}
+                      {activeScenario.branch_display || activeScenario.confirmed_branch}
                     </h4>
                     {activeScenario?.casual_vacancy_reason && (
                       <span className="text-xs text-indigo-300 font-semibold">
@@ -1460,7 +1477,7 @@ export default function IdpProductionApp() {
                   <div>
                     <h4 className="text-xs font-bold text-emerald-800 dark:text-emerald-300">Scenario DAG Validated</h4>
                     <p className="text-[11px] text-emerald-600 dark:text-emerald-400/80 mt-0.5">
-                      {activeScenario?.confirmed_branch || 'Statutory Scenario'} confirmed by human.
+                      {activeScenario?.confirmed_branch ? `${activeScenario.branch_display || activeScenario.confirmed_branch} confirmed by human.` : 'Standard statutory pathway validated.'}
                     </p>
                   </div>
                 </div>

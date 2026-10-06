@@ -62,5 +62,54 @@ class TestStatutoryScenarios(unittest.TestCase):
         self.assertEqual(res["recommended_branch"], "Re-appointment of Auditors in AGM")
         self.assertEqual(res["scenario_key"], "agm_reappointment")
 
+    def test_dynamic_branching_non_adt_form(self):
+        # MGT-6 has options Yes/No, verify ADT-1 appointment text does NOT leak
+        text = "Some corporate resolution text"
+        options = ["Yes", "No"]
+        res = detect_operative_statutory_branch(text, candidate_options=options)
+        self.assertIn(res["recommended_branch"], ["Yes", "No"])
+        self.assertNotIn("Appointment", res["recommended_branch"])
+
+    def test_no_branch_fallback(self):
+        text = "Generic document"
+        res = detect_operative_statutory_branch(text, candidate_options=[])
+        self.assertIsNone(res["recommended_branch"])
+        self.assertEqual(res["scenario_key"], "standard")
+
+    def test_api_branch_detection_and_pdf_labels(self):
+        from fastapi.testclient import TestClient
+        from automation_engine.api.main import app
+        import fitz
+
+        client = TestClient(app)
+
+        # 1. PAS-6 must report has_branches=False and zero options
+        pas_res = client.post("/api/idp/forms/Form No. PAS -6/detect_branch").json()
+        self.assertFalse(pas_res["has_branches"])
+        self.assertEqual(pas_res["available_options"], [])
+
+        # 2. MGT-6 must report its own branch options (Yes/No), not PAS-6 or ADT-1 options
+        mgt_res = client.post("/api/idp/forms/Form MGT-6/detect_branch").json()
+        self.assertTrue(mgt_res["has_branches"])
+        mgt_titles = [o["title"] for o in mgt_res["available_options"]]
+        self.assertEqual(mgt_titles, ["Yes", "No"])
+        self.assertNotIn("Appointment of Auditors in AGM", mgt_titles)
+
+        # 3. PDF Preview must include both field labels and values without truncation
+        pdf_res = client.post("/api/idp/generate_preview_pdf", json={
+            "template_name": "Form MGT-6",
+            "mapped_data": {
+                "cin": "U72200DL2020PTC123456",
+                "company_name": "Test Company Pvt Ltd"
+            }
+        })
+        self.assertEqual(pdf_res.status_code, 200)
+        doc = fitz.open(stream=pdf_res.content, filetype="pdf")
+        full_text = "\n".join([page.get_text() for page in doc])
+        self.assertIn("Corporate Identity Number (CIN)", full_text)
+        self.assertIn("Name of the Company", full_text)
+        self.assertIn("U72200DL2020PTC123456", full_text)
+        self.assertIn("Test Company Pvt Ltd", full_text)
+
 if __name__ == "__main__":
     unittest.main()

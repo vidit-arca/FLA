@@ -143,20 +143,31 @@ def detect_operative_statutory_branch(
         s = " ".join(cl.split())
         return s[:max_len] + "..." if len(s) > max_len else s
 
+    def _is_option_valid(branch_candidate: str) -> bool:
+        if not candidate_options:
+            return True
+        b_lower = branch_candidate.lower()
+        return any(
+            str(opt).strip().lower() == b_lower or b_lower in str(opt).strip().lower() or str(opt).strip().lower() in b_lower
+            for opt in candidate_options
+        )
+
     # =========================================================================
     # TIER 1: DETERMINISTIC STATUTORY PRECEDENCE MATRIX (< 2ms)
     # =========================================================================
 
     # Check 1: Section 140(5) / Tribunal Order (NCLT)
     if re.search(r"140\s*\(\s*5\s*\)|tribunal|nclt|national\s+company\s+law\s+tribunal", operative_clause, re.IGNORECASE):
-        return {
-            "recommended_branch": "Auditor appointed by the Tribunal",
-            "scenario_key": "tribunal_order",
-            "sub_reason": None,
-            "section_cited": "Section 140(5)",
-            "confidence": 0.98 if "140" in operative_clause else 0.85,
-            "evidence_snippet": _snippet(operative_clause)
-        }
+        b = "Auditor appointed by the Tribunal"
+        if _is_option_valid(b):
+            return {
+                "recommended_branch": b,
+                "scenario_key": "tribunal_order",
+                "sub_reason": None,
+                "section_cited": "Section 140(5)",
+                "confidence": 0.98 if "140" in operative_clause else 0.85,
+                "evidence_snippet": _snippet(operative_clause)
+            }
 
     # Check 2: Section 139(6) / First Auditor (Board of Directors vs Members)
     if re.search(r"139\s*\(\s*6\s*\)|first\s+auditor|incorporation|within\s+30\s+days", operative_clause, re.IGNORECASE):
@@ -166,75 +177,102 @@ def detect_operative_statutory_branch(
         else:
             branch = "First auditor by Board of directors"
             s_key = "first_auditor_board"
-        return {
-            "recommended_branch": branch,
-            "scenario_key": s_key,
-            "sub_reason": None,
-            "section_cited": "Section 139(6)",
-            "confidence": 0.98,
-            "evidence_snippet": _snippet(operative_clause)
-        }
+        if _is_option_valid(branch):
+            return {
+                "recommended_branch": branch,
+                "scenario_key": s_key,
+                "sub_reason": None,
+                "section_cited": "Section 139(6)",
+                "confidence": 0.98,
+                "evidence_snippet": _snippet(operative_clause)
+            }
 
     # Check 3: Section 139(5) / 139(7) - C&AG / Government Companies
     if re.search(r"c&ag|comptroller\s+(?:and\s+auditor\s+general)?|139\s*\(\s*7\s*\)", operative_clause, re.IGNORECASE):
-        return {
-            "recommended_branch": "Appointment/ Re-appointment by C&AG",
-            "scenario_key": "cag_appointment",
-            "sub_reason": None,
-            "section_cited": "Section 139(7)",
-            "confidence": 0.98,
-            "evidence_snippet": _snippet(operative_clause)
-        }
+        b = "Appointment/ Re-appointment by C&AG"
+        if _is_option_valid(b):
+            return {
+                "recommended_branch": b,
+                "scenario_key": "cag_appointment",
+                "sub_reason": None,
+                "section_cited": "Section 139(7)",
+                "confidence": 0.98,
+                "evidence_snippet": _snippet(operative_clause)
+            }
 
     # Check 4: Section 140(1) / 140(4) - Non-re-appointment / Removal
     if re.search(r"140\s*\(\s*[14]\s*\)|removal\s+of\s+auditor|non-re-appointment", operative_clause, re.IGNORECASE):
-        return {
-            "recommended_branch": "Auditor appointed in case of non-re-appointment/ removal",
-            "scenario_key": "removal_appointment",
-            "sub_reason": None,
-            "section_cited": "Section 140(1)",
-            "confidence": 0.98,
-            "evidence_snippet": _snippet(operative_clause)
-        }
+        b = "Auditor appointed in case of non-re-appointment/ removal"
+        if _is_option_valid(b):
+            return {
+                "recommended_branch": b,
+                "scenario_key": "removal_appointment",
+                "sub_reason": None,
+                "section_cited": "Section 140(1)",
+                "confidence": 0.98,
+                "evidence_snippet": _snippet(operative_clause)
+            }
 
     # Check 5: Section 139(8) / Casual Vacancy (Resignation or Death)
     if re.search(r"139\s*\(\s*8\s*\)|casual\s+vacancy|resignation|demise|death", operative_clause, re.IGNORECASE):
-        reason = "Resignation"
-        if re.search(r"demise|death|deceased", operative_clause, re.IGNORECASE):
-            reason = "Death"
-        return {
-            "recommended_branch": "Casual Vacancy",
-            "scenario_key": "casual_vacancy",
-            "sub_reason": reason,
-            "section_cited": "Section 139(8)",
-            "confidence": 0.98 if ("139" in operative_clause or "casual vacancy" in operative_clause.lower()) else 0.88,
-            "evidence_snippet": _snippet(operative_clause)
-        }
+        b = "Casual Vacancy"
+        if _is_option_valid(b):
+            reason = "Resignation"
+            if re.search(r"demise|death|deceased", operative_clause, re.IGNORECASE):
+                reason = "Death"
+            return {
+                "recommended_branch": b,
+                "scenario_key": "casual_vacancy",
+                "sub_reason": reason,
+                "section_cited": "Section 139(8)",
+                "confidence": 0.98 if ("139" in operative_clause or "casual vacancy" in operative_clause.lower()) else 0.88,
+                "evidence_snippet": _snippet(operative_clause)
+            }
 
     # Check 6: Section 139(5) / Central Government Direct Order
     if re.search(r"central\s+government\s+order|139\s*\(\s*5\s*\)", operative_clause, re.IGNORECASE):
-        return {
-            "recommended_branch": "Auditor appointed by Central Government",
-            "scenario_key": "central_gov",
-            "sub_reason": None,
-            "section_cited": "Section 139(5)",
-            "confidence": 0.98,
-            "evidence_snippet": _snippet(operative_clause)
-        }
+        b = "Auditor appointed by Central Government"
+        if _is_option_valid(b):
+            return {
+                "recommended_branch": b,
+                "scenario_key": "central_gov",
+                "sub_reason": None,
+                "section_cited": "Section 139(5)",
+                "confidence": 0.98,
+                "evidence_snippet": _snippet(operative_clause)
+            }
 
     # Check 7: Section 139(1) / Regular AGM Appointment
     if re.search(r"139\s*\(\s*1\s*\)|annual\s+general\s+meeting|agm|5\s+consecutive\s+years", operative_clause, re.IGNORECASE):
         is_reappt = bool(re.search(r"re-appointed|re-appointment", operative_clause, re.IGNORECASE))
         branch = "Re-appointment of Auditors in AGM" if is_reappt and candidate_options and "Re-appointment of Auditors in AGM" in candidate_options else "Appointment/ Re-appointment in AGM"
         s_key = "agm_reappointment" if is_reappt else "agm_appointment"
-        return {
-            "recommended_branch": branch,
-            "scenario_key": s_key,
-            "sub_reason": None,
-            "section_cited": "Section 139(1)",
-            "confidence": 0.95,
-            "evidence_snippet": _snippet(operative_clause)
-        }
+        if _is_option_valid(branch):
+            return {
+                "recommended_branch": branch,
+                "scenario_key": s_key,
+                "sub_reason": None,
+                "section_cited": "Section 139(1)",
+                "confidence": 0.95,
+                "evidence_snippet": _snippet(operative_clause)
+            }
+
+    # =========================================================================
+    # TIER 1.5: DIRECT MATCH OF ACTIVE FORM OPTIONS AGAINST DOCUMENT TEXT
+    # =========================================================================
+    if candidate_options:
+        lower_clause = operative_clause.lower()
+        for opt in candidate_options:
+            opt_str = str(opt).strip()
+            if len(opt_str) >= 3 and opt_str.lower() in lower_clause:
+                return {
+                    "recommended_branch": opt_str,
+                    "scenario_key": re.sub(r'[^a-z0-9]+', '_', opt_str.lower()).strip('_'),
+                    "sub_reason": None,
+                    "section_cited": None,
+                    "confidence": 0.92,
+                    "evidence_snippet": _snippet(operative_clause)
+                }
 
     # =========================================================================
     # TIER 2: DYNAMIC LLM CLASSIFIER (When explicit Section is absent)
@@ -245,17 +283,25 @@ def detect_operative_statutory_branch(
             return qwen_match
 
     # =========================================================================
-    # TIER 3: STATUTORY BASELINE FALLBACK
+    # TIER 3: STATUTORY BASELINE FALLBACK (DYNAMIC & FORM-SPECIFIC)
     # =========================================================================
-    default_branch = "Appointment/ Re-appointment in AGM"
-    if candidate_options and default_branch not in candidate_options and len(candidate_options) > 0:
+    if candidate_options and len(candidate_options) > 0:
         default_branch = candidate_options[0]
+        s_key = re.sub(r'[^a-z0-9]+', '_', default_branch.lower()).strip('_')
+        return {
+            "recommended_branch": default_branch,
+            "scenario_key": s_key,
+            "sub_reason": None,
+            "section_cited": None,
+            "confidence": 0.70,
+            "evidence_snippet": _snippet(operative_clause) if operative_clause else "Form baseline statutory branch"
+        }
 
     return {
-        "recommended_branch": default_branch,
-        "scenario_key": "agm_appointment",
+        "recommended_branch": None,
+        "scenario_key": "standard",
         "sub_reason": None,
-        "section_cited": "Section 139(1)",
-        "confidence": 0.60,
+        "section_cited": None,
+        "confidence": 1.0,
         "evidence_snippet": _snippet(operative_clause) if operative_clause else "Standard statutory baseline"
     }
