@@ -4,11 +4,13 @@ import FormTemplateViewer from './components/FormTemplateViewer';
 import ExtractedDataSidebar from './components/ExtractedDataSidebar';
 import StructuredDocumentViewer from './components/StructuredDocumentViewer';
 import { idpClient } from './api/idpClient';
-import { LayoutDashboard, CheckCircle, AlertCircle, Cpu, X, Database, Loader2, Download } from 'lucide-react';
+import { LayoutDashboard, CheckCircle, AlertCircle, Cpu, X, Database, Loader2, Download, Sun, Moon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { useTheme } from '../context/ThemeContext';
 
 export default function IdpStudio() {
   const navigate = useNavigate();
+  const { isDarkMode, toggleTheme } = useTheme();
   
   // 3-Step Wizard State
   const [currentStep, setCurrentStep] = useState('extract'); // 'extract' | 'map' | 'preview'
@@ -17,6 +19,7 @@ export default function IdpStudio() {
   const [templates, setTemplates] = useState([]);
   const [templateName, setTemplateName] = useState("");
   const [currentSchema, setCurrentSchema] = useState(null);
+  const [activeSelections, setActiveSelections] = useState({});
   
   // Test FLA Logic State
   const [testFlaResult, setTestFlaResult] = useState(null);
@@ -55,17 +58,21 @@ export default function IdpStudio() {
       const schema = templates.find(t => t.template_name === templateName);
       if (schema) {
           try {
-              let parsedFields = [];
+              let rawParsed = [];
               if (typeof schema.fields_json === 'string') {
-                  parsedFields = JSON.parse(schema.fields_json);
+                  rawParsed = JSON.parse(schema.fields_json);
               } else {
-                  parsedFields = schema.fields_json;
+                  rawParsed = schema.fields_json;
               }
               
+              const fieldsList = Array.isArray(rawParsed) ? rawParsed : (rawParsed?.fields || []);
+              const governingLaw = rawParsed?.governing_law || "";
+
               setCurrentSchema({
                   id: schema.template_name,
                   name: schema.template_name,
-                  fields: parsedFields
+                  governing_law: governingLaw,
+                  fields: fieldsList
               });
           } catch (e) {
               console.error("Failed to parse fields_json for schema", schema.template_name, e);
@@ -87,8 +94,17 @@ export default function IdpStudio() {
     try {
         const data = await idpClient.getTemplates();
         setTemplates(data);
-        if (data.length > 0 && !templateName) {
-            setTemplateName(data[0].template_name);
+        if (data.length > 0) {
+            const saved = localStorage.getItem("idp_selected_template");
+            const match = data.find(t => t.template_name === saved);
+            if (match) {
+                setTemplateName(match.template_name);
+            } else if (!templateName) {
+                const adt = data.find(t => t.template_name && t.template_name.includes("ADT-1"));
+                const chosen = adt ? adt.template_name : data[0].template_name;
+                setTemplateName(chosen);
+                localStorage.setItem("idp_selected_template", chosen);
+            }
         }
     } catch (err) {
         console.error("Failed to fetch templates", err);
@@ -168,23 +184,65 @@ export default function IdpStudio() {
 
   const [isSavingMappings, setIsSavingMappings] = useState(false);
 
-  const handleLinkField = (formFieldId) => {
-    if (!selectedExtractedData) return;
+  const handleLinkField = (formFieldId, explicitExtracted = null) => {
+    const dataToLink = explicitExtracted || selectedExtractedData;
+    if (!dataToLink) return;
 
     const newRule = {
-      rule_id: `temp_${Date.now()}`,
+      rule_id: `temp_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`,
       template_name: templateName,
       form_field: formFieldId,
-      extracted_key: selectedExtractedData.key,
-      extracted_value: selectedExtractedData.value,
-      spatial_meta: selectedExtractedData._spatial_meta
+      extracted_key: dataToLink.key,
+      extracted_value: dataToLink.value,
+      spatial_meta: dataToLink._spatial_meta
     };
 
     setRules(prev => {
       const filtered = prev.filter(r => r.form_field !== formFieldId);
       return [...filtered, newRule];
     });
-    setSelectedExtractedData(null);
+    if (!explicitExtracted) {
+      setSelectedExtractedData(null);
+    }
+  };
+
+  const handleOptionSelect = (fieldId, optionValue) => {
+    setActiveSelections(prev => ({
+      ...prev,
+      [fieldId]: optionValue
+    }));
+
+    const isNo = String(optionValue).toLowerCase() === 'no';
+    const isYes = String(optionValue).toLowerCase() === 'yes';
+
+    if (isNo) {
+      // Direct selection "No": satisfies statutory field without requiring document mapping
+      const newRule = {
+        rule_id: `opt_${fieldId}`,
+        template_name: templateName,
+        form_field: fieldId,
+        extracted_key: "No",
+        extracted_value: "No",
+        scope_type: "DIRECT_SELECTION",
+        source: "option_select"
+      };
+      setRules(prev => [...prev.filter(r => r.form_field !== fieldId), newRule]);
+    } else if (isYes) {
+      // "Yes" requires document mapping -> remove auto direct selection rule so user can link evidence
+      setRules(prev => prev.filter(r => !(r.form_field === fieldId && r.scope_type === 'DIRECT_SELECTION')));
+    } else {
+      // General option branch selection (e.g. 3(b) Nature of appointment options)
+      const newRule = {
+        rule_id: `opt_${fieldId}`,
+        template_name: templateName,
+        form_field: fieldId,
+        extracted_key: optionValue,
+        extracted_value: optionValue,
+        scope_type: "SCENARIO",
+        source: "option_select"
+      };
+      setRules(prev => [...prev.filter(r => r.form_field !== fieldId), newRule]);
+    }
   };
 
   const handleSaveAllMappings = async () => {
@@ -213,11 +271,9 @@ export default function IdpStudio() {
             const rule = rules.find(r => r.form_field === field.id);
             if (rule) {
                 const extractedItem = extractedData.find(e => e.key === rule.extracted_key);
-                if (extractedItem) {
-                    payload[field.id] = extractedItem.value;
-                } else {
-                    payload[field.id] = rule.extracted_key;
-                }
+                payload[field.id] = extractedItem ? extractedItem.value : (rule.extracted_value || rule.extracted_key);
+            } else if (activeSelections[field.id]) {
+                payload[field.id] = activeSelections[field.id];
             }
         });
     }
@@ -246,11 +302,9 @@ export default function IdpStudio() {
             const rule = rules.find(r => r.form_field === field.id);
             if (rule) {
                 const extractedItem = extractedData.find(e => e.key === rule.extracted_key);
-                if (extractedItem) {
-                    payload[field.id] = extractedItem.value;
-                } else {
-                    payload[field.id] = rule.extracted_key;
-                }
+                payload[field.id] = extractedItem ? extractedItem.value : (rule.extracted_value || rule.extracted_key);
+            } else if (activeSelections[field.id]) {
+                payload[field.id] = activeSelections[field.id];
             }
         });
     }
@@ -274,8 +328,16 @@ export default function IdpStudio() {
 
   const handleDeleteRule = async (ruleId) => {
     try {
-      if (!ruleId.startsWith('temp_')) {
+      if (!ruleId.startsWith('temp_') && !ruleId.startsWith('opt_')) {
         await idpClient.deleteRule(ruleId);
+      }
+      const targetRule = rules.find(r => r.rule_id === ruleId);
+      if (targetRule) {
+        setActiveSelections(prev => {
+          const next = { ...prev };
+          delete next[targetRule.form_field];
+          return next;
+        });
       }
       setRules(prev => prev.filter(r => r.rule_id !== ruleId));
     } catch (err) {
@@ -284,23 +346,26 @@ export default function IdpStudio() {
   };
 
   const renderTopBar = () => (
-    <div className="absolute top-0 left-0 right-0 h-16 bg-[#0F172A]/80 backdrop-blur-md border-b border-white/5 flex items-center justify-between px-6 z-10 shadow-sm">
+    <div className="absolute top-0 left-0 right-0 h-16 bg-white/90 dark:bg-[#0F172A]/80 backdrop-blur-md border-b border-slate-200 dark:border-white/5 flex items-center justify-between px-6 z-10 shadow-sm transition-colors">
       <div className="flex items-center gap-6">
-        <div className="flex items-center gap-3 text-lg font-bold text-white tracking-wide border-r border-white/10 pr-6">
-          <LayoutDashboard className="w-5 h-5 text-indigo-400" />
+        <div className="flex items-center gap-3 text-lg font-bold text-slate-800 dark:text-white tracking-wide border-r border-slate-200 dark:border-white/10 pr-6">
+          <LayoutDashboard className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
           IDP Studio
         </div>
         
         {/* Global Target Form Selector */}
         <div className="flex items-center gap-3">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Target Form:</span>
+          <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Target Form:</span>
           <select 
             value={templateName}
-            onChange={(e) => setTemplateName(e.target.value)}
-            className="appearance-none bg-black/20 border border-white/10 text-indigo-300 text-sm font-semibold rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 block px-3 py-1.5 min-w-[200px] cursor-pointer"
+            onChange={(e) => {
+                setTemplateName(e.target.value);
+                localStorage.setItem("idp_selected_template", e.target.value);
+            }}
+            className="appearance-none bg-slate-100 dark:bg-black/20 border border-slate-200 dark:border-white/10 text-indigo-700 dark:text-indigo-300 text-sm font-semibold rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 block px-3 py-1.5 min-w-[200px] cursor-pointer shadow-sm"
           >
             {templates && templates.map(schema => (
-                <option key={schema.template_id} value={schema.template_name} className="bg-[#1E293B] text-white">
+                <option key={schema.template_id} value={schema.template_name} className="bg-white dark:bg-[#1E293B] text-slate-800 dark:text-white">
                     {schema.template_name}
                 </option>
             ))}
@@ -311,27 +376,35 @@ export default function IdpStudio() {
         </div>
       </div>
       
-      <div className="flex items-center bg-black/20 rounded-lg p-1 border border-white/5 absolute left-1/2 transform -translate-x-1/2">
+      <div className="flex items-center bg-slate-100 dark:bg-black/20 rounded-lg p-1 border border-slate-200 dark:border-white/5 shadow-inner absolute left-1/2 transform -translate-x-1/2">
         <button 
           onClick={() => setCurrentStep('extract')}
-          className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all duration-200 ${currentStep === 'extract' ? 'bg-indigo-500/20 shadow-lg text-indigo-300 border border-indigo-500/30' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'}`}
+          className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all duration-200 ${currentStep === 'extract' ? 'bg-white dark:bg-indigo-500/20 shadow-sm text-indigo-600 dark:text-indigo-300 border border-slate-200 dark:border-indigo-500/30' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-white/5 border border-transparent'}`}
         >
           1. Extract Data
         </button>
         <button 
           onClick={() => setCurrentStep('map')}
-          className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all duration-200 ${currentStep === 'map' ? 'bg-indigo-500/20 shadow-lg text-indigo-300 border border-indigo-500/30' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'}`}
+          className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all duration-200 ${currentStep === 'map' ? 'bg-white dark:bg-indigo-500/20 shadow-sm text-indigo-600 dark:text-indigo-300 border border-slate-200 dark:border-indigo-500/30' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-white/5 border border-transparent'}`}
         >
           2. Map to Form
         </button>
         <button 
           onClick={() => setCurrentStep('preview')}
-          className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all duration-200 ${currentStep === 'preview' ? 'bg-indigo-500/20 shadow-lg text-indigo-300 border border-indigo-500/30' : 'text-slate-400 hover:text-slate-200 hover:bg-white/5 border border-transparent'}`}
+          className={`px-4 py-1.5 rounded-md text-sm font-semibold transition-all duration-200 ${currentStep === 'preview' ? 'bg-white dark:bg-indigo-500/20 shadow-sm text-indigo-600 dark:text-indigo-300 border border-slate-200 dark:border-indigo-500/30' : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 hover:bg-slate-200/50 dark:hover:bg-white/5 border border-transparent'}`}
         >
           3. Preview & Save
         </button>
       </div>
-      <div className="w-[120px] flex justify-end">
+      
+      <div className="flex items-center gap-3">
+        <button
+          onClick={toggleTheme}
+          className="p-2 rounded-lg text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-white/10 transition-colors border border-slate-200 dark:border-white/10"
+          title="Toggle Light / Dark Mode"
+        >
+          {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-600" />}
+        </button>
         {currentStep === 'preview' && (
           <button 
             onClick={handleSaveAllMappings}
@@ -346,41 +419,41 @@ export default function IdpStudio() {
   );
 
   return (
-    <div className="flex flex-col w-full h-screen overflow-hidden bg-[#0B1120] relative pt-16">
+    <div className="flex flex-col w-full h-screen overflow-hidden bg-slate-50 dark:bg-[#0B1120] text-slate-800 dark:text-slate-100 relative pt-16 transition-colors">
       {renderTopBar()}
 
-      <div className="flex flex-1 overflow-hidden w-full h-full bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-[#0B1120] to-[#0B1120]">
+      <div className="flex flex-1 overflow-hidden w-full h-full bg-slate-100/60 dark:bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] dark:from-slate-900 dark:via-[#0B1120] dark:to-[#0B1120] transition-colors">
         
         {/* Step 1: Extract Data */}
         {currentStep === 'extract' && (
           <>
             <div className="flex-1 p-8 flex flex-col min-w-[500px]">
               <div className="mb-6 text-center">
-                <h1 className="text-3xl font-extrabold text-white tracking-tight flex items-center justify-center gap-3">
+                <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center justify-center gap-3">
                   Data Extraction
                 </h1>
-                <p className="text-sm text-slate-400 mt-2 font-medium">Upload a PDF and select cells to extract key-value pairs.</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 font-medium">Upload a PDF and select cells to extract key-value pairs.</p>
               </div>
               
               <div className="flex-1 min-h-0 flex gap-6">
-                <div className="flex-1 bg-[#1E293B]/80 backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl overflow-hidden flex flex-col">
-                  <div className="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
-                      <span className="text-sm font-bold tracking-wide text-slate-200">Structured Document</span>
+                <div className="flex-1 bg-white/95 dark:bg-[#1E293B]/80 backdrop-blur-xl rounded-2xl border border-slate-200 dark:border-white/10 shadow-xl overflow-hidden flex flex-col">
+                  <div className="p-4 border-b border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/5 flex justify-between items-center">
+                      <span className="text-sm font-bold tracking-wide text-slate-800 dark:text-slate-200">Structured Document</span>
                       <button 
                           onClick={() => setShowPdfPanel(!showPdfPanel)}
-                          className="text-xs px-4 py-2 bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 rounded-md font-semibold hover:bg-indigo-500/20 transition-all"
+                          className="text-xs px-4 py-2 bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/20 rounded-md font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition-all shadow-sm"
                       >
                           {showPdfPanel ? "Hide Original PDF" : "Show Original PDF"}
                       </button>
                   </div>
                   <div className="flex-1 overflow-hidden">
                       {uploadedFiles[activeFileIndex]?.status === 'error' ? (
-                          <div className="flex flex-col items-center justify-center h-full text-center p-8 bg-black/20">
-                              <div className="w-12 h-12 bg-red-500/10 text-red-400 rounded-xl flex items-center justify-center mb-4">
+                          <div className="flex flex-col items-center justify-center h-full text-center p-8 bg-slate-50 dark:bg-black/20">
+                              <div className="w-12 h-12 bg-red-500/10 text-red-500 dark:text-red-400 rounded-xl flex items-center justify-center mb-4">
                                   <AlertCircle className="w-6 h-6" />
                               </div>
-                              <h4 className="text-sm font-bold text-white mb-2">Processing Failed</h4>
-                              <p className="text-xs text-slate-400">
+                              <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-2">Processing Failed</h4>
+                              <p className="text-xs text-slate-500 dark:text-slate-400">
                                   The server encountered an error while processing this document (e.g. GPU out of memory). Please clear server memory and upload again.
                               </p>
                           </div>
@@ -405,7 +478,7 @@ export default function IdpStudio() {
               </div>
             </div>
             
-            <div className="w-[400px] bg-[#1E293B]/50 border-l border-white/5 shadow-2xl">
+            <div className="w-[400px] bg-white/90 dark:bg-[#1E293B]/50 border-l border-slate-200 dark:border-white/5 shadow-xl">
               <ExtractedDataSidebar 
                   extractedData={extractedData}
                   isExtracting={isExtracting}
@@ -421,13 +494,13 @@ export default function IdpStudio() {
         {currentStep === 'map' && (
           <div className="flex-1 p-8 flex flex-col items-center">
             <div className="mb-8 text-center">
-                <h1 className="text-3xl font-extrabold text-white tracking-tight flex items-center justify-center gap-3">
+                <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight flex items-center justify-center gap-3">
                   Map Extracted Data
                 </h1>
-                <p className="text-sm text-slate-400 mt-2 font-medium">Link your extracted values (right) to the target schema fields (left).</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 font-medium">Link your extracted values (right) to the target schema fields (left).</p>
             </div>
             <div className="flex-1 w-full max-w-6xl flex gap-8 justify-center min-h-0 pb-8">
-              <div className="flex-1 rounded-2xl shadow-2xl border border-white/10 overflow-hidden bg-[#1E293B]/80 backdrop-blur-xl">
+              <div className="flex-1 rounded-2xl shadow-xl border border-slate-200 dark:border-white/10 overflow-hidden bg-white/95 dark:bg-[#1E293B]/80 backdrop-blur-xl">
                 <FormTemplateViewer 
                     templateId={templateName}
                     onTemplateChange={setTemplateName}
@@ -440,10 +513,13 @@ export default function IdpStudio() {
                     onTemplateUploaded={fetchTemplates}
                     onSaveMappings={handleSaveAllMappings}
                     isSavingMappings={isSavingMappings}
+                    activeSelections={activeSelections}
+                    onOptionSelect={handleOptionSelect}
+                    extractedData={extractedData}
                 />
               </div>
               
-              <div className="flex-1 rounded-2xl shadow-2xl border border-white/10 overflow-hidden bg-[#1E293B]/80 backdrop-blur-xl">
+              <div className="flex-1 rounded-2xl shadow-xl border border-slate-200 dark:border-white/10 overflow-hidden bg-white/95 dark:bg-[#1E293B]/80 backdrop-blur-xl">
                 <ExtractedDataSidebar 
                     extractedData={extractedData}
                     isExtracting={isExtracting}
@@ -460,53 +536,104 @@ export default function IdpStudio() {
         {currentStep === 'preview' && (
           <div className="flex-1 p-8 flex flex-col items-center min-h-0">
             <div className="mb-6 text-center mt-2 shrink-0">
-                <h1 className="text-4xl font-extrabold text-white tracking-tight">
+                <h1 className="text-4xl font-extrabold text-slate-900 dark:text-white tracking-tight">
                   Final Review
                 </h1>
-                <p className="text-slate-400 mt-2 font-medium">Verify your mapped data before committing to the database.</p>
+                <p className="text-slate-500 dark:text-slate-400 mt-2 font-medium">Verify your mapped data before committing to the database.</p>
             </div>
             
-            <div className="bg-[#1E293B]/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/10 p-8 w-full max-w-3xl mb-4 relative flex flex-col flex-1 min-h-0">
+            <div className="bg-white/95 dark:bg-[#1E293B]/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-slate-200 dark:border-white/10 p-8 w-full max-w-3xl mb-4 relative flex flex-col flex-1 min-h-0">
                 <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 shrink-0"></div>
-                <div className="flex items-center justify-between mb-6 pb-6 border-b border-white/5 shrink-0">
-                    <div>
-                        <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                            <LayoutDashboard className="w-6 h-6 text-indigo-400" />
-                            {templateName || "Document"} Schema
-                        </h2>
-                        <p className="text-sm text-slate-400 mt-1">Ready for submission</p>
-                    </div>
-                    <div className="bg-indigo-500/10 text-indigo-300 px-5 py-2.5 rounded-full text-sm font-bold border border-indigo-500/20 shadow-inner">
-                        {rules.length} / {currentSchema?.fields?.length || 0} Fields Mapped
-                    </div>
-                </div>
+                {(() => {
+                    // Dynamic DAG filter for Step 3: prune inactive branches, retain triggered subsections
+                    const visibleFields = (currentSchema?.fields || []).filter(field => {
+                        if (!field.depends_on) return true;
+                        const { field: parentId, operator, value } = field.depends_on;
+                        let parentVal = activeSelections[parentId];
+                        if (parentVal === undefined) {
+                            const pRule = rules.find(r => r.form_field === parentId || r.form_field?.includes(parentId));
+                            if (pRule) parentVal = pRule.extracted_value || pRule.extracted_key;
+                        }
+                        if (!parentVal) return false;
+                        const pStr = String(parentVal).trim().toLowerCase();
+                        const tStr = String(value || '').trim().toLowerCase();
+                        if (operator === 'equals') return pStr === tStr || pStr.includes(tStr) || tStr.includes(pStr);
+                        if (operator === 'in' && Array.isArray(value)) return value.map(v => String(v).toLowerCase()).includes(pStr);
+                        return true;
+                    });
 
-                <div className="flex-1 overflow-y-auto pr-2 space-y-3 mb-6 custom-scrollbar">
-                    {currentSchema?.fields?.map(field => {
-                        const mapping = rules.find(r => r.form_field === field.id);
-                        return (
-                            <div key={field.id} className="flex items-center justify-between p-4 rounded-xl transition-colors hover:bg-slate-50 dark:hover:bg-white/5 border border-transparent hover:border-slate-100 dark:hover:border-white/5">
-                                <div className="flex items-center gap-3">
-                                    <div className={`w-2 h-2 rounded-full ${mapping ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-slate-300 dark:bg-slate-600'}`}></div>
-                                    <span className={`text-sm font-semibold ${mapping ? 'text-slate-700 dark:text-slate-200' : 'text-slate-500'}`}>
-                                        {field.label}
-                                    </span>
+                    const resolvedCount = visibleFields.filter(f => {
+                        const rule = rules.find(r => r.form_field === f.id);
+                        const sel = activeSelections[f.id];
+                        return rule || String(sel).toLowerCase() === 'no';
+                    }).length;
+
+                    return (
+                        <>
+                            <div className="flex items-center justify-between mb-6 pb-6 border-b border-slate-200 dark:border-white/5 shrink-0">
+                                <div>
+                                    <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                        <LayoutDashboard className="w-6 h-6 text-indigo-500 dark:text-indigo-400" />
+                                        {templateName || "Document"} Schema
+                                    </h2>
+                                    <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Ready for submission</p>
                                 </div>
-                                {mapping ? (
-                                    <div className="text-right">
-                                        <span className="inline-block text-slate-900 dark:text-white font-mono bg-indigo-50 dark:bg-indigo-900/20 px-4 py-2 rounded-lg border border-indigo-100 dark:border-indigo-500/20 text-sm">
-                                            {extractedData.find(e => e.key === mapping.extracted_key)?.value || mapping.extracted_key}
-                                        </span>
-                                    </div>
-                                ) : (
-                                    <span className="text-slate-400 italic text-sm px-4 py-2 bg-slate-50 dark:bg-white/5 rounded-lg border border-dashed border-slate-200 dark:border-white/10">
-                                        Unmapped
-                                    </span>
-                                )}
+                                <div className="bg-indigo-50 dark:bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 px-5 py-2.5 rounded-full text-sm font-bold border border-indigo-200 dark:border-indigo-500/20 shadow-inner">
+                                    {resolvedCount} / {visibleFields.length} Fields Resolved
+                                </div>
                             </div>
-                        );
-                    })}
-                </div>
+
+                            <div className="flex-1 overflow-y-auto pr-2 space-y-3 mb-6 custom-scrollbar">
+                                {visibleFields.map(field => {
+                                    const mapping = rules.find(r => r.form_field === field.id);
+                                    const activeChoice = activeSelections[field.id];
+                                    const isNoSelected = (activeChoice && String(activeChoice).toLowerCase() === 'no') || 
+                                                         (mapping && String(mapping.extracted_value || mapping.extracted_key).toLowerCase() === 'no');
+
+                                    if (isNoSelected) {
+                                        return (
+                                            <div key={field.id} className="flex items-center justify-between p-4 rounded-xl transition-colors hover:bg-slate-50 dark:hover:bg-white/5 border border-transparent hover:border-slate-100 dark:hover:border-white/5">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-2 h-2 rounded-full bg-slate-400"></div>
+                                                    <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                        {field.canonical_no ? `${field.canonical_no} ${field.label}` : field.label}
+                                                    </span>
+                                                </div>
+                                                <div className="text-right">
+                                                    <span className="inline-block text-slate-700 dark:text-slate-300 font-mono bg-slate-100 dark:bg-slate-800/80 px-3.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-semibold">
+                                                        No (Not Required)
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        );
+                                    }
+
+                                    return (
+                                        <div key={field.id} className="flex items-center justify-between p-4 rounded-xl transition-colors hover:bg-slate-50 dark:hover:bg-white/5 border border-transparent hover:border-slate-100 dark:hover:border-white/5">
+                                            <div className="flex items-center gap-3">
+                                                <div className={`w-2 h-2 rounded-full ${mapping ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-slate-300 dark:bg-slate-600'}`}></div>
+                                                <span className={`text-sm font-semibold text-slate-700 dark:text-slate-200`}>
+                                                    {field.canonical_no ? `${field.canonical_no} ${field.label}` : field.label}
+                                                </span>
+                                            </div>
+                                            {mapping ? (
+                                                <div className="text-right">
+                                                    <span className="inline-block text-slate-900 dark:text-white font-mono bg-indigo-50 dark:bg-indigo-900/20 px-4 py-2 rounded-lg border border-indigo-100 dark:border-indigo-500/20 text-sm">
+                                                        {extractedData.find(e => e.key === mapping.extracted_key)?.value || mapping.extracted_value || mapping.extracted_key}
+                                                    </span>
+                                                </div>
+                                            ) : (
+                                                <span className="text-slate-500 dark:text-slate-400 italic text-sm px-4 py-2 bg-slate-100 dark:bg-white/5 rounded-lg border border-dashed border-slate-200 dark:border-white/10">
+                                                    Unmapped
+                                                </span>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </>
+                    );
+                })()}
                 
                 <button 
                     onClick={handleSaveAllMappings}
@@ -521,7 +648,7 @@ export default function IdpStudio() {
                 <button 
                     onClick={handleTestFla}
                     disabled={isTestingFla || isGeneratingExcel}
-                    className="w-full mt-4 py-3 bg-[#0F172A] hover:bg-black/40 border border-indigo-500/30 hover:border-indigo-400 text-indigo-300 rounded-2xl font-bold flex justify-center items-center gap-3 transition-all transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:hover:scale-100 text-md shrink-0"
+                    className="w-full mt-4 py-3 bg-slate-100 dark:bg-[#0F172A] hover:bg-slate-200 dark:hover:bg-black/40 border border-slate-300 dark:border-indigo-500/30 text-indigo-700 dark:text-indigo-300 rounded-2xl font-bold flex justify-center items-center gap-3 transition-all transform hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50 disabled:hover:scale-100 text-md shrink-0 shadow-sm"
                 >
                     {isTestingFla ? <Loader2 className="w-5 h-5 animate-spin" /> : <Cpu className="w-5 h-5" />}
                     {isTestingFla ? "Testing Logic..." : "Test Legacy FLA Logic"}
@@ -545,20 +672,20 @@ export default function IdpStudio() {
       {/* TEST FLA RESULT MODAL */}
       {testFlaResult && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-8">
-            <div className="bg-[#1E293B] border border-white/10 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
-                <div className="px-6 py-4 border-b border-white/10 bg-black/20 flex items-center justify-between">
-                    <h3 className="text-xl font-bold text-white flex items-center gap-3">
-                        <Cpu className="w-6 h-6 text-indigo-400" />
+            <div className="bg-white dark:bg-[#1E293B] border border-slate-200 dark:border-white/10 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-200">
+                <div className="px-6 py-4 border-b border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-black/20 flex items-center justify-between">
+                    <h3 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-3">
+                        <Cpu className="w-6 h-6 text-indigo-500 dark:text-indigo-400" />
                         FLA Engine Computation Results
                     </h3>
-                    <button onClick={() => setTestFlaResult(null)} className="text-slate-400 hover:text-white transition-colors">
+                    <button onClick={() => setTestFlaResult(null)} className="text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
                         <X className="w-6 h-6" />
                     </button>
                 </div>
-                <div className="p-6 overflow-y-auto bg-[#0F172A] custom-scrollbar text-sm font-mono text-emerald-400">
+                <div className="p-6 overflow-y-auto bg-slate-900 dark:bg-[#0F172A] custom-scrollbar text-sm font-mono text-emerald-400">
                     <pre className="whitespace-pre-wrap">{JSON.stringify(testFlaResult, null, 2)}</pre>
                 </div>
-                <div className="px-6 py-4 border-t border-white/10 bg-black/20 flex justify-end">
+                <div className="px-6 py-4 border-t border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-black/20 flex justify-end">
                     <button onClick={() => setTestFlaResult(null)} className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition-colors">
                         Close
                     </button>

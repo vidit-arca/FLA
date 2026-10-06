@@ -53,18 +53,10 @@ pip install marker-pdf
 *Note: The first run of Marker will automatically download its layout and segmentation models (approx. 2-3GB).*
 
 ### Step 3: Run the API Server
-
-**Option A: From the repository root (`y:\FLA-main\FLA-main`)**
+To start the backend FastAPI server, run the following command from the `automation_engine` directory:
 ```bash
-python -m uvicorn automation_engine.api.main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-**Option B: From the `automation_engine` directory**
-```bash
-cd automation_engine
 python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 ```
-
 
 ---
 

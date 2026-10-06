@@ -8,22 +8,22 @@ export default function ExtractedDataSidebar({ extractedData, isExtracting, sele
 
   return (
     <div className="w-full h-full bg-transparent flex flex-col shrink-0">
-      <div className="p-5 border-b border-white/5 bg-white/5">
+      <div className="p-5 border-b border-slate-200 dark:border-white/5 bg-slate-50 dark:bg-white/5">
         <div className="flex items-center gap-2 mb-2">
-            <Database className="w-5 h-5 text-indigo-400" />
-            <h2 className="text-lg font-bold text-white">PDF Data</h2>
+            <Database className="w-5 h-5 text-indigo-500 dark:text-indigo-400" />
+            <h2 className="text-lg font-bold text-slate-800 dark:text-white">PDF Data</h2>
         </div>
-        <p className="text-xs text-slate-400 font-medium">Auto-extracted values from the document. Select one to map it.</p>
+        <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Auto-extracted values from the document. Select one to map it.</p>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {isExtracting ? (
-            <div className="flex flex-col items-center justify-center h-full text-slate-400">
-            <Loader2 className="w-6 h-6 animate-spin text-indigo-400 mb-2" />
+            <div className="flex flex-col items-center justify-center h-full text-slate-500 dark:text-slate-400">
+            <Loader2 className="w-6 h-6 animate-spin text-indigo-500 dark:text-indigo-400 mb-2" />
             <span className="text-sm font-medium">Processing Document...</span>
           </div>
         ) : extractedData.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-slate-400 text-center px-4">
+            <div className="flex flex-col items-center justify-center h-full text-slate-500 dark:text-slate-400 text-center px-4">
                 <p className="text-sm">Upload a PDF to automatically extract its key-value pairs.</p>
             </div>
         ) : (
@@ -39,19 +39,19 @@ export default function ExtractedDataSidebar({ extractedData, isExtracting, sele
                       isMapped 
                         ? 'border-emerald-500/30 bg-emerald-500/5 cursor-default' 
                         : isSelected 
-                            ? 'border-indigo-400 bg-indigo-500/10 shadow-[0_0_15px_rgba(99,102,241,0.2)] transform scale-[1.02]'
-                            : 'border-white/5 bg-black/10 hover:border-white/10 hover:bg-black/20 cursor-pointer'
+                            ? 'border-indigo-500 dark:border-indigo-400 bg-indigo-50 dark:bg-indigo-500/10 shadow-[0_0_15px_rgba(99,102,241,0.2)] transform scale-[1.02]'
+                            : 'border-slate-200 dark:border-white/5 bg-white dark:bg-black/10 hover:border-slate-300 dark:hover:border-white/10 hover:bg-slate-50 dark:hover:bg-black/20 cursor-pointer shadow-sm'
                     }`}
                   >
                     <div className="flex flex-col gap-1.5">
                       <span className={`text-[10px] font-bold uppercase tracking-wider block truncate ${
-                        isMapped ? 'text-emerald-400' : isSelected ? 'text-indigo-400' : 'text-slate-400'
+                        isMapped ? 'text-emerald-600 dark:text-emerald-400' : isSelected ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-500 dark:text-slate-400'
                       }`} title={item.key}>
                         {item.key}
                       </span>
                       
                       <span className={`text-sm font-medium ${
-                        isMapped ? 'text-slate-300' : 'text-white'
+                        isMapped ? 'text-slate-600 dark:text-slate-300' : 'text-slate-900 dark:text-white'
                       }`}>
                         {item.value}
                       </span>

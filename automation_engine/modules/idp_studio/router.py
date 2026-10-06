@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Body
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Body, Request
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
@@ -11,9 +11,15 @@ import io
 import os
 import sys
 
-from .db import get_db, engine, init_db
-from . import models
-from .doc_classifier import classify_document
+from .core.db import get_db, engine, init_db
+from .core import models
+from .extractors.classifier import classify_document, detect_operative_statutory_branch
+from .extractors.spatial import get_effective_rules, get_scenario_lexicon
+from .forms.kit_parser import InstructionKitParser
+from .forms.registry import FormRegistry
+from .forms.filler import DynamicFormFiller
+
+
 
 # Ensure tables and migrations are initialized
 init_db()
@@ -80,93 +86,413 @@ def get_all_templates(db: Session = Depends(get_db)):
     return templates
 
 
+@router.delete("/templates/{template_id}")
+def delete_template(template_id: str, db: Session = Depends(get_db)):
+    """Deletes a template from the database by template_id or template_name."""
+    tmpl = db.query(models.IdpTemplate).filter(
+        (models.IdpTemplate.template_id == template_id) | (models.IdpTemplate.template_name == template_id)
+    ).first()
+    if not tmpl:
+        raise HTTPException(status_code=404, detail="Template not found")
+    
+    db.delete(tmpl)
+    db.commit()
+    return {"message": f"Template '{tmpl.template_name}' successfully deleted"}
+
+
 @router.post("/templates/upload")
 async def upload_pdf_template(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """
+    Template Ingestion Endpoint.
+    Parses the uploaded Instruction Kit PDF using InstructionKitParser, generating a clean,
+    type-safe, conditional form schema (with radio/select options, validations, depends_on).
+    """
     if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported for form template upload")
+        raise HTTPException(status_code=400, detail="Only PDF files are supported for template upload")
         
     contents = await file.read()
     try:
-        import pdfplumber as _pdfplumber
+        # Parse Instruction Kit into structured schema
+        parser = InstructionKitParser()
+        schema = parser.parse(contents)
+        fields = schema.get("fields", [])
         
-        fields = []
-        seen_labels = set()
-        
-        with _pdfplumber.open(io.BytesIO(contents)) as pdf:
-            page_width = pdf.pages[0].width if pdf.pages else 612.0
-            # Left half = field labels. Right half = values (ignore).
-            # Use 45% of page width as cutoff to be safe on narrow forms.
-            label_x_cutoff = page_width * 0.45
+        template_name = schema.get("template_name") or schema.get("form_name") or file.filename.replace(".pdf", "").replace(".PDF", "")
+        # Clean up form name
+        if not template_name or template_name == "Form Template":
+            template_name = file.filename.replace(".pdf", "").replace(".PDF", "").replace("_", " ")
 
-            for page in pdf.pages:
-                words = page.extract_words()
-                if not words:
-                    continue
-
-                # Group words by approximate row (bucket y into 8pt bands)
-                rows: dict = {}
-                for w in words:
-                    # Only keep words in the label (left) column
-                    if w['x0'] >= label_x_cutoff:
-                        continue
-                    row_key = round(float(w['top']) / 8) * 8
-                    rows.setdefault(row_key, []).append(w)
-
-                for row_key in sorted(rows.keys()):
-                    row_words = sorted(rows[row_key], key=lambda w: w['x0'])
-                    line_text = ' '.join(w['text'] for w in row_words).strip()
-
-                    # Skip very short lines, pure numbers, headers, checkmarks, etc.
-                    if len(line_text) < 4:
-                        continue
-                    if line_text.replace(',', '').replace('.', '').replace('-', '').isdigit():
-                        continue
-                    # Skip lines that are clearly header/meta (page titles, instructions)
-                    skip_prefixes = ('refer instruction', 'all fields marked', 'pursuant to', 'llp form no', 'm2')
-                    if any(line_text.lower().startswith(p) for p in skip_prefixes):
-                        continue
-                    # Skip checkmark lines
-                    if '✔' in line_text or '✓' in line_text:
-                        continue
-
-                    clean_label = line_text.replace('\n', ' ').strip()
-                    # Truncate very long descriptions (keep first 120 chars)
-                    if len(clean_label) > 120:
-                        clean_label = clean_label[:120].strip()
-
-                    if clean_label not in seen_labels:
-                        seen_labels.add(clean_label)
-                        field_id = ''.join(e for e in clean_label.lower() if e.isalnum() or e == '_')[:50]
-                        fields.append({
-                            "id": f"field_{field_id}",
-                            "label": clean_label
-                        })
-
-        template_name = file.filename.replace(".pdf", "").replace(".PDF", "")
         template_id = str(uuid.uuid4())
+        schema["template_name"] = template_name
+        schema["form_name"] = template_name
+        schema["form_id"] = template_id
         
-        # Save the blank PDF to the data/templates folder for future preview generation
+        # Save the template PDF to the data/templates folder for reference and PDF previews
         template_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "data", "templates"))
         os.makedirs(template_dir, exist_ok=True)
         template_path = os.path.join(template_dir, f"{template_name}.pdf")
         with open(template_path, "wb") as out_f:
             out_f.write(contents)
         
-        db_template = models.IdpTemplate(
-            template_id=template_id,
-            template_name=template_name,
-            fields_json=json.dumps(fields)
-        )
-        db.add(db_template)
-        db.commit()
-        db.refresh(db_template)
-        
-        return {"message": "Template created from PDF and saved for previews", "template_id": template_id, "fields": fields}
+        # Persist to FormRegistry (which synchronizes DB IdpTemplate and filesystem cache)
+        try:
+            template_id = FormRegistry.save_form_schema(schema, db)
+        except Exception as reg_err:
+            print(f"[!] FormRegistry sync notice: {reg_err}")
+            # Fallback direct DB save
+            existing_tmpl = db.query(models.IdpTemplate).filter(models.IdpTemplate.template_name == template_name).first()
+            if existing_tmpl:
+                existing_tmpl.fields_json = json.dumps(schema)
+                db.commit()
+                db.refresh(existing_tmpl)
+                template_id = existing_tmpl.template_id
+            else:
+                db_template = models.IdpTemplate(
+                    template_id=template_id,
+                    template_name=template_name,
+                    fields_json=json.dumps(schema)
+                )
+                db.add(db_template)
+                db.commit()
+                db.refresh(db_template)
+
+        print(f"[IDP Studio] Successfully parsed and saved template '{template_name}' with {len(fields)} fields from Instruction Kit.")
+        return {
+            "message": f"Template created from Instruction Kit ({len(fields)} fields)",
+            "template_id": template_id,
+            "template_name": template_name,
+            "fields": fields,
+            "schema": schema
+        }
         
     except Exception as e:
         import traceback
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Error parsing PDF template: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error parsing Instruction Kit template: {str(e)}")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Generic Schema-Driven MCA Dynamic Form Endpoints (Supporting 54+ Forms)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class FormAutofillRequest(BaseModel):
+    evidence: Optional[List[Dict[str, Any]]] = None
+
+class FormValidateRequest(BaseModel):
+    values: Dict[str, Any]
+
+
+@router.get("/forms")
+def list_available_forms(db: Session = Depends(get_db)):
+    """
+    Lists all available MCA forms (out of 54) dynamically from DB and schema registry.
+    Returns lightweight summaries with field counts and conditional indicators.
+    """
+    forms = FormRegistry.list_forms(db)
+    return {"total_forms": len(forms), "forms": forms}
+
+
+@router.get("/forms/{form_id}")
+def get_form_definition(form_id: str, db: Session = Depends(get_db)):
+    """
+    Retrieves the complete standardized schema for a specific MCA form.
+    Decoupled: includes canonical numbers, labels, types, options, validations, depends_on.
+    """
+    schema = FormRegistry.get_form_schema(form_id, db)
+    if not schema:
+        raise HTTPException(status_code=404, detail=f"Form schema for '{form_id}' not found")
+    return schema
+
+
+@router.post("/forms/{form_id}/detect_branch")
+async def detect_form_branch(
+    form_id: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Scans uploaded documents (or document text) and runs the Operative Clause Detector
+    to recommend the statutory branch for the Upfront HITL Decision Gate.
+    """
+    schema = FormRegistry.get_form_schema(form_id, db)
+    if not schema:
+        raise HTTPException(status_code=404, detail=f"Form schema for '{form_id}' not found")
+
+    content_type = request.headers.get("content-type", "")
+    full_text = ""
+    filename = ""
+
+    import pdfplumber
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            full_text = body.get("text", "")
+            filename = body.get("filename", "")
+        except Exception:
+            pass
+    elif "multipart/form-data" in content_type:
+        try:
+            form = await request.form()
+            uploaded_files = form.getlist("files")
+            single_file = form.get("file")
+            if single_file and single_file not in uploaded_files:
+                uploaded_files.append(single_file)
+            for uf in uploaded_files:
+                if hasattr(uf, "read") and hasattr(uf, "filename") and uf.filename.lower().endswith(".pdf"):
+                    contents = await uf.read()
+                    filename = uf.filename
+                    with pdfplumber.open(io.BytesIO(contents)) as pdf:
+                        for page in pdf.pages:
+                            t = page.extract_text()
+                            if t:
+                                full_text += t + "\n"
+        except Exception as e:
+            print(f"[!] Error in detect_form_branch: {e}")
+
+    # Dynamically locate the branching field from the schema (the field that drives DAG pruning)
+    # Priority: radio/select fields with options that look like statutory pathways
+    branch_field_label = None
+    branch_field_canonical = None
+    candidate_options = []
+
+    BRANCH_FIELD_SIGNALS = [
+        "nature of appointment",
+        "type of appointment",
+        "basis of appointment",
+        "purpose of filing",
+        "nature of filing",
+        "category of applicant",
+        "type of company",
+    ]
+
+    for fld in schema.get("fields", []):
+        field_label_lower = fld.get("label", "").lower()
+        field_type = fld.get("type", "")
+        field_options = fld.get("options") or []
+
+        if not field_options:
+            continue
+
+        # Match by canonical number OR by label signal keywords
+        is_match = (
+            fld.get("canonical_no") in ["3(b)", "3", "1", "2"]
+            or any(signal in field_label_lower for signal in BRANCH_FIELD_SIGNALS)
+            or (field_type in ["radio", "select"] and len(field_options) >= 3)
+        )
+        if is_match:
+            candidate_options = field_options
+            branch_field_label = fld.get("label")
+            branch_field_canonical = fld.get("canonical_no")
+            break
+
+    # Build structured option objects for the frontend UI
+    available_options = []
+    for opt in candidate_options:
+        if isinstance(opt, dict):
+            available_options.append(opt)
+        elif isinstance(opt, str):
+            available_options.append({
+                "id": opt,
+                "title": opt,
+                "description": "",
+                "section": ""
+            })
+
+    has_branches = len(available_options) >= 2
+
+    result = detect_operative_statutory_branch(full_text, filename=filename, candidate_options=candidate_options)
+    return {
+        "status": "success",
+        "form_id": form_id,
+        "form_name": schema.get("form_name"),
+        "has_branches": has_branches,
+        "branch_field_label": branch_field_label,
+        "branch_field_canonical": branch_field_canonical,
+        "available_options": available_options,
+        "detected": result
+    }
+
+
+@router.post("/forms/{form_id}/autofill")
+async def autofill_mca_form(
+    form_id: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Autonomous Dynamic Form-Filling Endpoint:
+    1. Loads target Form Schema from FormRegistry (no hardcoding).
+    2. Gathers evidence from either JSON body or multipart uploaded documents.
+    3. Injects confirmed branch and harvested scenario lexicon from database.
+    4. Runs qwen2.5:14b semantic mapper to match document evidence to target schema fields.
+    5. Enforces deterministic guardrails: Type checks, Regex, Canonical Options, and DAG pruning.
+    6. Returns audited FormFillExecutionPayload with populated values and missing field flags.
+    """
+    schema = FormRegistry.get_form_schema(form_id, db)
+    if not schema:
+        raise HTTPException(status_code=404, detail=f"Form schema for '{form_id}' not found")
+
+    context = {}
+    evidence_items = []
+    content_type = request.headers.get("content-type", "")
+
+    # 1. Parse JSON body
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            if isinstance(body, dict):
+                if body.get("evidence"):
+                    evidence_items.extend(body["evidence"])
+                if body.get("company_id") or body.get("scenario") or body.get("confirmed_branch"):
+                    context = {
+                        "company_id": body.get("company_id"),
+                        "scenario": body.get("scenario"),
+                        "confirmed_branch": body.get("confirmed_branch"),
+                        "casual_vacancy_reason": body.get("casual_vacancy_reason"),
+                    }
+        except Exception as je:
+            print(f"[!] Error parsing JSON body in autofill: {je}")
+
+    # 2. Parse multipart form data (files and/or evidence JSON string)
+    elif "multipart/form-data" in content_type:
+        try:
+            form = await request.form()
+            ev_str = form.get("evidence")
+            if ev_str:
+                try:
+                    parsed_ev = json.loads(ev_str)
+                    if isinstance(parsed_ev, list):
+                        evidence_items.extend(parsed_ev)
+                except Exception:
+                    pass
+
+            if form.get("company_id") or form.get("scenario") or form.get("confirmed_branch"):
+                context = {
+                    "company_id": form.get("company_id"),
+                    "scenario": form.get("scenario"),
+                    "confirmed_branch": form.get("confirmed_branch"),
+                    "casual_vacancy_reason": form.get("casual_vacancy_reason"),
+                }
+
+            import pdfplumber
+            uploaded_files = form.getlist("files")
+            single_file = form.get("file")
+            if single_file and single_file not in uploaded_files:
+                uploaded_files.append(single_file)
+
+            for uf in uploaded_files:
+                if hasattr(uf, "read") and hasattr(uf, "filename") and uf.filename.lower().endswith(".pdf"):
+                    contents = await uf.read()
+                    file_text = ""
+                    with pdfplumber.open(io.BytesIO(contents)) as pdf:
+                        for page in pdf.pages:
+                            t = page.extract_text()
+                            if t:
+                                file_text += t + "\n"
+                    lines = [l.strip() for l in file_text.splitlines() if l.strip()]
+                    for l in lines[:80]:
+                        if ":" in l:
+                            parts = l.split(":", 1)
+                            evidence_items.append({
+                                "key": parts[0].strip(),
+                                "value": parts[1].strip(),
+                                "source_doc": uf.filename
+                            })
+                        else:
+                            evidence_items.append({
+                                "key": l[:40],
+                                "value": l,
+                                "source_doc": uf.filename
+                            })
+        except Exception as fe:
+            print(f"[!] Error parsing multipart form in autofill: {fe}")
+
+    # Harvest dynamic scenario lexicon from database if scenario provided
+    scenario_key = context.get("scenario")
+    if not scenario_key and context.get("confirmed_branch"):
+        cb = str(context["confirmed_branch"]).lower()
+        if "first auditor" in cb:
+            if "member" in cb or "egm" in cb:
+                scenario_key = "first_auditor_members"
+            else:
+                scenario_key = "first_auditor_board"
+        elif "c&ag" in cb or "cag" in cb:
+            scenario_key = "cag_appointment"
+        elif "casual" in cb:
+            scenario_key = "casual_vacancy"
+        elif "re-appointment" in cb and "agm" in cb:
+            scenario_key = "agm_reappointment"
+        elif "agm" in cb:
+            scenario_key = "agm_appointment"
+        elif "tribunal" in cb:
+            scenario_key = "tribunal_order"
+        elif "central" in cb:
+            scenario_key = "central_gov"
+        elif "removal" in cb or "non-re-appointment" in cb:
+            scenario_key = "removal_appointment"
+        else:
+            scenario_key = re.sub(r'[^a-z0-9]+', '_', cb).strip('_')
+        context["scenario"] = scenario_key
+
+    if scenario_key:
+        t_name = schema.get("form_name", form_id)
+        lexicon = get_scenario_lexicon(t_name, scenario=scenario_key)
+        context["lexicon"] = lexicon
+
+    # Fallback to saved SchemaAliasRules for this form template if no direct evidence was supplied
+    if not evidence_items:
+        t_name = schema.get("form_name")
+        effective_rules = get_effective_rules(
+            t_name,
+            company_id=context.get("company_id"),
+            scenario=context.get("scenario")
+        )
+        for a in effective_rules.values():
+            evidence_items.append({
+                "key": a.extracted_key,
+                "value": a.extracted_key,
+                "source_doc": f"Rule Memory ({a.scope_type})"
+            })
+
+    # Execute dynamic form filling with context and dynamic lexicon
+    filler = DynamicFormFiller()
+    execution_result = filler.fill_form(schema, evidence_items, context=context if context else None)
+    return execution_result
+
+
+
+@router.post("/forms/{form_id}/validate")
+def validate_mca_form(
+    form_id: str,
+    request: FormValidateRequest,
+    db: Session = Depends(get_db)
+):
+    """
+    Deterministic Live Validation Endpoint for UI form edits:
+    Evaluates types, regexes, canonical option constraints, and DAG dependency pruning.
+    Does NOT call the LLM — runs 100% deterministically in <5ms.
+    """
+    schema = FormRegistry.get_form_schema(form_id, db)
+    if not schema:
+        raise HTTPException(status_code=404, detail=f"Form schema for '{form_id}' not found")
+
+    fields = schema.get("fields", [])
+    raw_mappings = {}
+    for f in fields:
+        f_id = f["id"]
+        val = request.values.get(f_id)
+        raw_mappings[f_id] = {
+            "status": "populated" if val is not None and str(val).strip() != "" else "missing",
+            "value": val,
+            "confidence": 1.0 if val is not None else 0.0,
+            "reasoning": "User input / validated edit"
+        }
+
+    filler = DynamicFormFiller()
+    validated_fields = filler._validate_and_normalize_values(fields, raw_mappings, [])
+    active_fields = filler._resolve_dag_dependencies(fields, validated_fields)
+    payload = filler._compile_execution_payload(schema["form_id"], schema["form_name"], fields, active_fields, 0.001)
+    return payload
 
 
 from typing import Optional, Dict, Any
@@ -176,12 +502,20 @@ class SchemaAliasCreate(BaseModel):
     form_field: str
     extracted_key: str
     spatial_meta: Optional[Dict[str, Any]] = None
+    document_type: Optional[str] = "generic"
+    scope_type: Optional[str] = "GLOBAL"
+    scope_id: Optional[str] = "default"
+    priority: Optional[int] = 1
 
 class SchemaAliasResponse(SchemaAliasCreate):
     rule_id: str
+    scope_type: Optional[str] = "GLOBAL"
+    scope_id: Optional[str] = "default"
+    priority: Optional[int] = 1
     
     class Config:
         orm_mode = True
+
 
 class RuleHistoryResponse(BaseModel):
     rule_id: str
@@ -213,8 +547,9 @@ async def test_fla_engine(payload: Dict[str, Any] = Body(...)):
     """
     try:
         print("INCOMING IDP PAYLOAD:", payload)
-        from modules.idp_studio.fla_bridge import FLABridgeAdapter
+        from .extractors.fla_bridge import FLABridgeAdapter
         bridge = FLABridgeAdapter()
+
         computed_state = bridge.adapt_and_evaluate(payload)
         cell_labels = bridge.get_all_cell_labels()
         
@@ -238,8 +573,9 @@ async def generate_excel_from_idp(payload: Dict[str, Any] = Body(...)):
     populates the skeletal Excel template, and returns the physical .xlsx file.
     """
     try:
-        from modules.idp_studio.fla_bridge import FLABridgeAdapter
-        from core.excel_writer import ExcelWriter
+        from .extractors.fla_bridge import FLABridgeAdapter
+        from automation_engine.core.excel_writer import ExcelWriter
+
         
         # 1. Compute target cells via 3-Phase FLABridgeAdapter
         bridge = FLABridgeAdapter()
@@ -271,13 +607,208 @@ async def generate_excel_from_idp(payload: Dict[str, Any] = Body(...)):
         raise HTTPException(status_code=500, detail=f"Excel Generation Error: {str(e)}")
 
 # ==============================================================================
+def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str, Any], db: Any = None) -> Any:
+    """
+    Universal Dynamic Statutory PDF Template Generator for all 54+ MCA Forms.
+    ZERO HARDCODING: Dynamically reads field definitions, canonical numbers,
+    statutory labels, radio/toggle options, and DAG pruning conditions directly from FormRegistry.
+    """
+    import fitz
+    from .forms.registry import FormRegistry
+
+    schema = FormRegistry.get_form_schema(template_name, db) if template_name else None
+    form_title = (schema.get("form_name") if schema else None) or template_name or "MCA Statutory Form"
+    governing_law = (schema.get("governing_law") if schema else None) or "Companies Act, 2013"
+    fields = schema.get("fields", []) if schema else []
+
+    doc = fitz.open()
+    page = doc.new_page(width=595, height=842)  # Standard A4
+
+    # Outer statutory border
+    page.draw_rect(fitz.Rect(28, 28, 567, 814), color=(0.15, 0.2, 0.3), width=1.2)
+
+    # Header Banner
+    page.draw_rect(fitz.Rect(28, 28, 567, 102), color=(0.94, 0.96, 0.98), fill=(0.94, 0.96, 0.98))
+    page.draw_line(fitz.Point(28, 102), fitz.Point(567, 102), color=(0.15, 0.2, 0.3), width=1.0)
+
+    page.insert_text((42, 48), "GOVERNMENT OF INDIA", fontsize=9.5, fontname="helv", color=(0.25, 0.25, 0.25))
+    page.insert_text((42, 63), "MINISTRY OF CORPORATE AFFAIRS", fontsize=12, fontname="helv", color=(0.08, 0.16, 0.36))
+    page.insert_text((42, 82), str(form_title).upper(), fontsize=13.5, fontname="helv", color=(0.05, 0.1, 0.25))
+    page.insert_text((42, 95), f"Statutory Return Pursuant to {governing_law} and Applicable Rules", fontsize=7.5, fontname="helv", color=(0.4, 0.45, 0.5))
+
+    # Verification seal / badge
+    badge_rect = fitz.Rect(430, 42, 552, 68)
+    page.draw_rect(badge_rect, color=(0.1, 0.6, 0.3), fill=(0.92, 0.98, 0.94), width=1.0)
+    page.insert_text((440, 58), "STATUS: READY TO FILE", fontsize=7.5, fontname="helv", color=(0.05, 0.5, 0.25))
+
+    # Dynamic Field Value Resolver
+    def _find_field_value(field_def: Dict[str, Any]) -> Optional[str]:
+        fid = field_def.get("id", "")
+        flabel = field_def.get("label", "").lower()
+        cno = str(field_def.get("canonical_no", "")).lower().replace("(", "").replace(")", "").strip()
+        f_type = str(field_def.get("type", "text")).lower()
+        options = field_def.get("options") or []
+
+        # 1. Exact ID check
+        if fid in mapped_data and mapped_data[fid]:
+            return str(mapped_data[fid]).strip()
+
+        # 2. Canonical number check (e.g. "3b", "3d", "4b", "4c", "1", "2a")
+        if cno:
+            for k, v in mapped_data.items():
+                if not v or str(v).strip() in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
+                    continue
+                k_norm = str(k).lower().replace("(", "").replace(")", "").replace("-", "_").replace(" ", "_")
+                if k_norm.startswith(f"{cno}_") or f"_{cno}_" in k_norm or k_norm == cno:
+                    return str(v).strip()
+
+        # 3. Normalized ID fuzzy check
+        norm_fid = fid.lower().replace("_", "").replace("field", "")
+        for k, v in mapped_data.items():
+            if not v or str(v).strip() in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
+                continue
+            norm_k = str(k).lower().replace("_", "").replace("field", "")
+            if norm_k == norm_fid or (len(norm_fid) > 4 and norm_fid in norm_k) or (len(norm_k) > 4 and norm_k in norm_fid):
+                return str(v).strip()
+            if flabel and len(flabel) > 5 and flabel in str(k).lower():
+                return str(v).strip()
+
+        # 4. If radio/toggle with [Yes, No] options and not affirmatively mapped, default to "No"
+        if f_type in ["radio", "toggle"] and options and set(str(o).lower().strip() for o in options) == {"yes", "no"}:
+            return "No"
+
+        return None
+
+    # Section Header
+    y = 115
+    page.draw_rect(fitz.Rect(35, y, 560, y + 18), color=(0.88, 0.91, 0.95), fill=(0.88, 0.91, 0.95))
+    page.insert_text((42, y + 13), "I. STATUTORY PARTICULARS & RETURN DATA", fontsize=8.5, fontname="helv", color=(0.1, 0.18, 0.35))
+    y += 24
+
+    # Build display items dynamically from schema with DAG Pruning
+    display_items = []
+    if fields:
+        # Build context map for DAG dependency evaluation
+        extracted_context = {}
+        for f in fields:
+            v = _find_field_value(f)
+            if v:
+                extracted_context[f["id"]] = v
+
+        for f in fields:
+            # Dynamic DAG Pruning Check
+            dep = f.get("depends_on")
+            if dep and isinstance(dep, dict):
+                parent_field = dep.get("field")
+                target_value = dep.get("value")
+                operator = dep.get("operator", "equals")
+
+                parent_val = extracted_context.get(parent_field)
+                if not parent_val and parent_field:
+                    norm_pf = str(parent_field).lower().replace("_", "").replace("field", "")
+                    for ek, ev in extracted_context.items():
+                        norm_ek = str(ek).lower().replace("_", "").replace("field", "")
+                        if norm_pf == norm_ek or norm_pf in norm_ek or norm_ek in norm_pf:
+                            parent_val = ev
+                            break
+
+                if parent_val:
+                    p_str = str(parent_val).strip().lower()
+                    t_str = str(target_value).strip().lower() if target_value else ""
+                    if operator == "equals":
+                        if p_str != t_str and t_str not in p_str and p_str not in t_str:
+                            continue
+                    elif operator == "in" and isinstance(target_value, list):
+                        if not any(p_str == str(opt).strip().lower() or str(opt).strip().lower() in p_str for opt in target_value):
+                            continue
+                else:
+                    # Parent inactive / empty -> prune dependent subsection
+                    continue
+
+            val = _find_field_value(f)
+            c_no = f.get("canonical_no", "")
+            lbl = f.get("label", f["id"])
+            full_label = f"{c_no}. *{lbl}" if c_no else f"*{lbl}"
+            display_items.append({
+                "label": full_label,
+                "value": val or "",
+                "type": f.get("type", "text"),
+                "options": f.get("options")
+            })
+    else:
+        for k, v in mapped_data.items():
+            if not v or str(v).strip() in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
+                continue
+            clean_lbl = k.replace("_", " ").replace("field ", "").title()
+            display_items.append({
+                "label": clean_lbl,
+                "value": str(v).strip(),
+                "type": "text",
+                "options": None
+            })
+
+    # Render each statutory item dynamically
+    for idx, item in enumerate(display_items):
+        label = item["label"]
+        val_str = item["value"]
+        f_type = item.get("type", "text")
+        options = item.get("options")
+
+        # Dynamic row height calculation
+        is_radio = f_type in ["radio", "select", "toggle"] and options and len(options) > 0
+        if is_radio:
+            row_h = 24 + (len(options) * 14) if len(options) > 2 else 32
+        elif len(val_str) > 60:
+            row_h = 42
+        else:
+            row_h = 28
+
+        # Dynamic page break handling
+        if y + row_h > 780:
+            page.insert_text((42, 802), f"Page {len(doc)} • Official MCA Filing Return", fontsize=7.5, fontname="helv", color=(0.5, 0.5, 0.5))
+            page = doc.new_page(width=595, height=842)
+            page.draw_rect(fitz.Rect(28, 28, 567, 814), color=(0.15, 0.2, 0.3), width=1.2)
+            y = 45
+
+        bg = (0.98, 0.99, 1.0) if idx % 2 == 0 else (1.0, 1.0, 1.0)
+        page.draw_rect(fitz.Rect(35, y, 560, y + row_h), color=(0.85, 0.88, 0.92), fill=bg, width=0.5)
+        page.draw_line(fitz.Point(235, y), fitz.Point(235, y + row_h), color=(0.85, 0.88, 0.92), width=0.5)
+
+        # Label cell
+        page.insert_textbox(fitz.Rect(40, y + 3, 230, y + row_h - 2), label, fontsize=8.0, fontname="helv", color=(0.25, 0.3, 0.4))
+
+        # Value cell: Render dynamic radio/select options with filled dots
+        if is_radio and options:
+            val_lower = val_str.lower().strip()
+            opt_y = y + 4
+            for opt in options:
+                opt_str = str(opt).strip()
+                is_selected = (opt_str.lower() in val_lower) or (val_lower and val_lower in opt_str.lower())
+                page.draw_circle((245, opt_y + 5), radius=3.2, color=(0.3, 0.3, 0.3), width=0.75)
+                if is_selected:
+                    page.draw_circle((245, opt_y + 5), radius=1.8, color=(0.05, 0.1, 0.25), fill=(0.05, 0.1, 0.25))
+                text_col = (0.05, 0.1, 0.25) if is_selected else (0.4, 0.45, 0.5)
+                page.insert_text((254, opt_y + 8), opt_str, fontsize=7.5, fontname="helv", color=text_col)
+                opt_y += 14
+        else:
+            display_val = val_str if val_str else "(Not Applicable / Not Filled)"
+            val_col = (0.05, 0.1, 0.2) if val_str else (0.6, 0.6, 0.6)
+            page.insert_textbox(fitz.Rect(240, y + 4, 555, y + row_h - 2), display_val, fontsize=8.5, fontname="helv", color=val_col)
+
+        y += row_h + 2
+
+    page.insert_text((42, 802), f"Page {len(doc)} of {len(doc)} • Official MCA Filing Return (Autonomous IDP Engine)", fontsize=7.5, fontname="helv", color=(0.5, 0.5, 0.5))
+    return doc
+
+
+# ==============================================================================
 # NEW: POST /generate_preview_pdf — Generic PDF Preview Generation
 # ==============================================================================
 @router.post("/generate_preview_pdf")
 async def generate_preview_pdf(payload: Dict[str, Any] = Body(...), db: Session = Depends(get_db)):
     """
     Takes the mapped dictionary, fetches spatial metadata for the template,
-    and stamps the text onto a blank PDF template.
+    and stamps the text onto the official PDF template (with dynamic template generation fallback).
     """
     try:
         import fitz  # PyMuPDF
@@ -310,178 +841,174 @@ async def generate_preview_pdf(payload: Dict[str, Any] = Body(...), db: Session 
                     template_path = os.path.join(template_dir, fname)
                     break
                     
-        if not os.path.exists(template_path):
-            raise FileNotFoundError(f"Blank PDF template not found for '{template_name}' in {template_dir}. Please upload the template PDF.")
-            
-        # 3. Open PDF
-        doc = fitz.open(template_path)
-        
-        # 4. STEP 1: WIPE old pre-filled sample data ONLY from the interior of input boxes
-        # Preserves the black vector line borders at x=391.0 and x=574.5 intact!
-        for page in doc:
-            words = page.get_text("words")
-            for w in words:
-                x0, y0, x1, y1, text, bno, lno, wno = w
-                # Only erase if inside the fillable box zone (between x=391.0 and x=575.0)
-                if x0 >= 390.0 and x1 <= 580.0:
-                    lower = text.lower()
-                    if not any(k in lower for k in ['page', 'english', 'hindi', 'yes', 'no', 'auditor\'s', 'individual']):
-                        # Inset 1.5pt from border lines so borders remain crisp and unbroken
-                        erase_box = fitz.Rect(max(392.5, x0 - 1), y0 - 1, min(573.5, x1 + 1), y1 + 1)
-                        page.draw_rect(erase_box, color=(1, 1, 1), fill=(1, 1, 1))
+        # 3. Open PDF or dynamically generate statutory template on-the-fly
+        doc = None
+        is_dynamic_generated = False
+        if os.path.exists(template_path):
+            try:
+                doc = fitz.open(template_path)
+            except Exception as open_err:
+                print(f"[Preview PDF] Could not open static template '{template_path}': {open_err}")
+                doc = None
 
-        # Helper: Stamp Radio Button / Toggle Option Dot
-        def stamp_radio_button(doc_ref, label_targets, chosen_val, possible_options=["Yes", "No"]):
-            if not chosen_val:
+        if doc is None:
+            print(f"[Preview PDF] Static template not found for '{template_name}'. Generating dynamic statutory output template on-the-fly...")
+            doc = _create_dynamic_statutory_form_pdf(template_name, mapped_data, db=db)
+            is_dynamic_generated = True
+              # 4. If using static PDF template, stamp extracted data onto coordinates
+        if not is_dynamic_generated:
+            # Helper: Stamp Radio Button / Toggle Option Dot
+            def stamp_radio_button(doc_ref, label_targets, chosen_val, possible_options=["Yes", "No"]):
+                if not chosen_val:
+                    return False
+                val_norm = str(chosen_val).strip()
+                
+                for p in doc_ref:
+                    for target in label_targets:
+                        lbl_rects = p.search_for(target)
+                        if lbl_rects:
+                            lr = lbl_rects[0]
+                            # 1. Clear existing marks from all options on this line
+                            for opt in possible_options:
+                                for mr in p.search_for(opt):
+                                    if abs(mr.y0 - lr.y0) < 18:
+                                        cx = mr.x0 - 8.5
+                                        cy = (mr.y0 + mr.y1) / 2.0
+                                        p.draw_circle((cx, cy), radius=3.2, color=(1, 1, 1), fill=(1, 1, 1))
+                                        p.draw_circle((cx, cy), radius=4.5, color=(0.2, 0.2, 0.2), fill=None, width=0.75)
+                            
+                            # 2. Find selected option and stamp filled dot
+                            target_opt = None
+                            for opt in possible_options:
+                                if opt.lower() == val_norm.lower() or val_norm.lower() in opt.lower() or opt.lower() in val_norm.lower():
+                                    target_opt = opt
+                                    break
+                            
+                            if target_opt:
+                                for mr in p.search_for(target_opt):
+                                    if abs(mr.y0 - lr.y0) < 18:
+                                        cx = mr.x0 - 8.5
+                                        cy = (mr.y0 + mr.y1) / 2.0
+                                        p.draw_circle((cx, cy), radius=2.5, color=(0, 0, 0), fill=(0, 0, 0))
+                                        return True
                 return False
-            val_norm = str(chosen_val).strip()
-            
-            for p in doc_ref:
-                for target in label_targets:
-                    lbl_rects = p.search_for(target)
-                    if lbl_rects:
-                        lr = lbl_rects[0]
-                        # 1. Clear existing marks from all options on this line
-                        for opt in possible_options:
-                            for mr in p.search_for(opt):
-                                if abs(mr.y0 - lr.y0) < 18:
-                                    cx = mr.x0 - 8.5
-                                    cy = (mr.y0 + mr.y1) / 2.0
-                                    p.draw_circle((cx, cy), radius=3.2, color=(1, 1, 1), fill=(1, 1, 1))
-                                    p.draw_circle((cx, cy), radius=4.5, color=(0.2, 0.2, 0.2), fill=None, width=0.75)
-                        
-                        # 2. Find selected option and stamp filled dot
-                        target_opt = None
-                        for opt in possible_options:
-                            if opt.lower() == val_norm.lower() or val_norm.lower() in opt.lower() or opt.lower() in val_norm.lower():
-                                target_opt = opt
-                                break
-                        
-                        if target_opt:
-                            for mr in p.search_for(target_opt):
-                                if abs(mr.y0 - lr.y0) < 18:
-                                    cx = mr.x0 - 8.5
-                                    cy = (mr.y0 + mr.y1) / 2.0
-                                    p.draw_circle((cx, cy), radius=2.5, color=(0, 0, 0), fill=(0, 0, 0))
-                                    return True
-            return False
 
-        # 5. STEP 2: STAMP newly extracted data (text boxes & radio buttons)
-        for key, value in mapped_data.items():
-            if not value or str(value).strip() in ["", "None", "null", "N/A", "Unknown", "Empty / N/A"]:
-                continue
-                
-            val_str = str(value).strip()
-            meta = spatial_map.get(key)
-            stamped = False
-            lower_key = key.lower()
-
-            # Radio & Toggle Check
-            if any(k in lower_key for k in ["class_of_companies", "139_2", "139(2)", "falling under"]):
-                stamped = stamp_radio_button(doc, ["falling under any class of companies", "section 139(2)"], val_str, ["Yes", "No"])
-            elif any(k in lower_key for k in ["nature_of_appointment", "nature of appointment", "appointment_type"]):
-                stamped = stamp_radio_button(doc, ["*Nature of appointment", "Nature of appointment"], val_str, [
-                    "First auditor by Board of directors", "Appointment of Auditors in AGM", "Re-appointment of Auditors in AGM",
-                    "Appointment/ Re-appointment by C&AG", "Auditor appointed in case of casual vacancy",
-                    "Auditor appointed in case of non-re-appointment/ removal", "Auditor appointed by Central Government",
-                    "Auditor appointed by the Tribunal", "Others"
-                ])
-            elif any(k in lower_key for k in ["appointed_in_agm", "annual general meeting", "agm"]):
-                stamped = stamp_radio_button(doc, ["annual general meeting (AGM)", "appointed in the annual general meeting"], val_str, ["Yes", "No"])
-            elif any(k in lower_key for k in ["joint_auditor", "joint auditors"]):
-                stamped = stamp_radio_button(doc, ["joint auditors have been appointed"], val_str, ["Yes", "No"])
-            elif any(k in lower_key for k in ["audit_committee", "recommendation of the audit"]):
-                stamped = stamp_radio_button(doc, ["recommendation of the Audit Committee constituted", "Audit Committee constituted"], val_str, ["Yes", "No", "Not Applicable"])
-            elif lower_key in ["language", "form_language"]:
-                stamped = stamp_radio_button(doc, ["English", "Hindi"], val_str, ["English", "Hindi"])
-
-            if stamped:
-                continue
-            
-            # Method A: Use exact spatial metadata if present
-            if meta:
-                polygon = None
-                if meta.get("bounding_regions") and len(meta["bounding_regions"]) > 0:
-                    polygon = meta["bounding_regions"][0].get("polygon")
-                elif meta.get("polygon"):
-                    polygon = meta["polygon"]
-                
-                if polygon and len(polygon) >= 8:
-                    x0 = min(polygon[0], polygon[2], polygon[4], polygon[6]) * 72
-                    y0 = min(polygon[1], polygon[3], polygon[5], polygon[7]) * 72
-                    x1 = max(polygon[0], polygon[2], polygon[4], polygon[6]) * 72
-                    y1 = max(polygon[1], polygon[3], polygon[5], polygon[7]) * 72
+            # 5. STEP 2: STAMP newly extracted data (text boxes & radio buttons)
+            for key, value in mapped_data.items():
+                if not value or str(value).strip() in ["", "None", "null", "N/A", "Unknown", "Empty / N/A"]:
+                    continue
                     
-                    erase_rect = fitz.Rect(max(392.5, x0 + 1), y0 + 1, min(573.5, x1 - 1), y1 - 1)
-                    write_rect = fitz.Rect(max(395.0, x0 + 3), y0 + 2, min(571.0, x1 - 2), y1 - 1)
-                    
-                    page_num = 0
+                val_str = str(value).strip()
+                meta = spatial_map.get(key)
+                stamped = False
+                lower_key = key.lower()
+
+                # Radio & Toggle Check
+                if any(k in lower_key for k in ["class_of_companies", "139_2", "139(2)", "falling under"]):
+                    stamped = stamp_radio_button(doc, ["falling under any class of companies", "section 139(2)"], val_str, ["Yes", "No"])
+                elif any(k in lower_key for k in ["nature_of_appointment", "nature of appointment", "appointment_type"]):
+                    stamped = stamp_radio_button(doc, ["*Nature of appointment", "Nature of appointment"], val_str, [
+                        "First auditor by Board of directors", "Appointment of Auditors in AGM", "Re-appointment of Auditors in AGM",
+                        "Appointment/ Re-appointment by C&AG", "Auditor appointed in case of casual vacancy",
+                        "Auditor appointed in case of non-re-appointment/ removal", "Auditor appointed by Central Government",
+                        "Auditor appointed by the Tribunal", "Others"
+                    ])
+                elif any(k in lower_key for k in ["appointed_in_agm", "annual general meeting", "agm"]):
+                    stamped = stamp_radio_button(doc, ["annual general meeting (AGM)", "appointed in the annual general meeting"], val_str, ["Yes", "No"])
+                elif any(k in lower_key for k in ["joint_auditor", "joint auditors"]):
+                    stamped = stamp_radio_button(doc, ["joint auditors have been appointed"], val_str, ["Yes", "No"])
+                elif any(k in lower_key for k in ["audit_committee", "recommendation of the audit"]):
+                    stamped = stamp_radio_button(doc, ["recommendation of the Audit Committee constituted", "Audit Committee constituted"], val_str, ["Yes", "No", "Not Applicable"])
+                elif lower_key in ["language", "form_language"]:
+                    stamped = stamp_radio_button(doc, ["English", "Hindi"], val_str, ["English", "Hindi"])
+
+                if stamped:
+                    continue
+                
+                # Method A: Use exact spatial metadata if present
+                if meta:
+                    polygon = None
                     if meta.get("bounding_regions") and len(meta["bounding_regions"]) > 0:
-                        page_num = meta["bounding_regions"][0].get("pageNumber", 1) - 1
+                        polygon = meta["bounding_regions"][0].get("polygon")
+                    elif meta.get("polygon"):
+                        polygon = meta["polygon"]
+                    
+                    if polygon and len(polygon) >= 8:
+                        x0 = min(polygon[0], polygon[2], polygon[4], polygon[6]) * 72
+                        y0 = min(polygon[1], polygon[3], polygon[5], polygon[7]) * 72
+                        x1 = max(polygon[0], polygon[2], polygon[4], polygon[6]) * 72
+                        y1 = max(polygon[1], polygon[3], polygon[5], polygon[7]) * 72
                         
-                    if 0 <= page_num < len(doc):
-                        page = doc[page_num]
-                        page.draw_rect(erase_rect, color=(1, 1, 1), fill=(1, 1, 1))
-                        page.insert_textbox(write_rect, val_str, fontsize=9.0, color=(0, 0, 0.75), fontname="helv")
-                        stamped = True
+                        erase_rect = fitz.Rect(max(392.5, x0 + 1), y0 + 1, min(573.5, x1 - 1), y1 - 1)
+                        write_rect = fitz.Rect(max(395.0, x0 + 3), y0 + 2, min(571.0, x1 - 2), y1 - 1)
                         
-            # Method B: Smart targeted search for official form field labels
-            if not stamped:
-                targets = []
-                is_address = 'address' in lower_key
-                
-                if 'cin' in lower_key or 'identity' in lower_key:
-                    targets = ['Corporate Identity Number', 'CIN', 'identity number']
-                elif 'company' in lower_key and 'name' in lower_key:
-                    targets = ['Name of the company', 'Name of the Company']
-                elif is_address:
-                    targets = ['Address of the registered office of the company', 'Address of the registered office', 'Address Line 1', 'Address Line 2']
-                elif 'email' in lower_key:
-                    targets = ['Email ID of the company', 'Email ID', '*Email ID']
-                elif 'date' in lower_key and 'appointment' in lower_key:
-                    targets = ['Date of appointment', 'appointment (DD/MM/YYYY)', 'appointment']
-                elif 'auditor' in lower_key and ('firm' in lower_key or 'name' in lower_key):
-                    targets = ["Name of the Auditor's Firm", "Name of the auditor", "Name of the Auditor", "Auditor's Firm"]
-                elif 'membership' in lower_key:
-                    targets = ['*Membership Number of Auditor', 'Membership Number']
-                elif 'firm registration' in lower_key or 'frn' in lower_key:
-                    targets = ['Firm Registration Number']
-                elif 'financial year' in lower_key and 'number' in lower_key:
-                    targets = ['*Number of financial year(s)', 'Number of financial year']
-                elif 's. no' in lower_key or 's.no' in lower_key:
-                    targets = ['*S. no.', 'S. no.']
-                elif 'financial year start' in lower_key:
-                    targets = ['*Financial Year Start Date', 'Financial Year Start Date (DD/MM/YYYY)']
-                elif 'financial year end' in lower_key:
-                    targets = ['*Financial Year End Date', 'Financial Year End Date (DD/MM/YYYY)']
-                elif 'pan' in lower_key:
-                    targets = ['permanent account number', 'Income Tax permanent account number', 'PAN']
-                else:
-                    clean_search = re.sub(r"^field_", "", key).lower()
-                    clean_search = re.sub(r"^[0-9]+[a-z]?\s*", "", clean_search)
-                    kws = [w for w in re.split(r"[_\s]+", clean_search) if len(w) >= 3 and w not in ["the", "and", "for", "with", "from"]]
-                    targets = [" ".join(kws[:3]), " ".join(kws[:2]), kws[0] if kws else ""]
-
-                for page in doc:
-                    if stamped:
-                        break
-                    for phrase in targets:
-                        if not phrase or len(phrase) < 3:
-                            continue
-                        rects = page.search_for(phrase)
-                        if rects:
-                            r = rects[0]
-                            box_h = 42.0 if is_address else 16.0
-                            font_sz = 8.0 if is_address else 9.0
+                        page_num = 0
+                        if meta.get("bounding_regions") and len(meta["bounding_regions"]) > 0:
+                            page_num = meta["bounding_regions"][0].get("pageNumber", 1) - 1
                             
-                            # Place text precisely within the black box margins (x=395 to 571)
-                            erase_box = fitz.Rect(392.5, r.y0 - 2, 573.5, r.y0 + box_h)
-                            text_box = fitz.Rect(395.0, r.y0, 571.0, r.y0 + box_h)
-                            
-                            page.draw_rect(erase_box, color=(1, 1, 1), fill=(1, 1, 1))
-                            page.insert_textbox(text_box, val_str, fontsize=font_sz, color=(0, 0, 0.75), fontname="helv")
+                        if 0 <= page_num < len(doc):
+                            page = doc[page_num]
+                            page.draw_rect(erase_rect, color=(1, 1, 1), fill=(1, 1, 1))
+                            page.insert_textbox(write_rect, val_str, fontsize=9.0, color=(0, 0, 0.75), fontname="helv")
                             stamped = True
+                            
+                # Method B: Smart targeted search for official form field labels
+                if not stamped:
+                    targets = []
+                    is_address = 'address' in lower_key
+                    
+                    if 'cin' in lower_key or 'identity' in lower_key:
+                        targets = ['Corporate Identity Number', 'CIN', 'identity number']
+                    elif 'company' in lower_key and 'name' in lower_key:
+                        targets = ['Name of the company', 'Name of the Company']
+                    elif is_address:
+                        targets = ['Address of the registered office of the company', 'Address of the registered office', 'Address Line 1', 'Address Line 2']
+                    elif 'email' in lower_key:
+                        targets = ['Email ID of the company', 'Email ID', '*Email ID']
+                    elif 'date' in lower_key and 'appointment' in lower_key:
+                        targets = ['Date of appointment', 'appointment (DD/MM/YYYY)', 'appointment']
+                    elif 'auditor' in lower_key and ('firm' in lower_key or 'name' in lower_key):
+                        targets = ["Name of the Auditor's Firm", "Name of the auditor", "Name of the Auditor", "Auditor's Firm"]
+                    elif 'membership' in lower_key:
+                        targets = ['*Membership Number of Auditor', 'Membership Number']
+                    elif 'firm registration' in lower_key or 'frn' in lower_key:
+                        targets = ['Firm Registration Number']
+                    elif 'financial year' in lower_key and 'number' in lower_key:
+                        targets = ['*Number of financial year(s)', 'Number of financial year']
+                    elif 's. no' in lower_key or 's.no' in lower_key:
+                        targets = ['*S. no.', 'S. no.']
+                    elif 'financial year start' in lower_key:
+                        targets = ['*Financial Year Start Date', 'Financial Year Start Date (DD/MM/YYYY)']
+                    elif 'financial year end' in lower_key:
+                        targets = ['*Financial Year End Date', 'Financial Year End Date (DD/MM/YYYY)']
+                    elif 'pan' in lower_key:
+                        targets = ['permanent account number', 'Income Tax permanent account number', 'PAN']
+                    else:
+                        clean_search = re.sub(r"^field_", "", key).lower()
+                        clean_search = re.sub(r"^[0-9]+[a-z]?\s*", "", clean_search)
+                        kws = [w for w in re.split(r"[_\s]+", clean_search) if len(w) >= 3 and w not in ["the", "and", "for", "with", "from"]]
+                        targets = [" ".join(kws[:3]), " ".join(kws[:2]), kws[0] if kws else ""]
+
+                    for page in doc:
+                        if stamped:
                             break
+                        for phrase in targets:
+                            if not phrase or len(phrase) < 3:
+                                continue
+                            rects = page.search_for(phrase)
+                            if rects:
+                                r = rects[0]
+                                box_h = 42.0 if is_address else 16.0
+                                font_sz = 8.0 if is_address else 9.0
+                                
+                                # Place text precisely within the black box margins (x=395 to 571)
+                                erase_box = fitz.Rect(392.5, r.y0 - 2, 573.5, r.y0 + box_h)
+                                text_box = fitz.Rect(395.0, r.y0, 571.0, r.y0 + box_h)
+                                
+                                page.draw_rect(erase_box, color=(1, 1, 1), fill=(1, 1, 1))
+                                page.insert_textbox(text_box, val_str, fontsize=font_sz, color=(0, 0, 0.75), fontname="helv")
+                                stamped = True
+                                break
                     
         # 6. Save output
         output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "output", "previews"))
@@ -503,16 +1030,31 @@ async def generate_preview_pdf(payload: Dict[str, Any] = Body(...), db: Session 
         raise HTTPException(status_code=500, detail=f"PDF Generation Error: {str(e)}")
 
 @router.get("/rules/{template_name}", response_model=List[SchemaAliasResponse])
-def get_rules_for_template(template_name: str, db: Session = Depends(get_db)):
+def get_rules_for_template(
+    template_name: str,
+    company_id: Optional[str] = None,
+    scenario: Optional[str] = None,
+    document_type: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    if company_id or scenario or document_type:
+        effective = get_effective_rules(template_name, company_id=company_id, scenario=scenario, document_type=document_type)
+        return list(effective.values())
     rules = db.query(models.SchemaAliasRule).filter(models.SchemaAliasRule.template_name == template_name).all()
     return rules
 
 @router.post("/rules", response_model=SchemaAliasResponse)
 def create_schema_alias_rule(rule: SchemaAliasCreate, db: Session = Depends(get_db)):
-    # Delete existing rule for this template + form_field combination if it exists
+    scope_t = rule.scope_type or "GLOBAL"
+    scope_i = rule.scope_id or "default"
+    pri = rule.priority or (3 if scope_t == "COMPANY" else (2 if scope_t == "SCENARIO" else 1))
+
+    # Delete existing rule for this template + form_field + scope combination if it exists
     existing = db.query(models.SchemaAliasRule).filter(
         models.SchemaAliasRule.template_name == rule.template_name,
-        models.SchemaAliasRule.form_field == rule.form_field
+        models.SchemaAliasRule.form_field == rule.form_field,
+        models.SchemaAliasRule.scope_type == scope_t,
+        models.SchemaAliasRule.scope_id == scope_i
     ).first()
     
     if existing:
@@ -529,12 +1071,17 @@ def create_schema_alias_rule(rule: SchemaAliasCreate, db: Session = Depends(get_
         template_name=rule.template_name,
         form_field=rule.form_field,
         extracted_key=rule.extracted_key,
+        document_type=rule.document_type or "generic",
+        scope_type=scope_t,
+        scope_id=scope_i,
+        priority=pri,
         spatial_meta_json=spatial_json
     )
     db.add(db_rule)
     db.commit()
     db.refresh(db_rule)
     return db_rule
+
 
 @router.delete("/rules/{rule_id}")
 def delete_schema_alias_rule(rule_id: str, db: Session = Depends(get_db)):
@@ -761,6 +1308,12 @@ def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_nam
 
 
 
+        # Tier B: Fallback if structural path broke or did not match: find row/text directly via DOMQuery
+        if not matched_node and q:
+            matches = q.find_row(clean_var) or q.find_by_text(clean_var)
+            if matches:
+                matched_node = matches[0]
+
         if not matched_node:
             return None, None
 
@@ -971,20 +1524,30 @@ async def save_rules_batch(
         if spatial_meta:
             spatial_json_str = python_json.dumps(spatial_meta) if isinstance(spatial_meta, dict) else str(spatial_meta)
 
-        # Upsert SchemaAliasRule (spatial rule) with detected_doc_type
+        item_scope_type = item.get("scope_type", "GLOBAL")
+        item_scope_id = item.get("scope_id", "default")
+        item_priority = item.get("priority", 3 if item_scope_type == "COMPANY" else (2 if item_scope_type == "SCENARIO" else 1))
+
+        # Upsert SchemaAliasRule (spatial rule) with detected_doc_type and multi-tenant scoping
         existing_spatial = db.query(models.SchemaAliasRule).filter(
             models.SchemaAliasRule.template_name == template_name,
-            models.SchemaAliasRule.form_field == form_field
+            models.SchemaAliasRule.form_field == form_field,
+            models.SchemaAliasRule.scope_type == item_scope_type,
+            models.SchemaAliasRule.scope_id == item_scope_id
         ).first()
         if existing_spatial:
             existing_spatial.document_type = detected_doc_type
             existing_spatial.extracted_key = extracted_key
             existing_spatial.spatial_meta_json = spatial_json_str
+            existing_spatial.priority = item_priority
         else:
             db.add(models.SchemaAliasRule(
                 rule_id=str(uuid.uuid4()),
                 template_name=template_name,
                 document_type=detected_doc_type,
+                scope_type=item_scope_type,
+                scope_id=item_scope_id,
+                priority=item_priority,
                 form_field=form_field,
                 extracted_key=extracted_key,
                 spatial_meta_json=spatial_json_str
@@ -1039,17 +1602,23 @@ async def save_rules_batch(
 
                         existing_dom = db.query(models.DomExtractionRule).filter(
                             models.DomExtractionRule.template_name == template_name,
-                            models.DomExtractionRule.variable_name == extracted_key
+                            models.DomExtractionRule.variable_name == extracted_key,
+                            models.DomExtractionRule.scope_type == item_scope_type,
+                            models.DomExtractionRule.scope_id == item_scope_id
                         ).first()
                         if existing_dom:
                             existing_dom.dom_path = dom_path_str
                             existing_dom.document_type = detected_doc_type
+                            existing_dom.priority = item_priority
                             existing_dom.created_at = datetime.datetime.utcnow()
                         else:
                             db.add(models.DomExtractionRule(
                                 rule_id=str(uuid.uuid4()),
                                 template_name=template_name,
                                 document_type=detected_doc_type,
+                                scope_type=item_scope_type,
+                                scope_id=item_scope_id,
+                                priority=item_priority,
                                 variable_name=extracted_key,
                                 dom_path=dom_path_str,
                                 success_count=0
@@ -1058,6 +1627,7 @@ async def save_rules_batch(
                         dom_saved_count += 1
             except Exception as dom_err:
                 print(f"[Batch Save] Failed DOM learning for '{extracted_key}': {dom_err}")
+
 
     db.commit()
     print(f"[Batch Save] ✓ Successfully saved {saved_count} spatial rules and {dom_saved_count} DOM rules to DB for template '{template_name}'")
@@ -1294,7 +1864,7 @@ Document Text:
         response = requests.post(
             "http://192.168.112.2:11434/api/generate",
             json={
-                "model": "qwen2.5-coder:7b",
+                "model": "qwen2.5:14b",
                 "prompt": prompt,
                 "stream": False,
                 "format": "json"
@@ -1379,8 +1949,9 @@ async def extract_batch_documents(
                 except Exception as excel_err:
                     print(f"[Batch] Direct Excel/MD parsing error on {filename}: {excel_err}")
 
-            # Initialize full_text before Tier 1 so Tier 2 LLM always has access to it
+            # Initialize full_text and q before Tier 1 so both DOM and LLM tiers have safe access
             full_text = ""
+            q = None
             doc_type = "generic"
 
             # --- TIER 1: DOM-based extraction for each mapped form field ---
@@ -1393,6 +1964,12 @@ async def extract_batch_documents(
                 except Exception as ocr_err:
                     print(f"[Batch][DOM] Triton OCR failed: {ocr_err}")
 
+                if full_text:
+                    try:
+                        q = _get_dom_query_from_markdown(full_text)
+                    except Exception as q_err:
+                        print(f"[Batch][DOM] Error building DOM query from markdown: {q_err}")
+
                 # Classify document into its specific document type
                 doc_type = classify_document(filename, full_text)
                 print(f"[Batch] Document '{filename}' classified as: '{doc_type}'")
@@ -1404,20 +1981,58 @@ async def extract_batch_documents(
 
                 print(f"[Batch] Scoped {len(scoped_rules)} of {len(schema_rules)} total rules for '{filename}' ({doc_type})")
 
-                if full_text:
-                    q = _get_dom_query_from_markdown(full_text)
-                else:
-                    q = None
+                # Build dependency map from template schema if available
+                field_dependency_map = {}
+                if template_name:
+                    tmpl = db.query(models.IdpTemplate).filter(models.IdpTemplate.template_name == template_name).first()
+                    if tmpl and tmpl.fields_json:
+                        try:
+                            parsed_tmpl = json.loads(tmpl.fields_json)
+                            fields_list = parsed_tmpl.get("fields", parsed_tmpl) if isinstance(parsed_tmpl, dict) else parsed_tmpl
+                            if isinstance(fields_list, list):
+                                for f in fields_list:
+                                    if isinstance(f, dict) and f.get("id") and f.get("depends_on"):
+                                        field_dependency_map[f["id"]] = f["depends_on"]
+                        except Exception:
+                            pass
 
-                for rule in scoped_rules:
+                # Sort rules topologically: rules without dependencies evaluated first
+                root_rules = [r for r in scoped_rules if r.form_field not in field_dependency_map]
+                dependent_rules = [r for r in scoped_rules if r.form_field in field_dependency_map]
+                ordered_rules = root_rules + dependent_rules
+                extracted_lookup = {}
+
+                for rule in ordered_rules:
+                    # DAG Pruning Check: evaluate condition against already extracted values
+                    dep = field_dependency_map.get(rule.form_field)
+                    if dep and isinstance(dep, dict):
+                        parent_id = dep.get("field")
+                        op = dep.get("operator", "equals")
+                        target_val = dep.get("value")
+                        parent_val = extracted_lookup.get(parent_id)
+
+                        if parent_val is not None:
+                            p_str = str(parent_val).strip().lower()
+                            t_str = str(target_val).strip().lower() if target_val is not None else ""
+                            condition_met = True
+                            if op == "equals":
+                                condition_met = (p_str == t_str)
+                            elif op == "in" and isinstance(target_val, list):
+                                condition_met = any(p_str == str(v).strip().lower() for v in target_val)
+                            
+                            if not condition_met:
+                                print(f"[Batch] ✂️ Pruning branch '{rule.form_field}': condition not met ({parent_id}='{parent_val}' vs target='{target_val}')")
+                                continue
+
                     variable_name = rule.extracted_key
                     dom_value = None
 
                     # Try DOM navigation first
-                    if q:
+                    if full_text:
                         dom_value, _ = _try_dom_extraction(full_text, variable_name, db, template_name)
 
                     if dom_value:
+                        extracted_lookup[rule.form_field] = dom_value
                         extracted_fields.append({
                             "key": rule.form_field,
                             "value": dom_value,
@@ -1479,7 +2094,7 @@ Document Text:
                             response = requests.post(
                                 "http://192.168.112.2:11434/api/generate",
                                 json={
-                                    "model": "qwen2.5-coder:7b",
+                                    "model": "qwen2.5:14b",
                                     "prompt": prompt,
                                     "stream": False,
                                     "format": "json"
@@ -1706,7 +2321,7 @@ Region Text:
         response = requests.post(
             "http://192.168.112.2:11434/api/generate",
             json={
-                "model": "qwen2.5-coder:7b",
+                "model": "qwen2.5:14b",
                 "prompt": prompt,
                 "stream": False,
                 "format": "json"

@@ -1,0 +1,287 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "FLA & MCA Regulatory Automation Platform",
+    "subtitle": "Interactive Architecture Overview & Source Code Map",
+    "output": "docs/architecture/fla-platform-architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/vidit-arca/FLA",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "d385da45714388b6c69e6ccd333600c4e578a76d"
+    },
+    "views": [
+      {
+        "id": "primary-pipeline",
+        "label": "End-to-End Filing Pipeline",
+        "focus": ["browser_client", "react_frontend", "fastapi_gateway", "langgraph_engine", "regulatory_rules", "excel_export"],
+        "note": "Follow corporate financial documents from user upload through rule processing to government-ready Excel."
+      },
+      {
+        "id": "idp-studio",
+        "label": "IDP Studio & AI Intelligence",
+        "focus": ["react_frontend", "fastapi_gateway", "idp_studio_engine", "ollama_service", "sqlite_datastore"],
+        "note": "MCA Instruction Kit parsing, dynamic schema extraction with Qwen 2.5:14b, and template storage."
+      },
+      {
+        "id": "storage-infrastructure",
+        "label": "Storage & Persistence",
+        "focus": ["fastapi_gateway", "idp_studio_engine", "sqlite_datastore", "excel_export"],
+        "note": "Task lifecycle state tracking, template schemas, and portal-compliant Excel deliverables."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "browser_client",
+      "type": "external",
+      "label": "Client Browser",
+      "sublabel": "Compliance User",
+      "pos": [30, 200],
+      "size": [110, 60]
+    },
+    {
+      "id": "react_frontend",
+      "type": "frontend",
+      "label": "React Frontend",
+      "sublabel": "Vite :5173 / SPA",
+      "brand": "react",
+      "pos": [215, 200],
+      "size": [130, 60],
+      "tag": "SPA Dashboard",
+      "sources": [
+        { "path": "fla_frontend/src/App.jsx", "line": 20, "label": "Main App" },
+        { "path": "fla_frontend/src/idp_studio/IdpStudio.jsx", "line": 30, "label": "IDP Studio" }
+      ]
+    },
+    {
+      "id": "fastapi_gateway",
+      "type": "backend",
+      "label": "FastAPI Gateway",
+      "sublabel": "Uvicorn :8000 / REST",
+      "brand": "fastapi",
+      "pos": [420, 200],
+      "size": [130, 60],
+      "tag": "Async REST API",
+      "sources": [
+        { "path": "automation_engine/api/main.py", "line": 35, "label": "FastAPI App" },
+        { "path": "automation_engine/modules/idp_studio/router.py", "line": 30, "label": "IDP Router" }
+      ]
+    },
+    {
+      "id": "langgraph_engine",
+      "type": "backend",
+      "label": "LangGraph Engine",
+      "sublabel": "Stateful DAG Pipeline",
+      "brand": "python",
+      "pos": [625, 90],
+      "size": [130, 60],
+      "tag": "Workflow State Graph",
+      "sources": [
+        { "path": "automation_engine/core/workflow/graph.py", "line": 15, "label": "Workflow Graph" },
+        { "path": "automation_engine/api/main.py", "line": 84, "label": "Process Pipeline" }
+      ]
+    },
+    {
+      "id": "idp_studio_engine",
+      "type": "backend",
+      "label": "IDP Studio Engine",
+      "sublabel": "Dynamic Form Engine",
+      "brand": "python",
+      "pos": [625, 310],
+      "size": [130, 60],
+      "tag": "Kit Parser & Filler",
+      "sources": [
+        { "path": "automation_engine/modules/idp_studio/forms/kit_parser.py", "line": 40, "label": "KitParser" },
+        { "path": "automation_engine/modules/idp_studio/forms/filler.py", "line": 25, "label": "FormFiller" }
+      ]
+    },
+    {
+      "id": "ocr_pipeline",
+      "type": "backend",
+      "label": "OCR & Vision",
+      "sublabel": "PyPDF / Marker VLM",
+      "pos": [830, 90],
+      "size": [130, 60],
+      "tag": "Dual-Engine OCR",
+      "sources": [
+        { "path": "automation_engine/core/ingestion.py", "line": 15, "label": "Ingestion" },
+        { "path": "automation_engine/run_ocr_batch.py", "line": 20, "label": "Marker OCR" }
+      ]
+    },
+    {
+      "id": "regulatory_rules",
+      "type": "backend",
+      "label": "Regulatory Rules",
+      "sublabel": "FLA & AOC-4 Logic",
+      "pos": [830, 200],
+      "size": [130, 60],
+      "tag": "RBI & MCA Formulas",
+      "sources": [
+        { "path": "automation_engine/modules/fla/rule_engine.py", "line": 18, "label": "FLA Rules" },
+        { "path": "automation_engine/modules/fla/validator.py", "line": 20, "label": "Validator" }
+      ]
+    },
+    {
+      "id": "ollama_service",
+      "type": "backend",
+      "label": "Ollama LLM",
+      "sublabel": "qwen2.5:14b :11434",
+      "pos": [830, 310],
+      "size": [130, 60],
+      "tag": "Local LLM Inference",
+      "sources": [
+        { "path": "automation_engine/modules/idp_studio/forms/kit_parser.py", "line": 37, "label": "Ollama Client" }
+      ]
+    },
+    {
+      "id": "excel_export",
+      "type": "cloud",
+      "label": "Filing Deliverables",
+      "sublabel": "Portal Excel & Reports",
+      "pos": [1035, 200],
+      "size": [130, 60],
+      "tag": "Government Output",
+      "sources": [
+        { "path": "automation_engine/core/excel_writer.py", "line": 25, "label": "Excel Writer" }
+      ]
+    },
+    {
+      "id": "sqlite_datastore",
+      "type": "database",
+      "label": "Relational DB",
+      "sublabel": "SQLite Datastores",
+      "brand": "sqlite",
+      "pos": [1035, 310],
+      "size": [130, 60],
+      "tag": "Tasks & IDP Schema",
+      "sources": [
+        { "path": "automation_engine/api/database.py", "line": 10, "label": "SQLAlchemy Engine" },
+        { "path": "automation_engine/modules/idp_studio/core/db.py", "line": 15, "label": "IDP DB Init" }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Client & Presentation Tier",
+      "wraps": ["browser_client", "react_frontend"]
+    },
+    {
+      "kind": "security-group",
+      "label": "Automation Engine Core",
+      "wraps": ["fastapi_gateway", "langgraph_engine", "idp_studio_engine", "ocr_pipeline", "regulatory_rules", "ollama_service"]
+    },
+    {
+      "kind": "region",
+      "label": "Persistence & Deliverables",
+      "wraps": ["excel_export", "sqlite_datastore"]
+    }
+  ],
+  "connections": [
+    {
+      "id": "users-to-frontend",
+      "from": "browser_client",
+      "to": "react_frontend",
+      "label": "HTTPS :5173",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "frontend-to-gateway",
+      "from": "react_frontend",
+      "to": "fastapi_gateway",
+      "label": "REST API",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "gateway-to-langgraph",
+      "from": "fastapi_gateway",
+      "to": "langgraph_engine",
+      "label": "start task",
+      "fromSide": "top",
+      "toSide": "left"
+    },
+    {
+      "id": "gateway-to-idp",
+      "from": "fastapi_gateway",
+      "to": "idp_studio_engine",
+      "label": "IDP routes",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
+      "id": "langgraph-to-ocr",
+      "from": "langgraph_engine",
+      "to": "ocr_pipeline",
+      "label": "extract PDF",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "langgraph-to-rules",
+      "from": "langgraph_engine",
+      "to": "regulatory_rules",
+      "label": "rules math",
+      "fromSide": "bottom",
+      "toSide": "left"
+    },
+    {
+      "id": "idp-to-ollama",
+      "from": "idp_studio_engine",
+      "to": "ollama_service",
+      "label": "LLM prompt",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "rules-to-excel",
+      "from": "regulatory_rules",
+      "to": "excel_export",
+      "label": "write cells",
+      "fromSide": "right",
+      "toSide": "left"
+    },
+    {
+      "id": "idp-to-db",
+      "from": "idp_studio_engine",
+      "to": "sqlite_datastore",
+      "label": "persist schema",
+      "fromSide": "bottom",
+      "toSide": "bottom",
+      "via": [[690, 400], [1100, 400]]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Presentation & IDP Studio",
+      "items": [
+        "React 18 + Vite SPA with interactive filing workflows and audit view",
+        "Dynamic IDP Studio workspace with zero-hardcoding schema builder"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Automation Engine Core",
+      "items": [
+        "FastAPI asynchronous gateway coordinating LangGraph state machine",
+        "Local Ollama Qwen 2.5:14b inference and dual-engine OCR pipeline"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Persistence & Government Output",
+      "items": [
+        "SQLite databases tracking task runs and MCA instruction schemas",
+        "OpenPyXL cell injection engine producing RBI/MCA portal-ready Excel files"
+      ]
+    }
+  ]
+}
