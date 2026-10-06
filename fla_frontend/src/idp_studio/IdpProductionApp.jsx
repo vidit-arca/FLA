@@ -100,6 +100,8 @@ export default function IdpProductionApp() {
     setUploadedFiles(prev => [...prev, ...newQueue]);
     setActiveFileIndex(0);
     setIsExtracting(true);
+    // Reset consolidated output so preview re-generates after next extraction
+    setConsolidatedState(null);
 
     try {
       const batchResults = await idpClient.extractBatchDocuments(selectedFiles, templateName);
@@ -343,23 +345,23 @@ export default function IdpProductionApp() {
   const handleProceedToConsolidatedGate = async () => {
     if (!uploadedFiles || uploadedFiles.length === 0) return;
 
-    // Check if form is multi-scenario (non-FLA MCA forms like ADT-1)
-    if (!templateName.toLowerCase().includes("fla")) {
-      setIsDetectingBranch(true);
-      try {
-        const rawFiles = uploadedFiles.map(f => f.file).filter(Boolean);
-        const branchRes = await idpClient.detectBranch(templateName, rawFiles);
-        setDetectedBranchData(branchRes);
+    setIsDetectingBranch(true);
+    try {
+      const rawFiles = uploadedFiles.map(f => f.file).filter(Boolean);
+      const branchRes = await idpClient.detectBranch(templateName, rawFiles);
+      setDetectedBranchData(branchRes);
+      // Use backend's dynamic has_branches flag — no form-specific hardcoding
+      if (branchRes?.has_branches) {
         setShowBranchModal(true);
-      } catch (err) {
-        console.warn("Branch detection skipped or failed, using default consolidation:", err);
+      } else {
+        // No branching required (e.g. FLA, LLP-8, etc.) — proceed directly
         await executeConsolidation(null);
-      } finally {
-        setIsDetectingBranch(false);
       }
-    } else {
-      // For FLA, proceed directly
+    } catch (err) {
+      console.warn("Branch detection skipped or failed, using default consolidation:", err);
       await executeConsolidation(null);
+    } finally {
+      setIsDetectingBranch(false);
     }
   };
 
@@ -1511,6 +1513,7 @@ export default function IdpProductionApp() {
               hideEmptyRows={hideEmptyModalRows}
               onDownloadExcel={templateName.toLowerCase().includes("fla") ? handleDownloadOfficialExcel : null}
               isDownloadingExcel={isDownloadingExcel}
+              isDataReady={!!consolidatedState}
             />
           </div>
         </div>
@@ -1526,6 +1529,8 @@ export default function IdpProductionApp() {
         formId={templateName}
         formName={templateName}
         detectedData={detectedBranchData}
+        dynamicOptions={detectedBranchData?.available_options || []}
+        branchFieldLabel={detectedBranchData?.branch_field_label || "Select Statutory Pathway"}
         isExtracting={isEvaluatingConsolidated}
         companyId="default"
       />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   FileText, 
   Download, 
@@ -7,7 +7,8 @@ import {
   RefreshCw,
   Loader2,
   Eye,
-  AlertCircle
+  AlertCircle,
+  ClipboardList
 } from 'lucide-react';
 import axios from 'axios';
 
@@ -18,11 +19,15 @@ export default function FilledFormViewer({
   extractedData = {}, 
   hideEmptyRows = false,
   onDownloadExcel = null,
-  isDownloadingExcel = false
+  isDownloadingExcel = false,
+  isDataReady = false   // Set to true only after full extraction/consolidation is done
 }) {
   const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
-  const [isLoadingPdf, setIsLoadingPdf] = useState(true);
+  const [isLoadingPdf, setIsLoadingPdf] = useState(false);
   const [pdfError, setPdfError] = useState(null);
+
+  // Track the last data payload we rendered so we don't re-render on every keystroke
+  const lastRenderedPayloadRef = useRef(null);
 
   // Helper: Combine address pieces cleanly if address parts exist
   const getConsolidatedAddress = (data) => {
@@ -47,29 +52,42 @@ export default function FilledFormViewer({
   };
 
   // Build clean dynamic payload directly from extractedData (ZERO hardcoded fields)
-  const displayData = { ...(extractedData || {}) };
-  const consolidatedAddr = getConsolidatedAddress(extractedData);
-  if (consolidatedAddr && !displayData['address'] && !displayData['registered_office_address']) {
-    displayData['address'] = consolidatedAddr;
-  }
-
-  const fieldCount = Object.keys(displayData).length;
-
-  useEffect(() => {
-    if (templateName) {
-      generatePdfPreview();
+  const buildDisplayData = () => {
+    const displayData = { ...(extractedData || {}) };
+    const consolidatedAddr = getConsolidatedAddress(extractedData);
+    if (consolidatedAddr && !displayData['address'] && !displayData['registered_office_address']) {
+      displayData['address'] = consolidatedAddr;
     }
+    return displayData;
+  };
+
+  // Auto-generate PDF preview ONLY when isDataReady flips to true
+  // Manual refresh button always works regardless of isDataReady
+  useEffect(() => {
+    if (!isDataReady || !templateName) return;
+
+    // Stable payload fingerprint to avoid duplicate renders
+    const payloadStr = JSON.stringify(extractedData);
+    if (lastRenderedPayloadRef.current === payloadStr) return;
+    lastRenderedPayloadRef.current = payloadStr;
+
+    generatePdfPreview();
+  }, [isDataReady, templateName]);
+
+  // Cleanup blob URL on unmount
+  useEffect(() => {
     return () => {
       if (pdfBlobUrl) {
         URL.revokeObjectURL(pdfBlobUrl);
       }
     };
-  }, [templateName, fieldCount]);
+  }, [pdfBlobUrl]);
 
   const generatePdfPreview = async () => {
     if (!templateName) return;
     setIsLoadingPdf(true);
     setPdfError(null);
+    const displayData = buildDisplayData();
     try {
       const response = await axios.post(`${API_BASE_URL}/generate_preview_pdf`, {
         template_name: templateName,
@@ -78,6 +96,10 @@ export default function FilledFormViewer({
         responseType: 'blob'
       });
 
+      // Revoke previous blob to avoid memory leaks
+      if (pdfBlobUrl) {
+        URL.revokeObjectURL(pdfBlobUrl);
+      }
       const file = new Blob([response.data], { type: 'application/pdf' });
       const url = URL.createObjectURL(file);
       setPdfBlobUrl(url);
@@ -100,6 +122,8 @@ export default function FilledFormViewer({
     a.remove();
   };
 
+  const fieldCount = Object.keys(extractedData || {}).length;
+
   return (
     <div className="flex flex-col h-full bg-slate-100 dark:bg-[#0B0F19] text-slate-900 dark:text-slate-100 font-sans">
       
@@ -115,6 +139,13 @@ export default function FilledFormViewer({
             <ShieldCheck className="w-3.5 h-3.5" />
             <span>{templateName}</span>
           </div>
+
+          {isDataReady && fieldCount > 0 && (
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 rounded-full text-blue-700 dark:text-blue-400 text-xs">
+              <ClipboardList className="w-3 h-3" />
+              <span>{fieldCount} fields mapped</span>
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}
@@ -154,11 +185,27 @@ export default function FilledFormViewer({
       {/* Main View Area: Pure High-Fidelity Embedded PDF View */}
       <div className="flex-1 h-full min-h-0 p-3 flex justify-center bg-slate-900/40">
         <div className="w-full h-full min-h-[680px] bg-white dark:bg-[#111726] border border-slate-300 dark:border-white/10 rounded-xl shadow-2xl overflow-hidden flex flex-col relative">
+          
           {isLoadingPdf && (
             <div className="absolute inset-0 z-20 bg-white/80 dark:bg-[#111726]/80 backdrop-blur-sm flex flex-col items-center justify-center gap-3">
               <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
               <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
                 Rendering official {templateName} filing preview...
+              </p>
+            </div>
+          )}
+
+          {/* Waiting state: extraction not yet complete */}
+          {!isDataReady && !isLoadingPdf && !pdfBlobUrl && !pdfError && (
+            <div className="flex-1 flex flex-col items-center justify-center p-12 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center mb-4">
+                <FileText className="w-8 h-8" />
+              </div>
+              <h4 className="text-base font-bold text-slate-900 dark:text-white mb-2">
+                Awaiting Extraction
+              </h4>
+              <p className="text-xs text-slate-500 max-w-xs">
+                Complete the document extraction to generate the official filled {templateName} preview. The stamped PDF will appear here automatically.
               </p>
             </div>
           )}

@@ -249,18 +249,66 @@ async def detect_form_branch(
         except Exception as e:
             print(f"[!] Error in detect_form_branch: {e}")
 
+    # Dynamically locate the branching field from the schema (the field that drives DAG pruning)
+    # Priority: radio/select fields with options that look like statutory pathways
+    branch_field_label = None
+    branch_field_canonical = None
     candidate_options = []
+
+    BRANCH_FIELD_SIGNALS = [
+        "nature of appointment",
+        "type of appointment",
+        "basis of appointment",
+        "purpose of filing",
+        "nature of filing",
+        "category of applicant",
+        "type of company",
+    ]
+
     for fld in schema.get("fields", []):
-        if fld.get("canonical_no") in ["3(b)", "3", "1"] or "nature of appointment" in fld.get("label", "").lower():
-            if fld.get("options"):
-                candidate_options = fld.get("options")
-                break
+        field_label_lower = fld.get("label", "").lower()
+        field_type = fld.get("type", "")
+        field_options = fld.get("options") or []
+
+        if not field_options:
+            continue
+
+        # Match by canonical number OR by label signal keywords
+        is_match = (
+            fld.get("canonical_no") in ["3(b)", "3", "1", "2"]
+            or any(signal in field_label_lower for signal in BRANCH_FIELD_SIGNALS)
+            or (field_type in ["radio", "select"] and len(field_options) >= 3)
+        )
+        if is_match:
+            candidate_options = field_options
+            branch_field_label = fld.get("label")
+            branch_field_canonical = fld.get("canonical_no")
+            break
+
+    # Build structured option objects for the frontend UI
+    available_options = []
+    for opt in candidate_options:
+        if isinstance(opt, dict):
+            available_options.append(opt)
+        elif isinstance(opt, str):
+            available_options.append({
+                "id": opt,
+                "title": opt,
+                "description": "",
+                "section": ""
+            })
+
+    has_branches = len(available_options) >= 2
 
     result = detect_operative_statutory_branch(full_text, filename=filename, candidate_options=candidate_options)
     return {
         "status": "success",
         "form_id": form_id,
         "form_name": schema.get("form_name"),
+        "has_branches": has_branches,
+        "branch_field_label": branch_field_label,
+        "branch_field_canonical": branch_field_canonical,
+        "available_options": available_options,
         "detected": result
     }
 

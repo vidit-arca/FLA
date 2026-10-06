@@ -18,106 +18,40 @@ export default function ExtractionBranchGateModal({
   formId,
   formName,
   detectedData,
+  dynamicOptions = [],       // Array of {id, title, description, section} from backend
+  branchFieldLabel = "Select Statutory Pathway",
   isExtracting,
   companyId = ""
 }) {
   if (!isOpen) return null;
 
   const detected = detectedData?.detected || {};
-  const recommendedBranch = detected.recommended_branch || "Appointment of Auditors in AGM";
+  const recommendedBranch = detected.recommended_branch || "";
   const subReason = detected.sub_reason || "Resignation";
   const confidence = detected.confidence ? Math.round(detected.confidence * 100) : 95;
   const evidenceSnippet = detected.evidence_snippet || "";
   const sectionCited = detected.section_cited || "";
 
-  const branches = [
-    {
-      id: "First auditor by Board of directors",
-      scenario: "first_auditor_board",
-      title: "First Auditor by Board of Directors",
-      section: "Section 139(6)",
-      description: "First auditor appointed by Board of Directors within 30 days of incorporation"
-    },
-    {
-      id: "First auditor by members",
-      scenario: "first_auditor_members",
-      title: "First Auditor by Members (EGM)",
-      section: "Section 139(6)",
-      description: "First auditor appointed by members at an EGM within 90 days upon Board failure"
-    },
-    {
-      id: "Appointment/ Re-appointment by C&AG",
-      scenario: "cag_appointment",
-      title: "Appointment / Re-appointment by C&AG",
-      section: "Section 139(5) / 139(7)",
-      description: "Statutory auditor for Government or C&AG governed companies"
-    },
-    {
-      id: "Appointment of Auditors in AGM",
-      alternateIds: ["Appointment/ Re-appointment in AGM"],
-      scenario: "agm_appointment",
-      title: "Appointment of Auditors in AGM",
-      section: "Section 139(1)",
-      description: "Standard periodic appointment for 5-year tenure or single AGM"
-    },
-    {
-      id: "Re-appointment of Auditors in AGM",
-      scenario: "agm_reappointment",
-      title: "Re-appointment of Auditors in AGM",
-      section: "Section 139(1)",
-      description: "Re-appointment of retiring auditor at Annual General Meeting"
-    },
-    {
-      id: "Auditor appointed in case of casual vacancy",
-      alternateIds: ["Casual Vacancy"],
-      scenario: "casual_vacancy",
-      title: "Auditor appointed in case of Casual Vacancy",
-      section: "Section 139(8)",
-      description: "Vacancy caused due to resignation, death, or disqualification of auditor"
-    },
-    {
-      id: "Auditor appointed in case of non-re-appointment/ removal",
-      alternateIds: ["Removal of Auditor"],
-      scenario: "removal_appointment",
-      title: "Auditor Appointed on Removal / Non-re-appointment",
-      section: "Section 140(1) / 140(4)",
-      description: "Removal of auditor before term expiry or appointment of replacement auditor"
-    },
-    {
-      id: "Auditor appointed by Central Government",
-      alternateIds: ["Central Government"],
-      scenario: "central_gov",
-      title: "Auditor Appointed by Central Government",
-      section: "Section 139(5)",
-      description: "Appointment made directly by the Central Government"
-    },
-    {
-      id: "Auditor appointed by the Tribunal",
-      alternateIds: ["Tribunal Order"],
-      scenario: "tribunal_order",
-      title: "Auditor Appointed by Tribunal (NCLT)",
-      section: "Section 140(5)",
-      description: "Appointment directed by National Company Law Tribunal order"
-    }
-  ];
+  // Use dynamic options from backend — no hardcoding of any form-specific branches
+  const branches = dynamicOptions.map((opt, idx) => ({
+    id: opt.id || opt.title || String(idx),
+    title: opt.title || opt.id || `Option ${idx + 1}`,
+    description: opt.description || "",
+    section: opt.section || "",
+    scenario: (opt.id || "").toLowerCase().replace(/[^a-z0-9]/g, "_")
+  }));
 
   const findMatchingBranchId = (branchName) => {
-    if (!branchName) return branches[3].id;
+    if (!branchName || branches.length === 0) return branches[0]?.id || "";
     const lower = branchName.toLowerCase();
-    const found = branches.find(b => 
+    const found = branches.find(b =>
       b.id.toLowerCase() === lower ||
-      (b.alternateIds && b.alternateIds.some(alt => alt.toLowerCase() === lower)) ||
-      (lower.includes("board") && b.scenario === "first_auditor_board") ||
-      (lower.includes("member") && b.scenario === "first_auditor_members") ||
-      (lower.includes("c&ag") && b.scenario === "cag_appointment") ||
-      (lower.includes("casual") && b.scenario === "casual_vacancy") ||
-      (lower.includes("tribunal") && b.scenario === "tribunal_order") ||
-      (lower.includes("central") && b.scenario === "central_gov") ||
-      (lower.includes("removal") && b.scenario === "removal_appointment") ||
-      (lower.includes("re-appoint") && b.scenario === "agm_reappointment") ||
-      (lower.includes("agm") && b.scenario === "agm_appointment")
+      b.title.toLowerCase() === lower ||
+      lower.includes(b.id.toLowerCase()) ||
+      b.id.toLowerCase().includes(lower) ||
+      b.title.toLowerCase().includes(lower)
     );
-    return found ? found.id : branches[3].id;
+    return found ? found.id : branches[0]?.id || "";
   };
 
   const initialBranchId = findMatchingBranchId(recommendedBranch);
@@ -133,20 +67,22 @@ export default function ExtractionBranchGateModal({
     if (detected.sub_reason) {
       setSelectedSubReason(detected.sub_reason);
     }
-  }, [detectedData]);
+  }, [detectedData, dynamicOptions]);
 
   const handleConfirm = () => {
-    const selectedBranchObj = branches.find(b => b.id === selectedBranch) || branches[3];
+    const selectedBranchObj = branches.find(b => b.id === selectedBranch) || branches[0];
+    if (!selectedBranchObj) return;
     onConfirm({
       confirmed_branch: selectedBranchObj.id,
       branch_display: selectedBranchObj.title,
       scenario: selectedBranchObj.scenario,
-      casual_vacancy_reason: selectedBranchObj.scenario === "casual_vacancy" ? selectedSubReason : null,
+      casual_vacancy_reason: selectedBranchObj.scenario?.includes("casual") ? selectedSubReason : null,
       company_id: cinInput.trim() || "default"
     });
   };
 
   const activeRecommendedId = findMatchingBranchId(recommendedBranch);
+  const isCasualVacancy = (branches.find(b => b.id === selectedBranch)?.scenario || "").includes("casual");
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -230,82 +166,91 @@ export default function ExtractionBranchGateModal({
             </p>
           </div>
 
-          {/* Radio Buttons for Branches */}
+          {/* Dynamic Branch Options */}
           <div className="space-y-2.5">
             <div className="flex items-center justify-between">
               <label className="text-xs font-medium text-slate-300">
-                Select Governing Statutory Pathway ({branches.length} pathways available):
+                {branchFieldLabel} ({branches.length} pathways available):
               </label>
               <span className="text-[11px] text-slate-500">Scroll to view all</span>
             </div>
             
-            <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1.5 custom-scrollbar">
-              {branches.map((b) => {
-                const isSelected = selectedBranch === b.id;
-                const isAIRecommended = b.id === activeRecommendedId;
+            {branches.length === 0 ? (
+              <div className="p-4 rounded-xl bg-amber-950/20 border border-amber-500/30 text-amber-400 text-xs flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>No branch options found in form schema. Proceeding with default extraction.</span>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-[340px] overflow-y-auto pr-1.5 custom-scrollbar">
+                {branches.map((b) => {
+                  const isSelected = selectedBranch === b.id;
+                  const isAIRecommended = b.id === activeRecommendedId && !!recommendedBranch;
 
-                return (
-                  <div
-                    key={b.id}
-                    onClick={() => setSelectedBranch(b.id)}
-                    className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start gap-3.5 ${
-                      isSelected
-                        ? "bg-blue-600/10 border-blue-500 ring-1 ring-blue-500/50"
-                        : "bg-slate-800/50 border-slate-700/80 hover:bg-slate-800 hover:border-slate-600"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="filing_branch"
-                      checked={isSelected}
-                      onChange={() => setSelectedBranch(b.id)}
-                      className="mt-1 w-4 h-4 text-blue-600 bg-slate-700 border-slate-600 focus:ring-blue-500"
-                    />
+                  return (
+                    <div
+                      key={b.id}
+                      onClick={() => setSelectedBranch(b.id)}
+                      className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start gap-3.5 ${
+                        isSelected
+                          ? "bg-blue-600/10 border-blue-500 ring-1 ring-blue-500/50"
+                          : "bg-slate-800/50 border-slate-700/80 hover:bg-slate-800 hover:border-slate-600"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="filing_branch"
+                        checked={isSelected}
+                        onChange={() => setSelectedBranch(b.id)}
+                        className="mt-1 w-4 h-4 text-blue-600 bg-slate-700 border-slate-600 focus:ring-blue-500"
+                      />
 
-                    <div className="flex-1 space-y-1">
-                      <div className="flex items-center justify-between">
-                        <span className={`text-sm font-medium ${isSelected ? "text-blue-300" : "text-white"}`}>
-                          {b.title}
-                        </span>
-                        <div className="flex items-center gap-1.5">
-                          {isAIRecommended && (
-                            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
-                              <Sparkles className="w-2.5 h-2.5" /> AI Recommended
-                            </span>
-                          )}
-                          <span className="text-[11px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-700">
-                            {b.section}
+                      <div className="flex-1 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className={`text-sm font-medium ${isSelected ? "text-blue-300" : "text-white"}`}>
+                            {b.title}
                           </span>
+                          <div className="flex items-center gap-1.5">
+                            {isAIRecommended && (
+                              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                                <Sparkles className="w-2.5 h-2.5" /> AI Recommended
+                              </span>
+                            )}
+                            {b.section && (
+                              <span className="text-[11px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-700">
+                                {b.section}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                      <p className="text-xs text-slate-400">
-                        {b.description}
-                      </p>
+                        {b.description && (
+                          <p className="text-xs text-slate-400">{b.description}</p>
+                        )}
 
-                      {/* Sub-reason radio for Casual Vacancy */}
-                      {isSelected && b.scenario === "casual_vacancy" && (
-                        <div className="mt-3 pt-3 border-t border-blue-500/20 flex items-center gap-4">
-                          <span className="text-xs font-medium text-slate-300">Vacancy Reason:</span>
-                          {["Resignation", "Death", "Disqualification"].map((reason) => (
-                            <label key={reason} className="flex items-center gap-1.5 text-xs text-slate-200 cursor-pointer">
-                              <input
-                                type="radio"
-                                name="sub_reason"
-                                value={reason}
-                                checked={selectedSubReason === reason}
-                                onChange={(e) => setSelectedSubReason(e.target.value)}
-                                className="w-3.5 h-3.5 text-blue-500"
-                              />
-                              {reason}
-                            </label>
-                          ))}
-                        </div>
-                      )}
+                        {/* Sub-reason radio for Casual Vacancy */}
+                        {isSelected && isCasualVacancy && (
+                          <div className="mt-3 pt-3 border-t border-blue-500/20 flex items-center gap-4">
+                            <span className="text-xs font-medium text-slate-300">Vacancy Reason:</span>
+                            {["Resignation", "Death", "Disqualification"].map((reason) => (
+                              <label key={reason} className="flex items-center gap-1.5 text-xs text-slate-200 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="sub_reason"
+                                  value={reason}
+                                  checked={selectedSubReason === reason}
+                                  onChange={(e) => setSelectedSubReason(e.target.value)}
+                                  className="w-3.5 h-3.5 text-blue-500"
+                                />
+                                {reason}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
 
@@ -326,7 +271,7 @@ export default function ExtractionBranchGateModal({
             </button>
             <button
               onClick={handleConfirm}
-              disabled={isExtracting}
+              disabled={isExtracting || branches.length === 0}
               className="px-5 py-2 rounded-xl text-xs font-semibold bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg shadow-blue-500/20 flex items-center gap-2 transition disabled:opacity-50"
             >
               {isExtracting ? (
