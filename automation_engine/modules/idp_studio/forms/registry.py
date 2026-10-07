@@ -7,6 +7,7 @@ and filesystem JSON files (/data/form_schemas/).
 """
 
 import os
+import re
 import json
 import logging
 from typing import Dict, Any, List, Optional
@@ -97,10 +98,14 @@ class FormRegistry:
             close_db = True
 
         try:
-            # 1. Search DB by template_id or template_name
+            raw_id = str(form_identifier or "").strip()
+            if not raw_id:
+                return None
+
+            # 1. Search DB by template_id or template_name (exact match first)
             db_t = db.query(IdpTemplate).filter(
-                (IdpTemplate.template_id == form_identifier) | 
-                (IdpTemplate.template_name == form_identifier)
+                (IdpTemplate.template_id == raw_id) | 
+                (IdpTemplate.template_name == raw_id)
             ).first()
 
             if db_t:
@@ -109,14 +114,51 @@ class FormRegistry:
                 schema["form_name"] = db_t.template_name
                 return cls._standardize_schema(schema)
 
+            # DB normalized & token matching (e.g. "MGT-6" -> "Form MGT-6", "PAS-6" -> "Form No. PAS -6")
+            norm_target = re.sub(r"[^a-z0-9]", "", raw_id.lower())
+            tokens = [w for w in re.split(r"[^a-z0-9]+", raw_id.lower()) if w and w not in ["form", "no", "the"]]
+
+            db_all = db.query(IdpTemplate).all()
+            for t in db_all:
+                t_name_norm = re.sub(r"[^a-z0-9]", "", str(t.template_name or "").lower())
+                t_id_norm = re.sub(r"[^a-z0-9]", "", str(t.template_id or "").lower())
+                if norm_target and (norm_target == t_name_norm or norm_target == t_id_norm):
+                    schema = cls._parse_raw_schema(t.fields_json)
+                    schema["form_id"] = t.template_id
+                    schema["form_name"] = t.template_name
+                    return cls._standardize_schema(schema)
+
+            if tokens:
+                for t in db_all:
+                    t_name_norm = re.sub(r"[^a-z0-9]", "", str(t.template_name or "").lower())
+                    if all(tok in t_name_norm for tok in tokens):
+                        schema = cls._parse_raw_schema(t.fields_json)
+                        schema["form_id"] = t.template_id
+                        schema["form_name"] = t.template_name
+                        return cls._standardize_schema(schema)
+
             # 2. Search filesystem cache
             for fname in os.listdir(SCHEMAS_DIR):
                 if fname.endswith(".json"):
-                    if fname == f"{form_identifier}.json" or fname.replace(".json", "").lower() == form_identifier.lower():
+                    f_base = fname.replace(".json", "")
+                    f_base_norm = re.sub(r"[^a-z0-9]", "", f_base.lower())
+                    if fname == f"{raw_id}.json" or f_base.lower() == raw_id.lower() or (norm_target and norm_target == f_base_norm):
                         fpath = os.path.join(SCHEMAS_DIR, fname)
                         with open(fpath, "r", encoding="utf-8") as f:
                             file_schema = json.load(f)
                             return cls._standardize_schema(file_schema)
+
+            # Filesystem token check
+            if tokens:
+                for fname in os.listdir(SCHEMAS_DIR):
+                    if fname.endswith(".json"):
+                        f_base = fname.replace(".json", "")
+                        f_base_norm = re.sub(r"[^a-z0-9]", "", f_base.lower())
+                        if all(tok in f_base_norm for tok in tokens):
+                            fpath = os.path.join(SCHEMAS_DIR, fname)
+                            with open(fpath, "r", encoding="utf-8") as f:
+                                file_schema = json.load(f)
+                                return cls._standardize_schema(file_schema)
 
         finally:
             if close_db:

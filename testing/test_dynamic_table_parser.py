@@ -139,6 +139,57 @@ class TestDynamicTableParser(unittest.TestCase):
             self.assertIn("repeat_count_field", tf)
             self.assertGreater(len(tf["columns"]), 0)
 
+    def test_inc20a_regenerated_subscriber_table(self):
+        pdf_path = os.path.join(REPO_ROOT, "document", "instructions", "Instruction Kit_INC-20A.pdf")
+        self.assertTrue(os.path.exists(pdf_path), f"INC-20A PDF not found: {pdf_path}")
+
+        schema = self.pipeline.run(pdf_path)
+        self.assertEqual(schema["template_name"], "Form No. INC-20A")
+
+        table_fields = [f for f in schema["fields"] if f.get("type") == "table"]
+        self.assertGreaterEqual(len(table_fields), 1, "Expected at least 1 table field in INC-20A")
+
+        t_sub = next((f for f in table_fields if "table" in f.get("canonical_no", "")), None)
+        self.assertIsNotNone(t_sub, "Missing subscriber table in INC-20A")
+        self.assertEqual(t_sub.get("table_archetype"), "web_dynamic_grid")
+        self.assertIn("field_4a", t_sub.get("repeat_count_field", ""))
+        self.assertEqual(len(t_sub.get("columns", [])), 5, "Expected 5 columns in subscriber table")
+
+        col_keys = [c["key"] for c in t_sub.get("columns", [])]
+        self.assertIn("shareholder_name", col_keys)
+        self.assertIn("bank_name", col_keys)
+        self.assertIn("account_number", col_keys)
+        self.assertIn("date_of_receipt", col_keys)
+        self.assertIn("amount_of_receipt", col_keys)
+
+    def test_inc20a_pdf_output_renders_table_grid(self):
+        from automation_engine.modules.idp_studio.router import _create_dynamic_statutory_form_pdf
+        from automation_engine.modules.idp_studio.core.db import SessionLocal
+
+        db = SessionLocal()
+        doc = _create_dynamic_statutory_form_pdf('Form No. INC-20A', {
+            'cin': 'U72900KA2020PTC123456',
+            'company_name': 'Test Tech Pvt Ltd',
+            'formnoinc20a.main.field_4table': [
+                {
+                    'shareholder_name': 'Aarav Patel',
+                    'bank_name': 'HDFC Bank',
+                    'account_number': '50100123456789',
+                    'date_of_receipt': '15/01/2026',
+                    'amount_of_receipt': '50000'
+                }
+            ]
+        }, db=db)
+
+        self.assertGreaterEqual(len(doc), 1)
+        full_text = "".join(p.get_text() for p in doc)
+        self.assertIn("DYNAMIC GRID", full_text)
+        self.assertIn("Name of shareholder", full_text)
+        self.assertIn("Name of the Bank", full_text)
+        self.assertIn("Account number", full_text)
+        self.assertIn("Aarav Patel", full_text)
+        self.assertIn("HDFC Bank", full_text)
+
 
 if __name__ == "__main__":
     unittest.main()

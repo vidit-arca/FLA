@@ -173,4 +173,34 @@ class Stage2DocumentStructure:
         if section_blocks:
             section_blocks[-1].end_row_idx = len(raw_rows) - 1
 
+        # Post-process: Detect any field rows that define dynamic regenerated blocks/tables in instructions
+        synthesized_rows = []
+        for r in raw_rows:
+            synthesized_rows.append(r)
+            if r.row_type == "field" and r.instructions:
+                m_regen = re.search(
+                    r"(?:fields\s+([0-9\s\(\)a-z]+)\s+to\s+([0-9\s\(\)a-z]+).*?)?(?:regenerated|repeated)\s+based\s+on\s+(?:the\s+)?number\s+entered\s+in\s+field\s*(?:number)?\s*([0-9\s\(\)a-z]+)",
+                    r.instructions,
+                    re.I
+                )
+                if m_regen:
+                    base_c = re.sub(r"\([ivxlcdm0-9a-z]+\)$", "", r.canonical_no, flags=re.I).strip()
+                    table_canonical = f"{base_c or r.canonical_no}_table"
+                    f_start = m_regen.group(1).strip() if m_regen.group(1) else ""
+                    f_end = m_regen.group(2).strip() if m_regen.group(2) else ""
+                    table_title = f"Table: {r.field_name}" + (f" (Fields {f_start} to {f_end})" if f_start else "")
+                    synthesized_rows.append(RawStatutoryRow(
+                        physical_idx=len(synthesized_rows),
+                        page=r.page,
+                        row_type="field",
+                        canonical_no=table_canonical,
+                        field_name=table_title,
+                        instructions=r.instructions,
+                        section_slug=r.section_slug,
+                        is_numbered=False
+                    ))
+        raw_rows = synthesized_rows
+        for idx, r in enumerate(raw_rows):
+            r.physical_idx = idx
+
         return raw_rows, section_blocks

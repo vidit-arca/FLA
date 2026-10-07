@@ -72,7 +72,7 @@ export default function FilledFormViewer({
     lastRenderedPayloadRef.current = payloadStr;
 
     generatePdfPreview();
-  }, [isDataReady, templateName]);
+  }, [isDataReady, templateName, extractedData]);
 
   // Cleanup blob URL on unmount
   useEffect(() => {

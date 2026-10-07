@@ -10,6 +10,7 @@ import json
 import io
 import os
 import sys
+import re
 
 from .core.db import get_db, engine, init_db
 from .core import models
@@ -250,10 +251,12 @@ async def detect_form_branch(
             print(f"[!] Error in detect_form_branch: {e}")
 
     # Dynamically locate the branching field from the schema (the field that drives DAG pruning)
-    # Priority: radio/select fields with options that look like statutory pathways
-    branch_field_label = None
-    branch_field_canonical = None
-    candidate_options = []
+    parent_counts = {}
+    for f in schema.get("fields", []):
+        dep = f.get("depends_on")
+        if dep and isinstance(dep, dict) and dep.get("field"):
+            pf = dep["field"]
+            parent_counts[pf] = parent_counts.get(pf, 0) + 1
 
     BRANCH_FIELD_SIGNALS = [
         "nature of appointment",
@@ -263,27 +266,48 @@ async def detect_form_branch(
         "nature of filing",
         "category of applicant",
         "type of company",
+        "statement of account",
     ]
 
-    for fld in schema.get("fields", []):
-        field_label_lower = fld.get("label", "").lower()
-        field_type = fld.get("type", "")
-        field_options = fld.get("options") or []
+    branch_field = None
 
-        if not field_options:
-            continue
+    # Priority 1: Field with the most DAG dependents that has >= 2 options
+    if parent_counts:
+        sorted_parents = sorted(parent_counts.items(), key=lambda x: x[1], reverse=True)
+        for parent_id, _ in sorted_parents:
+            matched_f = next((f for f in schema.get("fields", []) if f.get("id") == parent_id and f.get("options") and len(f.get("options")) >= 2), None)
+            if matched_f:
+                branch_field = matched_f
+                break
 
-        # Match by canonical number OR by label signal keywords
-        is_match = (
-            fld.get("canonical_no") in ["3(b)", "3", "1", "2"]
-            or any(signal in field_label_lower for signal in BRANCH_FIELD_SIGNALS)
-            or (field_type in ["radio", "select"] and len(field_options) >= 3)
-        )
-        if is_match:
-            candidate_options = field_options
-            branch_field_label = fld.get("label")
-            branch_field_canonical = fld.get("canonical_no")
-            break
+    # Priority 2: Match by branch keyword signals
+    if not branch_field:
+        for fld in schema.get("fields", []):
+            field_label_lower = fld.get("label", "").lower()
+            field_options = fld.get("options") or []
+            if len(field_options) >= 2 and any(sig in field_label_lower for sig in BRANCH_FIELD_SIGNALS):
+                branch_field = fld
+                break
+
+    # Priority 3: Multi-option select/radio field (with at least 3 options)
+    if not branch_field:
+        for fld in schema.get("fields", []):
+            field_type = fld.get("type", "")
+            field_options = fld.get("options") or []
+            if field_type in ["radio", "select"] and len(field_options) >= 3:
+                branch_field = fld
+                break
+
+    if branch_field:
+        candidate_options = branch_field.get("options", [])
+        branch_field_id = branch_field.get("id")
+        branch_field_label = branch_field.get("label")
+        branch_field_canonical = branch_field.get("canonical_no")
+    else:
+        candidate_options = []
+        branch_field_id = None
+        branch_field_label = None
+        branch_field_canonical = None
 
     # Build structured option objects for the frontend UI
     available_options = []
@@ -299,13 +323,14 @@ async def detect_form_branch(
             })
 
     has_branches = len(available_options) >= 2
+    result = detect_operative_statutory_branch(full_text, filename=filename, candidate_options=candidate_options) if has_branches else None
 
-    result = detect_operative_statutory_branch(full_text, filename=filename, candidate_options=candidate_options)
     return {
         "status": "success",
         "form_id": form_id,
         "form_name": schema.get("form_name"),
         "has_branches": has_branches,
+        "branch_field_id": branch_field_id,
         "branch_field_label": branch_field_label,
         "branch_field_canonical": branch_field_canonical,
         "available_options": available_options,
@@ -430,6 +455,12 @@ async def autofill_mca_form(
             scenario_key = "central_gov"
         elif "removal" in cb or "non-re-appointment" in cb:
             scenario_key = "removal_appointment"
+        elif "appointment" in cb:
+            scenario_key = "appointment"
+        elif "cessation" in cb:
+            scenario_key = "cessation"
+        elif "change in designation" in cb:
+            scenario_key = "change_in_designation"
         else:
             scenario_key = re.sub(r'[^a-z0-9]+', '_', cb).strip('_')
         context["scenario"] = scenario_key
@@ -612,13 +643,16 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
     Universal Dynamic Statutory PDF Template Generator for all 54+ MCA Forms.
     ZERO HARDCODING: Dynamically reads field definitions, canonical numbers,
     statutory labels, radio/toggle options, and DAG pruning conditions directly from FormRegistry.
+    Guarantees every field has its field name/label clearly rendered without text truncation or overflow.
     """
     import fitz
+    import math
+    import re
     from .forms.registry import FormRegistry
 
     schema = FormRegistry.get_form_schema(template_name, db) if template_name else None
     form_title = (schema.get("form_name") if schema else None) or template_name or "MCA Statutory Form"
-    governing_law = (schema.get("governing_law") if schema else None) or "Companies Act, 2013"
+    governing_law = (schema.get("governing_law") if schema else None) or "Companies Act, 2013 / Applicable Statutory Rules"
     fields = schema.get("fields", []) if schema else []
 
     doc = fitz.open()
@@ -634,12 +668,14 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
     page.insert_text((42, 48), "GOVERNMENT OF INDIA", fontsize=9.5, fontname="helv", color=(0.25, 0.25, 0.25))
     page.insert_text((42, 63), "MINISTRY OF CORPORATE AFFAIRS", fontsize=12, fontname="helv", color=(0.08, 0.16, 0.36))
     page.insert_text((42, 82), str(form_title).upper(), fontsize=13.5, fontname="helv", color=(0.05, 0.1, 0.25))
-    page.insert_text((42, 95), f"Statutory Return Pursuant to {governing_law} and Applicable Rules", fontsize=7.5, fontname="helv", color=(0.4, 0.45, 0.5))
+    page.insert_text((42, 95), f"Statutory Return Pursuant to {governing_law}", fontsize=7.5, fontname="helv", color=(0.4, 0.45, 0.5))
 
     # Verification seal / badge
     badge_rect = fitz.Rect(430, 42, 552, 68)
     page.draw_rect(badge_rect, color=(0.1, 0.6, 0.3), fill=(0.92, 0.98, 0.94), width=1.0)
     page.insert_text((440, 58), "STATUS: READY TO FILE", fontsize=7.5, fontname="helv", color=(0.05, 0.5, 0.25))
+
+    matched_keys = set()
 
     # Dynamic Field Value Resolver
     def _find_field_value(field_def: Dict[str, Any]) -> Optional[str]:
@@ -650,28 +686,48 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
         options = field_def.get("options") or []
 
         # 1. Exact ID check
-        if fid in mapped_data and mapped_data[fid]:
-            return str(mapped_data[fid]).strip()
+        if fid in mapped_data and mapped_data[fid] not in [None, "", "Unknown", "null", "None"]:
+            matched_keys.add(fid)
+            raw_v = mapped_data[fid]
+            return raw_v if isinstance(raw_v, (list, dict)) else str(raw_v).strip()
 
-        # 2. Canonical number check (e.g. "3b", "3d", "4b", "4c", "1", "2a")
+        # 2. Canonical number check (e.g. "3b", "3d", "4b", "4c", "1", "2a", "4_table")
         if cno:
             for k, v in mapped_data.items():
                 if not v or str(v).strip() in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
                     continue
                 k_norm = str(k).lower().replace("(", "").replace(")", "").replace("-", "_").replace(" ", "_")
-                if k_norm.startswith(f"{cno}_") or f"_{cno}_" in k_norm or k_norm == cno:
-                    return str(v).strip()
+                if k_norm.startswith(f"{cno}_") or f"_{cno}_" in k_norm or k_norm == cno or k_norm.endswith(f"_{cno}"):
+                    matched_keys.add(k)
+                    return v if isinstance(v, (list, dict)) else str(v).strip()
 
         # 3. Normalized ID fuzzy check
-        norm_fid = fid.lower().replace("_", "").replace("field", "")
+        norm_fid = re.sub(r"[^a-z0-9]", "", fid.lower())
         for k, v in mapped_data.items():
             if not v or str(v).strip() in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
                 continue
-            norm_k = str(k).lower().replace("_", "").replace("field", "")
+            norm_k = re.sub(r"[^a-z0-9]", "", str(k).lower())
             if norm_k == norm_fid or (len(norm_fid) > 4 and norm_fid in norm_k) or (len(norm_k) > 4 and norm_k in norm_fid):
+                matched_keys.add(k)
                 return str(v).strip()
-            if flabel and len(flabel) > 5 and flabel in str(k).lower():
-                return str(v).strip()
+
+            # Label token check
+            clean_k = str(k).lower().replace("_", " ").replace("field ", "").strip()
+            if flabel:
+                # Direct substring match
+                if clean_k in flabel or flabel in clean_k:
+                    matched_keys.add(k)
+                    return str(v).strip()
+                # Whole word match for acronyms (e.g. cin, din, pan, llpin)
+                if len(clean_k) >= 3 and re.search(r'\b' + re.escape(clean_k) + r'\b', flabel):
+                    matched_keys.add(k)
+                    return str(v).strip()
+                # Multi-word token subset match (e.g. "company_name" in "Name of the Company")
+                tokens_k = set(re.findall(r'[a-z0-9]+', clean_k)) - {"the", "of", "and", "in", "to", "for", "is", "field"}
+                tokens_lbl = set(re.findall(r'[a-z0-9]+', flabel)) - {"the", "of", "and", "in", "to", "for", "is", "field"}
+                if len(tokens_k) >= 2 and tokens_k.issubset(tokens_lbl):
+                    matched_keys.add(k)
+                    return str(v).strip()
 
         # 4. If radio/toggle with [Yes, No] options and not affirmatively mapped, default to "No"
         if f_type in ["radio", "toggle"] and options and set(str(o).lower().strip() for o in options) == {"yes", "no"}:
@@ -705,9 +761,9 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
 
                 parent_val = extracted_context.get(parent_field)
                 if not parent_val and parent_field:
-                    norm_pf = str(parent_field).lower().replace("_", "").replace("field", "")
+                    norm_pf = re.sub(r"[^a-z0-9]", "", str(parent_field).lower())
                     for ek, ev in extracted_context.items():
-                        norm_ek = str(ek).lower().replace("_", "").replace("field", "")
+                        norm_ek = re.sub(r"[^a-z0-9]", "", str(ek).lower())
                         if norm_pf == norm_ek or norm_pf in norm_ek or norm_ek in norm_pf:
                             parent_val = ev
                             break
@@ -721,31 +777,42 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
                     elif operator == "in" and isinstance(target_value, list):
                         if not any(p_str == str(opt).strip().lower() or str(opt).strip().lower() in p_str for opt in target_value):
                             continue
-                else:
-                    # Parent inactive / empty -> prune dependent subsection
-                    continue
+                # If parent value not available, keep field visible so form is complete
 
             val = _find_field_value(f)
-            c_no = f.get("canonical_no", "")
-            lbl = f.get("label", f["id"])
-            full_label = f"{c_no}. *{lbl}" if c_no else f"*{lbl}"
+            c_no = str(f.get("canonical_no", "")).strip()
+            raw_lbl = str(f.get("label", f["id"])).strip()
+            full_label = f"{c_no}. {raw_lbl}" if c_no else raw_lbl
+            if not full_label.startswith("*") and f.get("required", True):
+                full_label = f"*{full_label}"
+
             display_items.append({
+                "id": f.get("id"),
                 "label": full_label,
                 "value": val or "",
                 "type": f.get("type", "text"),
-                "options": f.get("options")
+                "options": f.get("options"),
+                "columns": f.get("columns") or (f.get("table_metadata", {}).get("columns") if isinstance(f.get("table_metadata"), dict) else None) or [],
+                "archetype": f.get("table_archetype") or (f.get("table_metadata", {}).get("table_archetype") if isinstance(f.get("table_metadata"), dict) else "web_dynamic_grid"),
+                "raw_field": f
             })
-    else:
-        for k, v in mapped_data.items():
-            if not v or str(v).strip() in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
-                continue
-            clean_lbl = k.replace("_", " ").replace("field ", "").title()
-            display_items.append({
-                "label": clean_lbl,
-                "value": str(v).strip(),
-                "type": "text",
-                "options": None
-            })
+
+    # Append any extra mapped fields that were not covered by schema
+    for k, v in mapped_data.items():
+        if k in matched_keys:
+            continue
+        if not v or str(v).strip() in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
+            continue
+        clean_lbl = k.replace("_", " ").replace("field ", "").title()
+        display_items.append({
+            "label": f"*{clean_lbl}",
+            "value": str(v).strip(),
+            "type": "text",
+            "options": None,
+            "columns": [],
+            "archetype": None,
+            "raw_field": None
+        })
 
     # Render each statutory item dynamically
     for idx, item in enumerate(display_items):
@@ -753,15 +820,110 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
         val_str = item["value"]
         f_type = item.get("type", "text")
         options = item.get("options")
-
-        # Dynamic row height calculation
         is_radio = f_type in ["radio", "select", "toggle"] and options and len(options) > 0
-        if is_radio:
-            row_h = 24 + (len(options) * 14) if len(options) > 2 else 32
-        elif len(val_str) > 60:
-            row_h = 42
-        else:
-            row_h = 28
+
+        # --- STATUTORY TABLE / GRID RENDERING ---
+        if f_type == "table":
+            table_cols = item.get("columns") or []
+            if not table_cols and isinstance(item.get("raw_field"), dict):
+                table_cols = item["raw_field"].get("columns", [])
+
+            # Check if value is list of rows or JSON string
+            table_rows = []
+            if isinstance(val_str, list):
+                table_rows = val_str
+            elif isinstance(val_str, str) and (val_str.startswith("[") or val_str.startswith("{")):
+                try:
+                    parsed_rows = python_json.loads(val_str)
+                    table_rows = parsed_rows if isinstance(parsed_rows, list) else [parsed_rows]
+                except Exception:
+                    table_rows = []
+            elif isinstance(val_str, dict):
+                table_rows = [val_str]
+
+            # If no rows or empty rows, render at least 2 default statutory rows so grid is clearly visible
+            if not table_rows:
+                table_rows = [{c.get("key", ""): "" for c in table_cols}, {c.get("key", ""): "" for c in table_cols}]
+
+            header_h = 22.0
+            col_header_h = 20.0
+            row_h = 20.0
+            total_table_min_h = header_h + col_header_h + row_h
+
+            if y + total_table_min_h > 780:
+                page.insert_text((42, 802), f"Page {len(doc)} • Official MCA Filing Return", fontsize=7.5, fontname="helv", color=(0.5, 0.5, 0.5))
+                page = doc.new_page(width=595, height=842)
+                page.draw_rect(fitz.Rect(28, 28, 567, 814), color=(0.15, 0.2, 0.3), width=1.2)
+                y = 45
+
+            # 1. Table Title Banner across full width (x=35 to 560)
+            page.draw_rect(fitz.Rect(35, y, 560, y + header_h), color=(0.75, 0.80, 0.88), fill=(0.88, 0.91, 0.96), width=0.8)
+            lbl_text_rect = fitz.Rect(42, y + 2, 430, y + header_h - 2)
+            page.insert_textbox(lbl_text_rect, label, fontsize=8.0, fontname="helv", color=(0.08, 0.16, 0.35))
+            page.insert_text((440, y + 14), "[STATUTORY DYNAMIC GRID]", fontsize=6.5, fontname="helv", color=(0.25, 0.35, 0.45))
+            y += header_h
+
+            # 2. Column Headers
+            num_cols = len(table_cols) if table_cols else 1
+            sno_w = 26.0
+            avail_w = 525.0 - sno_w
+            col_w = avail_w / max(1, num_cols)
+
+            page.draw_rect(fitz.Rect(35, y, 560, y + col_header_h), color=(0.75, 0.80, 0.88), fill=(0.93, 0.95, 0.98), width=0.5)
+            page.insert_text((43, y + 13), "#", fontsize=7.5, fontname="helv", color=(0.12, 0.2, 0.3))
+
+            for c_i, c in enumerate(table_cols):
+                cx = 35 + sno_w + c_i * col_w
+                page.draw_line(fitz.Point(cx, y), fitz.Point(cx, y + col_header_h), color=(0.75, 0.80, 0.88), width=0.5)
+                c_lbl = c.get("label") or c.get("key", f"Col {c_i+1}")
+                c_rect = fitz.Rect(cx + 2, y + 2, cx + col_w - 2, y + col_header_h - 2)
+                page.insert_textbox(c_rect, c_lbl, fontsize=6.8, fontname="helv", color=(0.12, 0.2, 0.3))
+            y += col_header_h
+
+            # 3. Data Rows
+            for r_idx, r_dict in enumerate(table_rows):
+                if y + row_h > 780:
+                    page.insert_text((42, 802), f"Page {len(doc)} • Official MCA Filing Return", fontsize=7.5, fontname="helv", color=(0.5, 0.5, 0.5))
+                    page = doc.new_page(width=595, height=842)
+                    page.draw_rect(fitz.Rect(28, 28, 567, 814), color=(0.15, 0.2, 0.3), width=1.2)
+                    y = 45
+                    page.draw_rect(fitz.Rect(35, y, 560, y + col_header_h), color=(0.75, 0.80, 0.88), fill=(0.93, 0.95, 0.98), width=0.5)
+                    page.insert_text((43, y + 13), "#", fontsize=7.5, fontname="helv", color=(0.12, 0.2, 0.3))
+                    for c_i, c in enumerate(table_cols):
+                        cx = 35 + sno_w + c_i * col_w
+                        page.draw_line(fitz.Point(cx, y), fitz.Point(cx, y + col_header_h), color=(0.75, 0.80, 0.88), width=0.5)
+                        c_lbl = c.get("label") or c.get("key", f"Col {c_i+1}")
+                        c_rect = fitz.Rect(cx + 2, y + 2, cx + col_w - 2, y + col_header_h - 2)
+                        page.insert_textbox(c_rect, c_lbl, fontsize=6.8, fontname="helv", color=(0.12, 0.2, 0.3))
+                    y += col_header_h
+
+                r_bg = (0.98, 0.99, 1.0) if r_idx % 2 == 0 else (1.0, 1.0, 1.0)
+                page.draw_rect(fitz.Rect(35, y, 560, y + row_h), color=(0.85, 0.88, 0.92), fill=r_bg, width=0.5)
+                page.draw_line(fitz.Point(35 + sno_w, y), fitz.Point(35 + sno_w, y + row_h), color=(0.85, 0.88, 0.92), width=0.5)
+                page.insert_text((43, y + 13), str(r_idx + 1), fontsize=7.5, fontname="helv", color=(0.4, 0.45, 0.5))
+
+                for c_i, c in enumerate(table_cols):
+                    cx = 35 + sno_w + c_i * col_w
+                    page.draw_line(fitz.Point(cx, y), fitz.Point(cx, y + row_h), color=(0.85, 0.88, 0.92), width=0.5)
+                    cell_val = str(r_dict.get(c.get("key", ""), "") if isinstance(r_dict, dict) else "").strip()
+                    cell_rect = fitz.Rect(cx + 3, y + 2, cx + col_w - 3, y + row_h - 2)
+                    if cell_val:
+                        page.insert_textbox(cell_rect, cell_val, fontsize=7.5, fontname="helv", color=(0.05, 0.1, 0.2))
+                    else:
+                        page.insert_textbox(cell_rect, "—", fontsize=7.0, fontname="helv", color=(0.6, 0.65, 0.7))
+                y += row_h
+
+            y += 6
+            continue
+
+        display_val = val_str if val_str else "(Not Applicable / Not Filled)"
+
+        # Accurate Dynamic Row Height Calculation: accounts for BOTH label and value length
+        lbl_lines = max(1, math.ceil(len(label) / 36.0))
+        val_lines = max(1, math.ceil(len(display_val) / 44.0))
+        radio_lines = len(options) if (is_radio and options) else 1
+        total_lines = max(lbl_lines, val_lines, radio_lines)
+        row_h = max(26.0, total_lines * 13.0 + 8.0)
 
         # Dynamic page break handling
         if y + row_h > 780:
@@ -772,28 +934,34 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
 
         bg = (0.98, 0.99, 1.0) if idx % 2 == 0 else (1.0, 1.0, 1.0)
         page.draw_rect(fitz.Rect(35, y, 560, y + row_h), color=(0.85, 0.88, 0.92), fill=bg, width=0.5)
-        page.draw_line(fitz.Point(235, y), fitz.Point(235, y + row_h), color=(0.85, 0.88, 0.92), width=0.5)
+        # Column divider at x = 265 (gives 225pt width to label column, 285pt to value column)
+        page.draw_line(fitz.Point(265, y), fitz.Point(265, y + row_h), color=(0.85, 0.88, 0.92), width=0.5)
 
-        # Label cell
-        page.insert_textbox(fitz.Rect(40, y + 3, 230, y + row_h - 2), label, fontsize=8.0, fontname="helv", color=(0.25, 0.3, 0.4))
+        # Label cell: Guaranteed visibility with font size fallback
+        lbl_rect = fitz.Rect(40, y + 3, 260, y + row_h - 2)
+        res_lbl = page.insert_textbox(lbl_rect, label, fontsize=8.0, fontname="helv", color=(0.15, 0.22, 0.35))
+        if res_lbl < 0:
+            page.insert_textbox(lbl_rect, label, fontsize=7.0, fontname="helv", color=(0.15, 0.22, 0.35))
 
-        # Value cell: Render dynamic radio/select options with filled dots
+        # Value cell: Render dynamic radio/select options with filled dots or formatted text
         if is_radio and options:
             val_lower = val_str.lower().strip()
             opt_y = y + 4
             for opt in options:
                 opt_str = str(opt).strip()
                 is_selected = (opt_str.lower() in val_lower) or (val_lower and val_lower in opt_str.lower())
-                page.draw_circle((245, opt_y + 5), radius=3.2, color=(0.3, 0.3, 0.3), width=0.75)
+                page.draw_circle((280, opt_y + 5), radius=3.2, color=(0.3, 0.3, 0.3), width=0.75)
                 if is_selected:
-                    page.draw_circle((245, opt_y + 5), radius=1.8, color=(0.05, 0.1, 0.25), fill=(0.05, 0.1, 0.25))
+                    page.draw_circle((280, opt_y + 5), radius=1.8, color=(0.05, 0.1, 0.25), fill=(0.05, 0.1, 0.25))
                 text_col = (0.05, 0.1, 0.25) if is_selected else (0.4, 0.45, 0.5)
-                page.insert_text((254, opt_y + 8), opt_str, fontsize=7.5, fontname="helv", color=text_col)
+                page.insert_text((290, opt_y + 8), opt_str, fontsize=7.5, fontname="helv", color=text_col)
                 opt_y += 14
         else:
-            display_val = val_str if val_str else "(Not Applicable / Not Filled)"
-            val_col = (0.05, 0.1, 0.2) if val_str else (0.6, 0.6, 0.6)
-            page.insert_textbox(fitz.Rect(240, y + 4, 555, y + row_h - 2), display_val, fontsize=8.5, fontname="helv", color=val_col)
+            val_rect = fitz.Rect(275, y + 3, 555, y + row_h - 2)
+            val_col = (0.05, 0.1, 0.2) if val_str else (0.55, 0.6, 0.65)
+            res_val = page.insert_textbox(val_rect, display_val, fontsize=8.5, fontname="helv", color=val_col)
+            if res_val < 0:
+                page.insert_textbox(val_rect, display_val, fontsize=7.5, fontname="helv", color=val_col)
 
         y += row_h + 2
 
@@ -847,15 +1015,22 @@ async def generate_preview_pdf(payload: Dict[str, Any] = Body(...), db: Session 
         if os.path.exists(template_path):
             try:
                 doc = fitz.open(template_path)
+                # Verify whether this is an instruction kit or a genuine blank form
+                first_page_text = doc[0].get_text().lower() if len(doc) > 0 else ""
+                if "instruction kit" in first_page_text or "table of contents" in first_page_text or "about this document" in first_page_text or len(doc) > 6:
+                    # It's an instruction kit booklet, not a blank form template!
+                    doc.close()
+                    doc = None
             except Exception as open_err:
                 print(f"[Preview PDF] Could not open static template '{template_path}': {open_err}")
                 doc = None
 
         if doc is None:
-            print(f"[Preview PDF] Static template not found for '{template_name}'. Generating dynamic statutory output template on-the-fly...")
+            print(f"[Preview PDF] Generating dynamic statutory output template on-the-fly for '{template_name}'...")
             doc = _create_dynamic_statutory_form_pdf(template_name, mapped_data, db=db)
             is_dynamic_generated = True
-              # 4. If using static PDF template, stamp extracted data onto coordinates
+
+        # 4. If using static PDF template, stamp extracted data onto coordinates
         if not is_dynamic_generated:
             # Helper: Stamp Radio Button / Toggle Option Dot
             def stamp_radio_button(doc_ref, label_targets, chosen_val, possible_options=["Yes", "No"]):
@@ -913,12 +1088,20 @@ async def generate_preview_pdf(payload: Dict[str, Any] = Body(...), db: Session 
                         "Auditor appointed in case of non-re-appointment/ removal", "Auditor appointed by Central Government",
                         "Auditor appointed by the Tribunal", "Others"
                     ])
+                elif any(k in lower_key for k in ["purpose_of_filing", "purpose of filing", "field_3a", "field_5a", "field_5c_2"]) or (("3a" in lower_key or "5a" in lower_key) and "purpose" in lower_key):
+                    stamped = stamp_radio_button(doc, ["Purpose of filing the form", "Purpose of filing"], val_str, [
+                        "Appointment", "Cessation", "Change in designation",
+                        "Appointment due to disqualification of all the existing directors",
+                        "Appointment by liquidator"
+                    ])
                 elif any(k in lower_key for k in ["appointed_in_agm", "annual general meeting", "agm"]):
                     stamped = stamp_radio_button(doc, ["annual general meeting (AGM)", "appointed in the annual general meeting"], val_str, ["Yes", "No"])
                 elif any(k in lower_key for k in ["joint_auditor", "joint auditors"]):
                     stamped = stamp_radio_button(doc, ["joint auditors have been appointed"], val_str, ["Yes", "No"])
                 elif any(k in lower_key for k in ["audit_committee", "recommendation of the audit"]):
                     stamped = stamp_radio_button(doc, ["recommendation of the Audit Committee constituted", "Audit Committee constituted"], val_str, ["Yes", "No", "Not Applicable"])
+                elif any(k in lower_key for k in ["whether_chairman", "chairman", "executive_director", "field_3m"]):
+                    stamped = stamp_radio_button(doc, ["Whether Chairman, Executive Director, Non-Executive Director"], val_str, ["Yes", "No"])
                 elif lower_key in ["language", "form_language"]:
                     stamped = stamp_radio_button(doc, ["English", "Hindi"], val_str, ["English", "Hindi"])
 
