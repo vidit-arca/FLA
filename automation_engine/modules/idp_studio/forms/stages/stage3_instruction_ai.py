@@ -287,11 +287,26 @@ class Stage3InstructionAI:
                     {"key": "fee_amount", "label": "Fee / Amount (in ₹)", "type": "number", "required": True}
                 ]
 
+            elif not columns and ("shareholder" in name_l or "subscriber" in name_l or "shareholder" in inst_l):
+                repeat_count_field = "4(a)"
+                columns = [
+                    {"key": "shareholder_name", "label": "4(b). Name of shareholder", "type": "text", "required": True},
+                    {"key": "bank_name", "label": "4(c). Name of the Bank", "type": "text", "required": True},
+                    {"key": "account_number", "label": "4(d). Account number", "type": "text", "required": True},
+                    {"key": "date_of_receipt", "label": "4(e). Date of receipt", "type": "date", "required": True},
+                    {"key": "amount_of_receipt", "label": "4(f). Amount of receipt", "type": "number", "required": True}
+                ]
+                min_rows = 1
+                max_rows = 50
+
             # 2. Extract repeat count field
             if not repeat_count_field:
                 m_rep = re.search(r"Basis the number entered in field number\s+([0-9\(\)\sA-Za-z]+?)(?:[\“\”\"\'\‘\’]|i\.e\.|\,|$)", inst, re.I)
+                if not m_rep:
+                    m_rep = re.search(r"based on (?:the )?number entered in field (?:number )?([0-9\(\)\sA-Za-z]+?)(?:[\“\”\"\'\‘\’]|i\.e\.|\,|$)", inst, re.I)
                 if m_rep:
                     repeat_count_field = re.sub(r"\s+", "", m_rep.group(1))
+                    repeat_count_field = re.sub(r"i\.?$", "", repeat_count_field).strip()
 
             # 3. Min/Max rows
             if "greater than zero" in inst_l:

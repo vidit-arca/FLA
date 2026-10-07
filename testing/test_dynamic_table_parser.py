@@ -139,6 +139,29 @@ class TestDynamicTableParser(unittest.TestCase):
             self.assertIn("repeat_count_field", tf)
             self.assertGreater(len(tf["columns"]), 0)
 
+    def test_inc20a_regenerated_subscriber_table(self):
+        pdf_path = os.path.join(REPO_ROOT, "document", "instructions", "Instruction Kit_INC-20A.pdf")
+        self.assertTrue(os.path.exists(pdf_path), f"INC-20A PDF not found: {pdf_path}")
+
+        schema = self.pipeline.run(pdf_path)
+        self.assertEqual(schema["template_name"], "Form No. INC-20A")
+
+        table_fields = [f for f in schema["fields"] if f.get("type") == "table"]
+        self.assertGreaterEqual(len(table_fields), 1, "Expected at least 1 table field in INC-20A")
+
+        t_sub = next((f for f in table_fields if "table" in f.get("canonical_no", "")), None)
+        self.assertIsNotNone(t_sub, "Missing subscriber table in INC-20A")
+        self.assertEqual(t_sub.get("table_archetype"), "web_dynamic_grid")
+        self.assertIn("field_4a", t_sub.get("repeat_count_field", ""))
+        self.assertEqual(len(t_sub.get("columns", [])), 5, "Expected 5 columns in subscriber table")
+
+        col_keys = [c["key"] for c in t_sub.get("columns", [])]
+        self.assertIn("shareholder_name", col_keys)
+        self.assertIn("bank_name", col_keys)
+        self.assertIn("account_number", col_keys)
+        self.assertIn("date_of_receipt", col_keys)
+        self.assertIn("amount_of_receipt", col_keys)
+
 
 if __name__ == "__main__":
     unittest.main()
