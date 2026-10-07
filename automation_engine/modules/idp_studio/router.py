@@ -7,6 +7,7 @@ import uuid
 import datetime
 import pandas as pd
 import json
+import json as python_json
 import io
 import os
 import sys
@@ -834,7 +835,7 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
                 table_rows = val_str
             elif isinstance(val_str, str) and (val_str.startswith("[") or val_str.startswith("{")):
                 try:
-                    parsed_rows = python_json.loads(val_str)
+                    parsed_rows = json.loads(val_str)
                     table_rows = parsed_rows if isinstance(parsed_rows, list) else [parsed_rows]
                 except Exception:
                     table_rows = []
@@ -2079,6 +2080,124 @@ Document Text:
         print(f"[!] Parsing Error: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to parse LLM response: {str(e)}")
 
+def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_label_map: dict) -> dict:
+    """
+    Tier 0.5 — Fast-path deterministic regex and structured table matchers for standard MCA fields.
+    Extracts high-confidence statutory fields (CIN, Company Name, Total Shares, 5(g) Demat/Physical tables)
+    directly before DOM/LLM to guarantee instant, deterministic results.
+    Returns {form_field: value} mapping.
+    """
+    if not full_text:
+        return {}
+
+    import re
+    extracted = {}
+    tmpl_lower = (template_name or "").lower()
+
+    # 1. Corporate Identity Number (CIN) - 21 characters: [LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}
+    cin_match = re.search(r'\b([LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6})\b', full_text)
+    if cin_match:
+        cin_val = cin_match.group(1).strip()
+        for f_id, label in field_label_map.items():
+            l_lower = (label or "").lower()
+            f_lower = (f_id or "").lower()
+            if f_lower.endswith(".field_1") or f_lower == "field_1" or f_lower == "cin" or re.search(r'\bcin\b|\bcorporate identity number\b', l_lower):
+                extracted[f_id] = cin_val
+
+    # 2. Company Name
+    comp_name = None
+    # Pattern A: Subject: PAS 6 for <Company Name> (CIN: ... or \n)
+    m = re.search(r'Subject:\s*(?:PAS\s*6\s*for|DIR-12\s*for|ADT-1\s*for|[A-Za-z0-9\-]+\s*for)\s+([A-Za-z0-9\s,\.\(\)]+?)(?:\s*\(CIN|\s*CIN[:\s]|\s*\n)', full_text, re.IGNORECASE)
+    if m:
+        comp_name = m.group(1).strip()
+    # Pattern B: Markdown header ## **<Company Name>**
+    if not comp_name:
+        m = re.search(r'##\s*\*\*([A-Za-z0-9\s\.,\(\)]+?(?:Limited|Private Limited|Pvt Ltd|LLP))\*\*', full_text)
+        if m:
+            comp_name = m.group(1).strip()
+    # Pattern C: Company Name followed by Date
+    if not comp_name:
+        m = re.search(r'\n([A-Za-z0-9\s,\.]+?(?:Limited|Private Limited|Pvt Ltd|LLP))\s*\nDate:', full_text)
+        if m:
+            comp_name = m.group(1).strip()
+    # Pattern D: Key-Value line "Company Name: ..." or "Name of the Company: ..."
+    if not comp_name:
+        m = re.search(r'(?:Name of the company|Company Name)\s*[:\|]\s*([^\n\|]+)', full_text, re.IGNORECASE)
+        if m:
+            comp_name = m.group(1).strip()
+
+    if comp_name:
+        comp_name_clean = comp_name.strip('*').strip()
+        for f_id, label in field_label_map.items():
+            l_lower = (label or "").lower()
+            f_lower = (f_id or "").lower()
+            if "name of the company" in l_lower or "company name" in l_lower or (f_lower.endswith(".field_2a") and "company" in l_lower):
+                extracted[f_id] = comp_name_clean
+
+    # 3. Form No. PAS-6 specific deterministic extraction
+    if "pas" in tmpl_lower or "pas6" in tmpl_lower or "pas-6" in tmpl_lower:
+        # Field 5(d): Total number of issued shares
+        shares_match = re.search(r'(?:out of|total of)\s+([0-9,]+)\s+shares', full_text, re.IGNORECASE)
+        if not shares_match:
+            shares_match = re.search(r'(?:Total number of issued shares|Number of issued shares)\s*[:\|]\s*([0-9,]+)', full_text, re.IGNORECASE)
+        if shares_match:
+            shares_val = shares_match.group(1).strip()
+            for f_id, label in field_label_map.items():
+                if f_id.endswith(".field_5d") or f_id == "field_5d" or ("total" in (label or "").lower() and "shares" in (label or "").lower()):
+                    extracted[f_id] = shares_val
+
+        # Field 5(g): Promoters, Directors, KMP shares breakdown (Demat & Physical)
+        # Matches both Markdown table rows and space-aligned rows:
+        prom_match = re.search(r'(?:^|\n)\s*\|?\s*(?:\(i\)\s*)?Promoters\s*\|?\s*([0-9,]+)\s*\|?\s*([0-9,]+)', full_text, re.IGNORECASE)
+        if prom_match:
+            demat_val = prom_match.group(1).strip()
+            phys_val = prom_match.group(2).strip()
+            for f_id in field_label_map:
+                if f_id.endswith(".field_5gi") or f_id == "field_5gi":
+                    extracted[f_id] = demat_val
+                elif f_id.endswith(".field_5gi_3") or f_id == "field_5gi_3":
+                    extracted[f_id] = phys_val
+
+        dir_match = re.search(r'(?:^|\n)\s*\|?\s*(?:\(ii\)\s*)?Directors\s*\|?\s*([0-9,]+)\s*\|?\s*([0-9,]+)', full_text, re.IGNORECASE)
+        if dir_match:
+            demat_val = dir_match.group(1).strip()
+            phys_val = dir_match.group(2).strip()
+            for f_id in field_label_map:
+                if f_id.endswith(".field_5gi_2") or f_id == "field_5gi_2":
+                    extracted[f_id] = demat_val
+                elif f_id.endswith(".field_5gi_4") or f_id == "field_5gi_4":
+                    extracted[f_id] = phys_val
+
+        kmp_match = re.search(r'(?:^|\n)\s*\|?\s*(?:\(iii\)\s*)?KMPs?\s*\|?\s*([0-9,]+)\s*\|?\s*([0-9,]+)', full_text, re.IGNORECASE)
+        if kmp_match:
+            demat_val = kmp_match.group(1).strip()
+            phys_val = kmp_match.group(2).strip()
+            for f_id in field_label_map:
+                if f_id.endswith(".field_5gii") or f_id == "field_5gii":
+                    extracted[f_id] = demat_val
+                elif f_id.endswith(".field_5gii_2") or f_id == "field_5gii_2":
+                    extracted[f_id] = phys_val
+
+    # 4. Registered Address and Email for any MCA form
+    addr_match = re.search(r'(?:Address of the registered office|Registered Office Address|Registered Address)\s*[:\|]\s*([^\n\|]+)', full_text, re.IGNORECASE)
+    if addr_match:
+        addr_val = addr_match.group(1).strip()
+        for f_id, label in field_label_map.items():
+            l_lower = (label or "").lower()
+            if "registered ofice" in l_lower or "registered office" in l_lower or "registered address" in l_lower:
+                extracted[f_id] = addr_val
+
+    email_match = re.search(r'(?:email ID of the company|Email ID|Email)\s*[:\|]\s*([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)', full_text, re.IGNORECASE)
+    if email_match:
+        email_val = email_match.group(1).strip()
+        for f_id, label in field_label_map.items():
+            l_lower = (label or "").lower()
+            if "email id" in l_lower or "email" in l_lower:
+                extracted[f_id] = email_val
+
+    return extracted
+
+
 @router.post("/extract/batch")
 async def extract_batch_documents(
     files: List[UploadFile] = File(...),
@@ -2087,11 +2206,14 @@ async def extract_batch_documents(
 ):
     """
     DOM-First Batch Extraction Pipeline:
+    Tier 0 — Direct Excel (.xlsx / .xls) and Raw Markdown (.md / .txt) parsing.
+    Tier 0.5 — Fast-Path deterministic regex and structured table matchers for standard MCA fields.
     Tier 1 — DOM structural navigation (saved rules, 100% deterministic).
     Tier 2 — pdfplumber digital text layer + Qwen LLM fallback.
     Tier 3 — Triton OCR + Qwen LLM fallback (scanned PDFs).
     """
     import json as python_json
+    import re
     results = []
 
     # Load saved SchemaAliasRules for this template (maps form_field → extracted_key)
@@ -2101,62 +2223,108 @@ async def extract_batch_documents(
             models.SchemaAliasRule.template_name == template_name
         ).all()
 
+    # Build field_label_map and field_dependency_map from IdpTemplate schema
+    field_label_map = {}
+    field_dependency_map = {}
+    if template_name:
+        tmpl = db.query(models.IdpTemplate).filter(models.IdpTemplate.template_name == template_name).first()
+        if tmpl and tmpl.fields_json:
+            try:
+                parsed_tmpl = python_json.loads(tmpl.fields_json)
+                fields_list = parsed_tmpl.get("fields", parsed_tmpl) if isinstance(parsed_tmpl, dict) else parsed_tmpl
+                if isinstance(fields_list, list):
+                    for f in fields_list:
+                        if isinstance(f, dict) and f.get("id"):
+                            field_label_map[f["id"]] = f.get("label", f["id"])
+                            if f.get("depends_on"):
+                                field_dependency_map[f["id"]] = f["depends_on"]
+            except Exception as tmpl_err:
+                print(f"[Batch] Error loading template fields: {tmpl_err}")
+
     for file in files:
         filename = file.filename
         try:
             pdf_bytes = await file.read()
             extracted_fields = []
+            extracted_lookup = {}
             any_dom_miss = False
-
-            # --- TIER 0: Direct Excel (.xlsx / .xls) and Markdown (.md) Parsing ---
-            fname_lower = filename.lower()
-            if fname_lower.endswith(('.xlsx', '.xls', '.md', '.txt')):
-                try:
-                    from modules.fla.comparison_platform.modules.legacy_parser import LegacyFLAParser
-                    parser = LegacyFLAParser()
-                    if fname_lower.endswith(('.xlsx', '.xls')):
-                        import pandas as pd
-                        excel_dfs = pd.read_excel(io.BytesIO(pdf_bytes), sheet_name=None)
-                        parsed_dict = parser.parse_previous_fla(excel_dfs)
-                    else:
-                        text_str = pdf_bytes.decode('utf-8', errors='ignore')
-                        parsed_dict = parser.parse_md(text_str)
-
-                    extracted_fields = [{"key": k, "value": str(v)} for k, v in parsed_dict.items() if v not in [None, "", "Unknown", "N/A"]]
-                    results.append({
-                        "filename": filename,
-                        "status": "success",
-                        "extracted_fields": extracted_fields
-                    })
-                    continue
-                except Exception as excel_err:
-                    print(f"[Batch] Direct Excel/MD parsing error on {filename}: {excel_err}")
-
-            # Initialize full_text and q before Tier 1 so both DOM and LLM tiers have safe access
             full_text = ""
             q = None
             doc_type = "generic"
 
-            # --- TIER 1: DOM-based extraction for each mapped form field ---
-            if schema_rules:
-                # Always use Full OCR (Triton) to ensure output matches IDP Studio mappings
-                full_text = ""
+            # --- TIER 0: Direct Excel (.xlsx / .xls) and Markdown (.md) Parsing ---
+            fname_lower = filename.lower()
+            if fname_lower.endswith(('.xlsx', '.xls', '.md', '.txt')):
+                is_fla_template = "fla" in (template_name or "").lower()
+                if is_fla_template:
+                    try:
+                        from modules.fla.comparison_platform.modules.legacy_parser import LegacyFLAParser
+                        parser = LegacyFLAParser()
+                        if fname_lower.endswith(('.xlsx', '.xls')):
+                            import pandas as pd
+                            excel_dfs = pd.read_excel(io.BytesIO(pdf_bytes), sheet_name=None)
+                            parsed_dict = parser.parse_previous_fla(excel_dfs)
+                        else:
+                            text_str = pdf_bytes.decode('utf-8', errors='ignore')
+                            parsed_dict = parser.parse_md(text_str)
+
+                        extracted_fields = [{"key": k, "value": str(v)} for k, v in parsed_dict.items() if v not in [None, "", "Unknown", "N/A"]]
+                        results.append({
+                            "filename": filename,
+                            "status": "success",
+                            "extracted_fields": extracted_fields
+                        })
+                        continue
+                    except Exception as excel_err:
+                        print(f"[Batch] Direct Excel/MD parsing error on {filename}: {excel_err}")
+                elif fname_lower.endswith(('.md', '.txt')):
+                    full_text = pdf_bytes.decode('utf-8', errors='ignore')
+
+            # Digital text extraction for PDFs via pdfplumber
+            if fname_lower.endswith('.pdf'):
+                pdf_digital_text = ""
+                try:
+                    with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                        pages_text = [p.extract_text() or "" for p in pdf.pages if p.extract_text()]
+                        pdf_digital_text = "\n".join(pages_text).strip()
+                except Exception as pdf_err:
+                    print(f"[Batch] pdfplumber digital text extraction error: {pdf_err}")
+
+                # Run Full OCR (Triton) if possible to get structured tables for DOM
                 try:
                     print(f"[Batch][DOM] Running Full Triton OCR on {filename}...")
                     full_text = _run_triton_ocr_on_pdf_bytes(pdf_bytes)
                 except Exception as ocr_err:
                     print(f"[Batch][DOM] Triton OCR failed: {ocr_err}")
 
-                if full_text:
-                    try:
-                        q = _get_dom_query_from_markdown(full_text)
-                    except Exception as q_err:
-                        print(f"[Batch][DOM] Error building DOM query from markdown: {q_err}")
+                if not full_text.strip() and pdf_digital_text:
+                    full_text = pdf_digital_text
 
-                # Classify document into its specific document type
-                doc_type = classify_document(filename, full_text)
-                print(f"[Batch] Document '{filename}' classified as: '{doc_type}'")
+            if full_text:
+                try:
+                    q = _get_dom_query_from_markdown(full_text)
+                except Exception as q_err:
+                    print(f"[Batch][DOM] Error building DOM query from markdown: {q_err}")
 
+            # Classify document into its specific document type
+            doc_type = classify_document(filename, full_text)
+            print(f"[Batch] Document '{filename}' classified as: '{doc_type}'")
+
+            # --- TIER 0.5: Fast-Path Deterministic MCA Extraction ---
+            fast_path_data = _fast_path_extract_mca_fields(full_text, template_name, field_label_map)
+            for f_id, f_val in fast_path_data.items():
+                if f_val and f_val not in [None, "", "Unknown", "N/A"]:
+                    extracted_lookup[f_id] = f_val
+                    extracted_fields.append({
+                        "key": f_id,
+                        "value": f_val,
+                        "_source": "fast_path"
+                    })
+            if fast_path_data:
+                print(f"[Batch] Fast-path extracted {len(fast_path_data)} fields deterministically: {list(fast_path_data.keys())}")
+
+            # --- TIER 1: DOM-based extraction for each mapped form field ---
+            if schema_rules:
                 # Filter rules strictly for this document type
                 scoped_rules = [r for r in schema_rules if getattr(r, 'document_type', 'generic') == doc_type]
                 if not scoped_rules:
@@ -2164,28 +2332,17 @@ async def extract_batch_documents(
 
                 print(f"[Batch] Scoped {len(scoped_rules)} of {len(schema_rules)} total rules for '{filename}' ({doc_type})")
 
-                # Build dependency map from template schema if available
-                field_dependency_map = {}
-                if template_name:
-                    tmpl = db.query(models.IdpTemplate).filter(models.IdpTemplate.template_name == template_name).first()
-                    if tmpl and tmpl.fields_json:
-                        try:
-                            parsed_tmpl = json.loads(tmpl.fields_json)
-                            fields_list = parsed_tmpl.get("fields", parsed_tmpl) if isinstance(parsed_tmpl, dict) else parsed_tmpl
-                            if isinstance(fields_list, list):
-                                for f in fields_list:
-                                    if isinstance(f, dict) and f.get("id") and f.get("depends_on"):
-                                        field_dependency_map[f["id"]] = f["depends_on"]
-                        except Exception:
-                            pass
-
                 # Sort rules topologically: rules without dependencies evaluated first
                 root_rules = [r for r in scoped_rules if r.form_field not in field_dependency_map]
                 dependent_rules = [r for r in scoped_rules if r.form_field in field_dependency_map]
                 ordered_rules = root_rules + dependent_rules
-                extracted_lookup = {}
 
+                seen_rule_fields = set()
                 for rule in ordered_rules:
+                    # If this field has already been extracted with a valid value (e.g. from Fast-Path), skip DOM/LLM
+                    if rule.form_field in extracted_lookup and extracted_lookup[rule.form_field] not in [None, "", "Unknown", "N/A"]:
+                        continue
+
                     # DAG Pruning Check: evaluate condition against already extracted values
                     dep = field_dependency_map.get(rule.form_field)
                     if dep and isinstance(dep, dict):
@@ -2222,21 +2379,23 @@ async def extract_batch_documents(
                             "_source": "dom"
                         })
                     else:
-                        # Mark as needing LLM fallback
-                        any_dom_miss = True
-                        extracted_fields.append({
-                            "key": rule.form_field,
-                            "value": None,
-                            "_source": "pending_llm",
-                            "_hint": rule.extracted_key
-                        })
+                        # Mark as needing LLM fallback only if not already marked for this field
+                        if rule.form_field not in seen_rule_fields and rule.form_field not in extracted_lookup:
+                            seen_rule_fields.add(rule.form_field)
+                            any_dom_miss = True
+                            extracted_fields.append({
+                                "key": rule.form_field,
+                                "value": None,
+                                "_source": "pending_llm",
+                                "_hint": rule.extracted_key
+                            })
 
             # --- TIER 2 / 3: LLM fallback for any fields that DOM missed ---
             if True:
                 try:
-                    # Ensure we have OCR text — run it now if Tier 1 was skipped
-                    if not full_text:
-                        print(f"[LLM] No OCR text yet for {filename}, running Triton OCR now...")
+                    # Ensure we have text
+                    if not full_text and fname_lower.endswith('.pdf'):
+                        print(f"[LLM] No text yet for {filename}, running Triton OCR now...")
                         full_text = _run_triton_ocr_on_pdf_bytes(pdf_bytes)
                         if doc_type == "generic":
                             doc_type = classify_document(filename, full_text)
@@ -2248,14 +2407,28 @@ async def extract_batch_documents(
                         if not schema_rules:
                             targeted_fields_instruction = "Extract all relevant key-value pairs from the document."
                         elif pending_items:
-                            import re
                             field_lines = []
+                            seen_prompt_keys = set()
                             for pf in pending_items:
                                 raw_key = pf["key"]
-                                clean_name = raw_key.replace("field_", "")
-                                clean_name = re.sub(r'^[0-9]+[a-z]?\s*', '', clean_name)
-                                clean_name = clean_name.replace("_", " ").title()
-                                field_lines.append(f'- Key: "{raw_key}" (Description: {clean_name})')
+                                if raw_key in seen_prompt_keys:
+                                    continue
+                                seen_prompt_keys.add(raw_key)
+
+                                label = field_label_map.get(raw_key, "")
+                                hint = pf.get("_hint", "")
+                                if label and hint and hint.lower() not in label.lower():
+                                    desc = f"{label} (Alias / Hint: {hint})"
+                                elif label:
+                                    desc = label
+                                elif hint:
+                                    desc = hint
+                                else:
+                                    clean_name = raw_key.replace("field_", "")
+                                    clean_name = re.sub(r'^[0-9]+[a-z]?\s*', '', clean_name)
+                                    clean_name = clean_name.replace("_", " ").title()
+                                    desc = clean_name
+                                field_lines.append(f'- Key: "{raw_key}" (Description: {desc})')
                             field_list = "\n".join(field_lines)
                             targeted_fields_instruction = f"""You MUST extract the following specific fields from the document text:
 {field_list}
@@ -2267,33 +2440,35 @@ CRITICAL RULES:
                         else:
                             targeted_fields_instruction = "Extract all relevant key-value pairs from the document."
 
-                        prompt = f"""You are an advanced Intelligent Document Processing (IDP) extractor.
+                        if pending_items or not schema_rules:
+                            prompt = f"""You are an advanced Intelligent Document Processing (IDP) extractor.
 {targeted_fields_instruction}
 
 Document Text:
 {full_text[:8000]}
-                        """
-                        try:
-                            response = requests.post(
-                                "http://192.168.112.2:11434/api/generate",
-                                json={
-                                    "model": "qwen2.5:14b",
-                                    "prompt": prompt,
-                                    "stream": False,
-                                    "format": "json"
-                                },
-                                timeout=60
-                            )
-                            response.raise_for_status()
-                            result = response.json()
-                            extracted_text = result.get("response", "[]")
-                            print(f"[LLM] Raw response for '{filename}': {extracted_text[:300]}")
-                            
-                            import json as python_json
-                            raw_data = python_json.loads(extracted_text)
-                            llm_fields = _normalize_llm_fields(raw_data)
-                        except Exception as ollama_err:
-                            print(f"[!] Ollama LLM call error for {filename}: {ollama_err}")
+                            """
+                            try:
+                                response = requests.post(
+                                    "http://192.168.112.2:11434/api/generate",
+                                    json={
+                                        "model": "qwen2.5:14b",
+                                        "prompt": prompt,
+                                        "stream": False,
+                                        "format": "json"
+                                    },
+                                    timeout=60
+                                )
+                                response.raise_for_status()
+                                result = response.json()
+                                extracted_text = result.get("response", "[]")
+                                print(f"[LLM] Raw response for '{filename}': {extracted_text[:300]}")
+                                
+                                raw_data = python_json.loads(extracted_text)
+                                llm_fields = _normalize_llm_fields(raw_data)
+                            except Exception as ollama_err:
+                                print(f"[!] Ollama LLM call error for {filename}: {ollama_err}")
+                                llm_fields = []
+                        else:
                             llm_fields = []
 
                         if not schema_rules:
@@ -2372,13 +2547,17 @@ Document Text:
 
 
             # Clean up internal metadata (_source, _hint) and remove any fields with no real value
+            # Deduplicate by key keeping the first valid extracted value
             BAD_VALUES = {None, "", "Unknown", "N/A", "Empty / N/A", "None", "null"}
             cleaned_fields = []
+            seen_clean_keys = set()
             for field in extracted_fields:
                 field.pop("_source", None)
                 field.pop("_hint", None)
                 val = field.get("value")
-                if str(val).strip() not in BAD_VALUES and val is not None:
+                k = field.get("key")
+                if str(val).strip() not in BAD_VALUES and val is not None and k not in seen_clean_keys:
+                    seen_clean_keys.add(k)
                     cleaned_fields.append(field)
 
             # Determine status badge

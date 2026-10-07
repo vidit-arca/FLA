@@ -235,6 +235,61 @@ class TestIDPStudioSuite(unittest.TestCase):
         except requests.exceptions.ConnectionError:
             print("[!] FastAPI server not running on port 8000, skipping HTTP check.")
 
+    def test_11_pas6_fast_path_and_covering_letter_extraction(self):
+        """Test PAS-6 fast-path and batch extraction on covering letter."""
+        import asyncio, io
+        from fastapi import UploadFile
+        from automation_engine.modules.idp_studio.router import _fast_path_extract_mca_fields, extract_batch_documents
+
+        test_pdf_path = os.path.join(REPO_ROOT, "testing", "paas-6", "652775279_covering letter _pas6_kritilabs.pdf")
+        if not os.path.exists(test_pdf_path):
+            self.skipTest(f"Test file not found: {test_pdf_path}")
+
+        db = SessionLocal()
+        try:
+            tmpl = db.query(IdpTemplate).filter(IdpTemplate.template_name == "Form No. PAS -6").first()
+            self.assertIsNotNone(tmpl, "PAS-6 template not found in database")
+            import json as py_json
+            parsed_tmpl = py_json.loads(tmpl.fields_json)
+            fields_list = parsed_tmpl.get("fields", parsed_tmpl) if isinstance(parsed_tmpl, dict) else parsed_tmpl
+            label_map = {f["id"]: f.get("label", f["id"]) for f in fields_list if isinstance(f, dict)}
+
+            with open(test_pdf_path, "rb") as f:
+                pdf_bytes = f.read()
+
+            import pdfplumber
+            with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+                full_text = "\n".join([p.extract_text() or "" for p in pdf.pages])
+
+            fast_res = _fast_path_extract_mca_fields(full_text, "Form No. PAS -6", label_map)
+            self.assertEqual(fast_res.get("formnopas6.main.field_1"), "U74999TN2019PTC128763")
+            self.assertEqual(fast_res.get("formnopas6.main.field_2a"), "Kritilabs Technologies Private Limited")
+            self.assertEqual(fast_res.get("formnopas6.main.field_5d"), "3,45,713")
+            self.assertEqual(fast_res.get("formnopas6.main.field_5gi"), "0")
+            self.assertEqual(fast_res.get("formnopas6.main.field_5gi_3"), "2,99,025")
+
+            # Test batch extraction pipeline
+            upload = UploadFile(
+                filename="652775279_covering letter _pas6_kritilabs.pdf",
+                file=io.BytesIO(pdf_bytes)
+            )
+            result = asyncio.run(extract_batch_documents(
+                files=[upload],
+                template_name="Form No. PAS -6",
+                db=db
+            ))
+            self.assertEqual(result["total_files"], 1)
+            res0 = result["results"][0]
+            extracted_map = {f["key"]: f["value"] for f in res0["extracted_fields"]}
+            self.assertEqual(extracted_map.get("formnopas6.main.field_1"), "U74999TN2019PTC128763")
+            self.assertEqual(extracted_map.get("formnopas6.main.field_2a"), "Kritilabs Technologies Private Limited")
+            self.assertEqual(extracted_map.get("formnopas6.main.field_5d"), "3,45,713")
+            self.assertEqual(extracted_map.get("formnopas6.main.field_5gi"), "0")
+            self.assertEqual(extracted_map.get("formnopas6.main.field_5gi_3"), "2,99,025")
+        finally:
+            db.close()
+
 
 if __name__ == "__main__":
     unittest.main()
+
