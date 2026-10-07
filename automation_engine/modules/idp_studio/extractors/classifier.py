@@ -99,9 +99,15 @@ def classify_document(filename: str = "", text: str = "") -> str:
         "eligibility certificate",
         "we hereby give our consent",
         "subject: appointment",
-        "sub: appointment"
+        "sub: appointment",
+        "form dir-2",
+        "form dir 2",
+        "dir-2",
+        "dir 2",
+        "consent to act as a director",
+        "consent to act as director"
     ]
-    if any(k in fname for k in ["consent", "appointment letter", "appointment ltr"]):
+    if any(k in fname for k in ["consent", "appointment letter", "appointment ltr", "dir 2", "dir-2", "dir2"]):
         return "consent_letter"
     if any(k in doc_text for k in consent_keywords):
         return "consent_letter"
@@ -253,6 +259,47 @@ def detect_operative_statutory_branch(
                 "scenario_key": s_key,
                 "sub_reason": None,
                 "section_cited": "Section 139(1)",
+                "confidence": 0.95,
+                "evidence_snippet": _snippet(operative_clause)
+            }
+
+    # Check 8: DIR-12 - Director / KMP Appointment (Section 152 / 161 / 149 / 196 / 203 / Form DIR-2)
+    if re.search(r"161\s*\(\s*[1-4]\s*\)|152\s*\(\s*[1-6]\s*\)|149|162|196|203|additional\s+director|appoint(?:ed)?\s+as\s+(?:an?\s+)?(?:additional\s+)?director|appoint(?:ment)?\s+of\s+director|consent\s+to\s+act\s+as\s+(?:a\s+)?director|form\s+dir-?2", operative_clause, re.IGNORECASE):
+        b = "Appointment"
+        if _is_option_valid(b):
+            sec = "Section 161" if "161" in operative_clause else ("Section 152" if "152" in operative_clause else "Section 149" if "149" in operative_clause else "Section 203" if "203" in operative_clause else "Companies Act, 2013")
+            return {
+                "recommended_branch": b,
+                "scenario_key": "appointment",
+                "sub_reason": None,
+                "section_cited": sec,
+                "confidence": 0.98,
+                "evidence_snippet": _snippet(operative_clause)
+            }
+
+    # Check 9: DIR-12 - Director Cessation / Resignation (Section 168 / 167 / 169)
+    if re.search(r"168|167|169|resignation\s+of\s+director|resigned\s+as\s+director|cessation\s+of\s+(?:office|director)|demise\s+of\s+director|death\s+of\s+director|tender(?:ed)?\s+(?:his|her|their)?\s*resignation", operative_clause, re.IGNORECASE):
+        b = "Cessation"
+        if _is_option_valid(b):
+            reason = "Death" if re.search(r"demise|death|deceased", operative_clause, re.IGNORECASE) else "Resignation"
+            return {
+                "recommended_branch": b,
+                "scenario_key": "cessation",
+                "sub_reason": reason,
+                "section_cited": "Section 168",
+                "confidence": 0.98,
+                "evidence_snippet": _snippet(operative_clause)
+            }
+
+    # Check 10: DIR-12 - Change in Designation
+    if re.search(r"change\s+in\s+designation|re-?designation|redesignated|re-designated", operative_clause, re.IGNORECASE):
+        b = "Change in designation"
+        if _is_option_valid(b):
+            return {
+                "recommended_branch": b,
+                "scenario_key": "change_in_designation",
+                "sub_reason": None,
+                "section_cited": "Companies Act, 2013",
                 "confidence": 0.95,
                 "evidence_snippet": _snippet(operative_clause)
             }

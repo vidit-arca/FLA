@@ -454,6 +454,12 @@ async def autofill_mca_form(
             scenario_key = "central_gov"
         elif "removal" in cb or "non-re-appointment" in cb:
             scenario_key = "removal_appointment"
+        elif "appointment" in cb:
+            scenario_key = "appointment"
+        elif "cessation" in cb:
+            scenario_key = "cessation"
+        elif "change in designation" in cb:
+            scenario_key = "change_in_designation"
         else:
             scenario_key = re.sub(r'[^a-z0-9]+', '_', cb).strip('_')
         context["scenario"] = scenario_key
@@ -1081,12 +1087,20 @@ async def generate_preview_pdf(payload: Dict[str, Any] = Body(...), db: Session 
                         "Auditor appointed in case of non-re-appointment/ removal", "Auditor appointed by Central Government",
                         "Auditor appointed by the Tribunal", "Others"
                     ])
+                elif any(k in lower_key for k in ["purpose_of_filing", "purpose of filing", "field_3a", "field_5a", "field_5c_2"]) or (("3a" in lower_key or "5a" in lower_key) and "purpose" in lower_key):
+                    stamped = stamp_radio_button(doc, ["Purpose of filing the form", "Purpose of filing"], val_str, [
+                        "Appointment", "Cessation", "Change in designation",
+                        "Appointment due to disqualification of all the existing directors",
+                        "Appointment by liquidator"
+                    ])
                 elif any(k in lower_key for k in ["appointed_in_agm", "annual general meeting", "agm"]):
                     stamped = stamp_radio_button(doc, ["annual general meeting (AGM)", "appointed in the annual general meeting"], val_str, ["Yes", "No"])
                 elif any(k in lower_key for k in ["joint_auditor", "joint auditors"]):
                     stamped = stamp_radio_button(doc, ["joint auditors have been appointed"], val_str, ["Yes", "No"])
                 elif any(k in lower_key for k in ["audit_committee", "recommendation of the audit"]):
                     stamped = stamp_radio_button(doc, ["recommendation of the Audit Committee constituted", "Audit Committee constituted"], val_str, ["Yes", "No", "Not Applicable"])
+                elif any(k in lower_key for k in ["whether_chairman", "chairman", "executive_director", "field_3m"]):
+                    stamped = stamp_radio_button(doc, ["Whether Chairman, Executive Director, Non-Executive Director"], val_str, ["Yes", "No"])
                 elif lower_key in ["language", "form_language"]:
                     stamped = stamp_radio_button(doc, ["English", "Hindi"], val_str, ["English", "Hindi"])
 

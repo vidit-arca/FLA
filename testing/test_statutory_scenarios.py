@@ -111,5 +111,40 @@ class TestStatutoryScenarios(unittest.TestCase):
         self.assertIn("U72200DL2020PTC123456", full_text)
         self.assertIn("Test Company Pvt Ltd", full_text)
 
+    def test_dir12_branch_detection_appointment(self):
+        text = """
+        RESOLVED THAT pursuant to the provisions of Section 161 of the Companies Act, 2013 and other applicable provisions, 
+        Mr. Israr Ahmed (DIN: 00013799) be and is hereby appointed as an Additional Director of the Company.
+        """
+        options = ["Appointment", "Cessation", "Change in designation"]
+        res = detect_operative_statutory_branch(text, candidate_options=options)
+        self.assertEqual(res["recommended_branch"], "Appointment")
+        self.assertEqual(res["scenario_key"], "appointment")
+        self.assertEqual(res["section_cited"], "Section 161")
+        self.assertGreaterEqual(res["confidence"], 0.95)
+
+    def test_dir12_branch_detection_cessation(self):
+        text = """
+        RESOLVED THAT the resignation of Mr. John Doe (DIN: 01234567) from the directorship of the Company 
+        pursuant to Section 168 of the Companies Act, 2013 be and is hereby accepted.
+        """
+        options = ["Appointment", "Cessation", "Change in designation"]
+        res = detect_operative_statutory_branch(text, candidate_options=options)
+        self.assertEqual(res["recommended_branch"], "Cessation")
+        self.assertEqual(res["scenario_key"], "cessation")
+        self.assertEqual(res["section_cited"], "Section 168")
+        self.assertEqual(res["sub_reason"], "Resignation")
+
+    def test_dir12_api_branch_options_includes_appointment(self):
+        from fastapi.testclient import TestClient
+        from automation_engine.api.main import app
+
+        client = TestClient(app)
+        res = client.post("/api/idp/forms/Form No. DIR-12/detect_branch").json()
+        self.assertTrue(res["has_branches"])
+        titles = [o["title"] for o in res["available_options"]]
+        self.assertIn("Appointment", titles)
+        self.assertIn("Cessation", titles)
+
 if __name__ == "__main__":
     unittest.main()
