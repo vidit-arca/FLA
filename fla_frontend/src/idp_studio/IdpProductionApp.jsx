@@ -1061,12 +1061,117 @@ export default function IdpProductionApp() {
                     {(() => {
                       const activeFieldsList = consolidatedState?.active_fields;
                       
-                      // If DAG pruned fields are available, use them!
-                      if (activeFieldsList && activeFieldsList.length > 0) {
-                        return activeFieldsList.map((f, idx) => {
+                      // Resolve complete fields list from template schema if active_fields is null/empty
+                      let resolvedFieldsList = activeFieldsList;
+                      if (!resolvedFieldsList || resolvedFieldsList.length === 0) {
+                        const currentTmpl = templates.find(t => t.template_name === templateName);
+                        if (currentTmpl && currentTmpl.fields_json) {
+                          try {
+                            const raw = typeof currentTmpl.fields_json === 'string' ? JSON.parse(currentTmpl.fields_json) : currentTmpl.fields_json;
+                            const tmplFields = Array.isArray(raw) ? raw : (raw?.fields || []);
+                            if (tmplFields.length > 0) {
+                              resolvedFieldsList = tmplFields.map(f => ({
+                                ...f,
+                                value: consolidatedPayload[f.id] || consolidatedPayload[f.canonical_no] || ''
+                              }));
+                            }
+                          } catch (e) {
+                            console.warn("Could not parse fallback template fields:", e);
+                          }
+                        }
+                      }
+
+                      // Apply hideEmptyModalRows filter, but NEVER hide table fields
+                      const displayedFields = (resolvedFieldsList || []).filter(f => {
+                        if (f.type === 'table') return true;
+                        if (!hideEmptyModalRows) return true;
+                        const val = userOverrides[f.id] !== undefined ? userOverrides[f.id] : f.value;
+                        return isFieldMapped(val);
+                      });
+
+                      if (displayedFields && displayedFields.length > 0) {
+                        return displayedFields.map((f, idx) => {
                           const provenance = getFieldSourceDoc(f.id);
                           const isOverridden = !!userOverrides[f.id];
                           const currentVal = userOverrides[f.id] !== undefined ? userOverrides[f.id] : (f.value || '');
+                          const isTable = f.type === 'table' || (f.columns && f.columns.length > 0);
+
+                          if (isTable) {
+                            const cols = f.columns || [];
+                            const rows = Array.isArray(currentVal) && currentVal.length > 0
+                              ? currentVal 
+                              : (Array.isArray(f.default_rows) && f.default_rows.length > 0 
+                                  ? f.default_rows 
+                                  : [cols.reduce((acc, col) => ({ ...acc, [col.key]: '' }), {})]);
+
+                            return (
+                              <tr key={f.id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors bg-emerald-50/[0.04] dark:bg-emerald-950/[0.08]">
+                                <td className="p-4 text-center font-bold text-emerald-600 dark:text-emerald-400 text-xs align-top">{idx + 1}</td>
+                                <td className="p-4 font-bold text-slate-800 dark:text-slate-200 align-top">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <span className="text-[0.6rem] font-bold px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                                      TABLE
+                                    </span>
+                                    <span>{f.canonical_no ? `${f.canonical_no} ${f.label}` : f.label}</span>
+                                  </div>
+                                  <span className="text-[10px] font-mono text-slate-400">{f.id}</span>
+                                </td>
+                                <td className="p-4" colSpan={3}>
+                                  <div className="rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden bg-white dark:bg-black/30 shadow-xs">
+                                    <div className="overflow-x-auto">
+                                      <table className="w-full text-xs text-left border-collapse">
+                                        <thead>
+                                          <tr className="bg-slate-100 dark:bg-white/5 border-b border-slate-200 dark:border-white/10 text-[0.68rem] text-slate-600 dark:text-slate-300 font-semibold">
+                                            <th className="py-2 px-2.5 w-10 text-center">#</th>
+                                            {cols.map(c => (
+                                              <th key={c.key} className="py-2 px-3">{c.label}</th>
+                                            ))}
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-white/5">
+                                          {rows.map((r, rIdx) => (
+                                            <tr key={rIdx}>
+                                              <td className="py-2 px-2.5 text-center font-mono text-slate-400 font-bold">{rIdx + 1}</td>
+                                              {cols.map(c => (
+                                                <td key={c.key} className="py-1.5 px-3">
+                                                  <input
+                                                    type={c.type === 'number' ? 'number' : 'text'}
+                                                    value={r[c.key] || ''}
+                                                    onChange={(e) => {
+                                                      const updatedRows = rows.map((rowItem, i) => 
+                                                        i === rIdx ? { ...rowItem, [c.key]: e.target.value } : rowItem
+                                                      );
+                                                      handleConsolidatedFieldEdit(f.id, updatedRows);
+                                                    }}
+                                                    placeholder={`Enter ${c.label}...`}
+                                                    className="w-full bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-white/10 focus:border-indigo-500 focus:outline-none py-1 px-2 rounded font-mono text-xs text-slate-900 dark:text-white"
+                                                  />
+                                                </td>
+                                              ))}
+                                            </tr>
+                                          ))}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                    <div className="p-2 bg-slate-50 dark:bg-white/[0.02] border-t border-slate-200 dark:border-white/10 flex justify-between items-center text-[0.65rem] text-slate-500">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const newRow = cols.reduce((acc, col) => ({ ...acc, [col.key]: '' }), {});
+                                          const updatedRows = [...rows, newRow];
+                                          handleConsolidatedFieldEdit(f.id, updatedRows);
+                                        }}
+                                        className="px-2.5 py-1 rounded-md bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-500/30 transition-all"
+                                      >
+                                        + Add Row
+                                      </button>
+                                      <span>{rows.length} {rows.length === 1 ? 'row' : 'rows'} configured</span>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          }
 
                           return (
                             <tr key={f.id} className="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">

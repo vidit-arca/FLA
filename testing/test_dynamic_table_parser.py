@@ -162,6 +162,34 @@ class TestDynamicTableParser(unittest.TestCase):
         self.assertIn("date_of_receipt", col_keys)
         self.assertIn("amount_of_receipt", col_keys)
 
+    def test_inc20a_pdf_output_renders_table_grid(self):
+        from automation_engine.modules.idp_studio.router import _create_dynamic_statutory_form_pdf
+        from automation_engine.modules.idp_studio.core.db import SessionLocal
+
+        db = SessionLocal()
+        doc = _create_dynamic_statutory_form_pdf('Form No. INC-20A', {
+            'cin': 'U72900KA2020PTC123456',
+            'company_name': 'Test Tech Pvt Ltd',
+            'formnoinc20a.main.field_4table': [
+                {
+                    'shareholder_name': 'Aarav Patel',
+                    'bank_name': 'HDFC Bank',
+                    'account_number': '50100123456789',
+                    'date_of_receipt': '15/01/2026',
+                    'amount_of_receipt': '50000'
+                }
+            ]
+        }, db=db)
+
+        self.assertGreaterEqual(len(doc), 1)
+        full_text = "".join(p.get_text() for p in doc)
+        self.assertIn("DYNAMIC GRID", full_text)
+        self.assertIn("Name of shareholder", full_text)
+        self.assertIn("Name of the Bank", full_text)
+        self.assertIn("Account number", full_text)
+        self.assertIn("Aarav Patel", full_text)
+        self.assertIn("HDFC Bank", full_text)
+
 
 if __name__ == "__main__":
     unittest.main()

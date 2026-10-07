@@ -681,9 +681,10 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
         # 1. Exact ID check
         if fid in mapped_data and mapped_data[fid] not in [None, "", "Unknown", "null", "None"]:
             matched_keys.add(fid)
-            return str(mapped_data[fid]).strip()
+            raw_v = mapped_data[fid]
+            return raw_v if isinstance(raw_v, (list, dict)) else str(raw_v).strip()
 
-        # 2. Canonical number check (e.g. "3b", "3d", "4b", "4c", "1", "2a")
+        # 2. Canonical number check (e.g. "3b", "3d", "4b", "4c", "1", "2a", "4_table")
         if cno:
             for k, v in mapped_data.items():
                 if not v or str(v).strip() in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
@@ -691,7 +692,7 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
                 k_norm = str(k).lower().replace("(", "").replace(")", "").replace("-", "_").replace(" ", "_")
                 if k_norm.startswith(f"{cno}_") or f"_{cno}_" in k_norm or k_norm == cno or k_norm.endswith(f"_{cno}"):
                     matched_keys.add(k)
-                    return str(v).strip()
+                    return v if isinstance(v, (list, dict)) else str(v).strip()
 
         # 3. Normalized ID fuzzy check
         norm_fid = re.sub(r"[^a-z0-9]", "", fid.lower())
@@ -779,10 +780,14 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
                 full_label = f"*{full_label}"
 
             display_items.append({
+                "id": f.get("id"),
                 "label": full_label,
                 "value": val or "",
                 "type": f.get("type", "text"),
-                "options": f.get("options")
+                "options": f.get("options"),
+                "columns": f.get("columns") or (f.get("table_metadata", {}).get("columns") if isinstance(f.get("table_metadata"), dict) else None) or [],
+                "archetype": f.get("table_archetype") or (f.get("table_metadata", {}).get("table_archetype") if isinstance(f.get("table_metadata"), dict) else "web_dynamic_grid"),
+                "raw_field": f
             })
 
     # Append any extra mapped fields that were not covered by schema
@@ -796,7 +801,10 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
             "label": f"*{clean_lbl}",
             "value": str(v).strip(),
             "type": "text",
-            "options": None
+            "options": None,
+            "columns": [],
+            "archetype": None,
+            "raw_field": None
         })
 
     # Render each statutory item dynamically
@@ -806,6 +814,100 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
         f_type = item.get("type", "text")
         options = item.get("options")
         is_radio = f_type in ["radio", "select", "toggle"] and options and len(options) > 0
+
+        # --- STATUTORY TABLE / GRID RENDERING ---
+        if f_type == "table":
+            table_cols = item.get("columns") or []
+            if not table_cols and isinstance(item.get("raw_field"), dict):
+                table_cols = item["raw_field"].get("columns", [])
+
+            # Check if value is list of rows or JSON string
+            table_rows = []
+            if isinstance(val_str, list):
+                table_rows = val_str
+            elif isinstance(val_str, str) and (val_str.startswith("[") or val_str.startswith("{")):
+                try:
+                    parsed_rows = python_json.loads(val_str)
+                    table_rows = parsed_rows if isinstance(parsed_rows, list) else [parsed_rows]
+                except Exception:
+                    table_rows = []
+            elif isinstance(val_str, dict):
+                table_rows = [val_str]
+
+            # If no rows or empty rows, render at least 2 default statutory rows so grid is clearly visible
+            if not table_rows:
+                table_rows = [{c.get("key", ""): "" for c in table_cols}, {c.get("key", ""): "" for c in table_cols}]
+
+            header_h = 22.0
+            col_header_h = 20.0
+            row_h = 20.0
+            total_table_min_h = header_h + col_header_h + row_h
+
+            if y + total_table_min_h > 780:
+                page.insert_text((42, 802), f"Page {len(doc)} • Official MCA Filing Return", fontsize=7.5, fontname="helv", color=(0.5, 0.5, 0.5))
+                page = doc.new_page(width=595, height=842)
+                page.draw_rect(fitz.Rect(28, 28, 567, 814), color=(0.15, 0.2, 0.3), width=1.2)
+                y = 45
+
+            # 1. Table Title Banner across full width (x=35 to 560)
+            page.draw_rect(fitz.Rect(35, y, 560, y + header_h), color=(0.75, 0.80, 0.88), fill=(0.88, 0.91, 0.96), width=0.8)
+            lbl_text_rect = fitz.Rect(42, y + 2, 430, y + header_h - 2)
+            page.insert_textbox(lbl_text_rect, label, fontsize=8.0, fontname="helv", color=(0.08, 0.16, 0.35))
+            page.insert_text((440, y + 14), "[STATUTORY DYNAMIC GRID]", fontsize=6.5, fontname="helv", color=(0.25, 0.35, 0.45))
+            y += header_h
+
+            # 2. Column Headers
+            num_cols = len(table_cols) if table_cols else 1
+            sno_w = 26.0
+            avail_w = 525.0 - sno_w
+            col_w = avail_w / max(1, num_cols)
+
+            page.draw_rect(fitz.Rect(35, y, 560, y + col_header_h), color=(0.75, 0.80, 0.88), fill=(0.93, 0.95, 0.98), width=0.5)
+            page.insert_text((43, y + 13), "#", fontsize=7.5, fontname="helv", color=(0.12, 0.2, 0.3))
+
+            for c_i, c in enumerate(table_cols):
+                cx = 35 + sno_w + c_i * col_w
+                page.draw_line(fitz.Point(cx, y), fitz.Point(cx, y + col_header_h), color=(0.75, 0.80, 0.88), width=0.5)
+                c_lbl = c.get("label") or c.get("key", f"Col {c_i+1}")
+                c_rect = fitz.Rect(cx + 2, y + 2, cx + col_w - 2, y + col_header_h - 2)
+                page.insert_textbox(c_rect, c_lbl, fontsize=6.8, fontname="helv", color=(0.12, 0.2, 0.3))
+            y += col_header_h
+
+            # 3. Data Rows
+            for r_idx, r_dict in enumerate(table_rows):
+                if y + row_h > 780:
+                    page.insert_text((42, 802), f"Page {len(doc)} • Official MCA Filing Return", fontsize=7.5, fontname="helv", color=(0.5, 0.5, 0.5))
+                    page = doc.new_page(width=595, height=842)
+                    page.draw_rect(fitz.Rect(28, 28, 567, 814), color=(0.15, 0.2, 0.3), width=1.2)
+                    y = 45
+                    page.draw_rect(fitz.Rect(35, y, 560, y + col_header_h), color=(0.75, 0.80, 0.88), fill=(0.93, 0.95, 0.98), width=0.5)
+                    page.insert_text((43, y + 13), "#", fontsize=7.5, fontname="helv", color=(0.12, 0.2, 0.3))
+                    for c_i, c in enumerate(table_cols):
+                        cx = 35 + sno_w + c_i * col_w
+                        page.draw_line(fitz.Point(cx, y), fitz.Point(cx, y + col_header_h), color=(0.75, 0.80, 0.88), width=0.5)
+                        c_lbl = c.get("label") or c.get("key", f"Col {c_i+1}")
+                        c_rect = fitz.Rect(cx + 2, y + 2, cx + col_w - 2, y + col_header_h - 2)
+                        page.insert_textbox(c_rect, c_lbl, fontsize=6.8, fontname="helv", color=(0.12, 0.2, 0.3))
+                    y += col_header_h
+
+                r_bg = (0.98, 0.99, 1.0) if r_idx % 2 == 0 else (1.0, 1.0, 1.0)
+                page.draw_rect(fitz.Rect(35, y, 560, y + row_h), color=(0.85, 0.88, 0.92), fill=r_bg, width=0.5)
+                page.draw_line(fitz.Point(35 + sno_w, y), fitz.Point(35 + sno_w, y + row_h), color=(0.85, 0.88, 0.92), width=0.5)
+                page.insert_text((43, y + 13), str(r_idx + 1), fontsize=7.5, fontname="helv", color=(0.4, 0.45, 0.5))
+
+                for c_i, c in enumerate(table_cols):
+                    cx = 35 + sno_w + c_i * col_w
+                    page.draw_line(fitz.Point(cx, y), fitz.Point(cx, y + row_h), color=(0.85, 0.88, 0.92), width=0.5)
+                    cell_val = str(r_dict.get(c.get("key", ""), "") if isinstance(r_dict, dict) else "").strip()
+                    cell_rect = fitz.Rect(cx + 3, y + 2, cx + col_w - 3, y + row_h - 2)
+                    if cell_val:
+                        page.insert_textbox(cell_rect, cell_val, fontsize=7.5, fontname="helv", color=(0.05, 0.1, 0.2))
+                    else:
+                        page.insert_textbox(cell_rect, "—", fontsize=7.0, fontname="helv", color=(0.6, 0.65, 0.7))
+                y += row_h
+
+            y += 6
+            continue
 
         display_val = val_str if val_str else "(Not Applicable / Not Filled)"
 
