@@ -678,7 +678,7 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
 
     matched_keys = set()
 
-    # Dynamic Field Value Resolver
+    # Dynamic Field Value Resolver with Type Guards & Family Boundary Isolation
     def _find_field_value(field_def: Dict[str, Any]) -> Optional[str]:
         fid = field_def.get("id", "")
         flabel = field_def.get("label", "").lower()
@@ -686,31 +686,97 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
         f_type = str(field_def.get("type", "text")).lower()
         options = field_def.get("options") or []
 
-        # 1. Exact ID check
-        if fid in mapped_data and mapped_data[fid] not in [None, "", "Unknown", "null", "None"]:
-            matched_keys.add(fid)
-            raw_v = mapped_data[fid]
-            return raw_v if isinstance(raw_v, (list, dict)) else str(raw_v).strip()
+        # Universal Data-Type Sanity Validator & Sanitizer
+        def _validate_and_sanitize(val: Any) -> Optional[str]:
+            if val is None:
+                return None
+            if isinstance(val, (list, dict)):
+                return val
+            val_str = str(val).strip()
+            if val_str in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
+                return None
 
-        # 2. Canonical number check (e.g. "3b", "3d", "4b", "4c", "1", "2a", "4_table")
+            # 1. Date Type Guard: Strictly enforce date format and reject comma-separated share numbers
+            is_date_field = (
+                f_type == "date"
+                or "(dd/mm/yyyy)" in flabel
+                or "from (dd/mm/yyyy)" in flabel
+                or "to (dd/mm/yyyy)" in flabel
+                or "period of filing" in flabel
+            )
+            if is_date_field:
+                if "," in val_str:
+                    return None  # Reject share numbers like 2,99,025
+                if not re.search(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b', val_str):
+                    return None  # Must match date pattern
+
+            # 2. Numeric / Share count Guard: Sanitize non-numeric status strings to clean 0
+            is_numeric_field = (
+                f_type in ["number", "currency"]
+                or "number of shares" in flabel
+                or "held in" in flabel
+                or "total shares" in flabel
+            )
+            if is_numeric_field:
+                upper = val_str.upper()
+                if upper in ["NOT ADMITTED", "N/A", "NIL", "NONE", "UNKNOWN"]:
+                    return "0"
+
+            return val_str
+
+        # 1. Exact ID check
+        if fid in mapped_data:
+            sanitized = _validate_and_sanitize(mapped_data[fid])
+            if sanitized is not None:
+                matched_keys.add(fid)
+                return sanitized
+
+        # 2. Canonical number check with Family Isolation
         if cno:
             for k, v in mapped_data.items():
-                if not v or str(v).strip() in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
+                sanitized = _validate_and_sanitize(v)
+                if sanitized is None:
                     continue
+
                 k_norm = str(k).lower().replace("(", "").replace(")", "").replace("-", "_").replace(" ", "_")
-                if k_norm.startswith(f"{cno}_") or f"_{cno}_" in k_norm or k_norm == cno or k_norm.endswith(f"_{cno}"):
+                
+                # Family boundary guard: prevent cross-section suffix bleed (e.g. field_5gi_3 matching cno=3)
+                k_family = re.search(r'field_([0-9]+)', k_norm)
+                fid_family = re.search(r'field_([0-9]+)', fid.lower())
+                if k_family and fid_family and k_family.group(1) != fid_family.group(1):
+                    continue
+
+                k_tail = k_norm.split(".")[-1]
+                is_cno_match = (
+                    k_tail == cno
+                    or k_tail == f"field_{cno}"
+                    or k_tail.startswith(f"field_{cno}_")
+                    or k_norm == cno
+                    or k_norm == f"field_{cno}"
+                    or k_norm.startswith(f"{cno}_")
+                )
+                if is_cno_match:
                     matched_keys.add(k)
-                    return v if isinstance(v, (list, dict)) else str(v).strip()
+                    return sanitized
 
         # 3. Normalized ID fuzzy check
         norm_fid = re.sub(r"[^a-z0-9]", "", fid.lower())
         for k, v in mapped_data.items():
-            if not v or str(v).strip() in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
+            sanitized = _validate_and_sanitize(v)
+            if sanitized is None:
                 continue
-            norm_k = re.sub(r"[^a-z0-9]", "", str(k).lower())
+
+            k_norm = str(k).lower()
+            # Family boundary check for fuzzy ID
+            k_family = re.search(r'field_([0-9]+)', k_norm)
+            fid_family = re.search(r'field_([0-9]+)', fid.lower())
+            if k_family and fid_family and k_family.group(1) != fid_family.group(1):
+                continue
+
+            norm_k = re.sub(r"[^a-z0-9]", "", k_norm)
             if norm_k == norm_fid or (len(norm_fid) > 4 and norm_fid in norm_k) or (len(norm_k) > 4 and norm_k in norm_fid):
                 matched_keys.add(k)
-                return str(v).strip()
+                return sanitized
 
             # Label token check
             clean_k = str(k).lower().replace("_", " ").replace("field ", "").strip()
@@ -718,17 +784,17 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
                 # Direct substring match
                 if clean_k in flabel or flabel in clean_k:
                     matched_keys.add(k)
-                    return str(v).strip()
+                    return sanitized
                 # Whole word match for acronyms (e.g. cin, din, pan, llpin)
                 if len(clean_k) >= 3 and re.search(r'\b' + re.escape(clean_k) + r'\b', flabel):
                     matched_keys.add(k)
-                    return str(v).strip()
+                    return sanitized
                 # Multi-word token subset match (e.g. "company_name" in "Name of the Company")
                 tokens_k = set(re.findall(r'[a-z0-9]+', clean_k)) - {"the", "of", "and", "in", "to", "for", "is", "field"}
                 tokens_lbl = set(re.findall(r'[a-z0-9]+', flabel)) - {"the", "of", "and", "in", "to", "for", "is", "field"}
                 if len(tokens_k) >= 2 and tokens_k.issubset(tokens_lbl):
                     matched_keys.add(k)
-                    return str(v).strip()
+                    return sanitized
 
         # 4. If radio/toggle with [Yes, No] options and not affirmatively mapped, default to "No"
         if f_type in ["radio", "toggle"] and options and set(str(o).lower().strip() for o in options) == {"yes", "no"}:
@@ -2125,6 +2191,15 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
         m = re.search(r'(?:Name of the company|Company Name)\s*[:\|]\s*([^\n\|]+)', full_text, re.IGNORECASE)
         if m:
             comp_name = m.group(1).strip()
+    # Pattern E: Date followed by Company Name in RTA Certificate
+    if not comp_name:
+        m = re.search(r'Date:\s*\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\s*\n([A-Za-z0-9\s,\.]+?(?:LIMITED|PVT LTD|PRIVATE LIMITED))', full_text, re.IGNORECASE)
+        if m:
+            comp_name = m.group(1).strip()
+    if not comp_name:
+        m = re.search(r'ISIN Description:\s*([A-Za-z0-9\s,\.]+?)\s+(?:EQ|EQUITY|PREF)', full_text, re.IGNORECASE)
+        if m:
+            comp_name = m.group(1).strip()
 
     if comp_name:
         comp_name_clean = comp_name.strip('*').strip()
@@ -2147,7 +2222,6 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
                     extracted[f_id] = shares_val
 
         # Field 5(g): Promoters, Directors, KMP shares breakdown (Demat & Physical)
-        # Matches both Markdown table rows and space-aligned rows:
         prom_match = re.search(r'(?:^|\n)\s*\|?\s*(?:\(i\)\s*)?Promoters\s*\|?\s*([0-9,]+)\s*\|?\s*([0-9,]+)', full_text, re.IGNORECASE)
         if prom_match:
             demat_val = prom_match.group(1).strip()
@@ -2178,6 +2252,55 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
                 elif f_id.endswith(".field_5gii_2") or f_id == "field_5gii_2":
                     extracted[f_id] = phys_val
 
+        # RTA Certificate & ISIN Pattern Matching
+        m_isin = re.search(r'\b([A-Z]{2}[A-Z0-9]{9}\d)\b', full_text)
+        if m_isin:
+            isin_val = m_isin.group(1).strip()
+            for f_id, label in field_label_map.items():
+                if f_id.endswith(".field_5b") or f_id == "field_5b" or "isin" in (label or "").lower():
+                    extracted[f_id] = isin_val
+
+        # Half-year filing period from RTA certificate or audit text
+        m_half = re.search(r'half year(?:ly)?\s*(?:audit|ended|end)?[-\s:]*(\d{1,2}[/-]\d{1,2}[/-]\d{4})', full_text, re.IGNORECASE)
+        if m_half:
+            end_date = m_half.group(1).strip()
+            try:
+                parts = end_date.split('/') if '/' in end_date else end_date.split('-')
+                if len(parts) == 3:
+                    d, m_part, y = parts[0], parts[1], parts[2]
+                    from_date = f"01/10/{int(y)-1}" if m_part == "03" else f"01/04/{y}"
+                    for f_id, label in field_label_map.items():
+                        l_low = (label or "").lower()
+                        if f_id.endswith(".field_3") or (f_id.endswith("field_3") and not f_id.endswith("field_3_2")) or "from (dd/mm/yyyy)" in l_low:
+                            extracted[f_id] = from_date
+                        elif f_id.endswith(".field_3_2") or f_id.endswith("field_3_2") or "to (dd/mm/yyyy)" in l_low:
+                            extracted[f_id] = end_date
+            except Exception:
+                pass
+
+        # Depository shares held through NSDL / CDSL (mapping NOT ADMITTED / NIL -> 0)
+        m_nsdl = re.search(r'Electronic Form through NSDL\s*([0-9,]+|NOT ADMITTED|NIL)', full_text, re.IGNORECASE)
+        if m_nsdl:
+            raw_nsdl = m_nsdl.group(1).strip().upper()
+            nsdl_val = "0" if raw_nsdl in ["NOT ADMITTED", "NIL", "N/A"] else m_nsdl.group(1).strip()
+            for f_id, label in field_label_map.items():
+                if f_id.endswith(".field_5di_2") or "nsdl" in (label or "").lower():
+                    extracted[f_id] = nsdl_val
+
+        m_cdsl = re.search(r'Electronic Form through CDSL\s*([0-9,]+|NOT ADMITTED|NIL)', full_text, re.IGNORECASE)
+        if m_cdsl:
+            raw_cdsl = m_cdsl.group(1).strip().upper()
+            cdsl_val = "0" if raw_cdsl in ["NOT ADMITTED", "NIL", "N/A"] else m_cdsl.group(1).strip()
+            for f_id, label in field_label_map.items():
+                if f_id.endswith(".field_5di") or ("cdsl" in (label or "").lower() and "nsdl" not in (label or "").lower()):
+                    extracted[f_id] = cdsl_val
+
+        # Security type
+        if "equity" in full_text.lower():
+            for f_id, label in field_label_map.items():
+                if f_id.endswith(".field_5a") or "type of security" in (label or "").lower():
+                    extracted[f_id] = "Equity"
+
     # 4. Registered Address and Email for any MCA form
     addr_match = re.search(r'(?:Address of the registered office|Registered Office Address|Registered Address)\s*[:\|]\s*([^\n\|]+)', full_text, re.IGNORECASE)
     if addr_match:
@@ -2194,6 +2317,32 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
             l_lower = (label or "").lower()
             if "email id" in l_lower or "email" in l_lower:
                 extracted[f_id] = email_val
+
+    # 5. DIN, PAN, and Board Resolution Date across all statutory forms
+    din_match = re.search(r'\b(?:DIN|Director Identification Number)\s*[:\-\s]*([0-9]{8})\b', full_text, re.IGNORECASE)
+    if din_match:
+        din_val = din_match.group(1).strip()
+        for f_id, label in field_label_map.items():
+            l_lower = (label or "").lower()
+            if "din" in l_lower or "director identification" in l_lower:
+                extracted[f_id] = din_val
+
+    pan_match = re.search(r'\b(?:PAN|Permanent Account Number)\s*[:\-\s]*([A-Z]{5}[0-9]{4}[A-Z])\b', full_text, re.IGNORECASE)
+    if pan_match:
+        pan_val = pan_match.group(1).strip()
+        for f_id, label in field_label_map.items():
+            l_lower = (label or "").lower()
+            if "pan" in l_lower:
+                extracted[f_id] = pan_val
+
+    br_match = re.search(r'resolution\s*(?:no\.?|number)?\s*[:\-\s]*([0-9A-Za-z/]+)?\s*dated\s*[:\-\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})', full_text, re.IGNORECASE)
+    if br_match:
+        br_num = br_match.group(1).strip() if br_match.group(1) else ""
+        br_date = br_match.group(2).strip() if br_match.group(2) else ""
+        for f_id, label in field_label_map.items():
+            l_lower = (label or "").lower()
+            if "board of directors" in l_lower or "vide resolution" in l_lower:
+                extracted[f_id] = f"Resolution No: {br_num} Dated: {br_date}".strip()
 
     return extracted
 
@@ -2579,7 +2728,24 @@ Document Text:
                 "extracted_fields": []
             })
 
-    return {"total_files": len(files), "results": results}
+    # Build unified dossier return across all uploaded files for the session
+    dossier_map = {}
+    for r in results:
+        for f in r.get("extracted_fields", []):
+            k = f.get("key")
+            v = f.get("value")
+            if k and v not in [None, "", "Unknown", "N/A", "Empty / N/A"]:
+                # High-confidence precedence: if not yet present or previously "0", take non-empty value
+                if k not in dossier_map or dossier_map[k] in ["0", "Unknown", None]:
+                    dossier_map[k] = v
+
+    dossier_merged_fields = [{"key": k, "value": v} for k, v in dossier_map.items()]
+
+    return {
+        "total_files": len(files),
+        "results": results,
+        "dossier_merged_fields": dossier_merged_fields
+    }
 
 
 
