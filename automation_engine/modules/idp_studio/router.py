@@ -722,7 +722,39 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
                 if upper in ["NOT ADMITTED", "N/A", "NIL", "NONE", "UNKNOWN"]:
                     return "0"
 
+            # 3. Classification / Code Guard: Sanitize boolean toggles ("Yes"/"No") away from code & SRN fields
+            is_code_field = (
+                "sub-class" in flabel
+                or "sub class" in flabel
+                or "industrial activity" in flabel
+                or "nic code" in flabel
+                or "srn" in flabel
+                or "cin" in flabel
+                or "din" in flabel
+                or "pan" in flabel
+            )
+            # 4. File Attachment Guard: File fields only accept genuine document/file names
+            if f_type == "file":
+                if not any(val_str.lower().endswith(ext) for ext in [".pdf", ".zip", ".jpg", ".png", ".xlsx", ".docx", ".doc"]):
+                    return None
+
             return val_str
+
+        # Signatory Role Exclusivity Context
+        is_dir_din_field = "director identification number of the director" in flabel or ("director identification" in flabel and "manager" not in flabel)
+        is_kmp_sec_field = "manager or ceo or cfo" in flabel or "membership number of the company secretary" in flabel
+
+        active_desig = str(
+            mapped_data.get("designation")
+            or mapped_data.get("field_designation")
+            or mapped_data.get("formnomgt14.main.field_designation")
+            or ""
+        ).strip().lower()
+
+        if is_dir_din_field and active_desig and not any(d in active_desig for d in ["director", "md", "managing"]):
+            return None
+        if is_kmp_sec_field and (active_desig and any(d in active_desig for d in ["director", "md", "managing"])):
+            return None
 
         # 1. Exact ID check
         if fid in mapped_data:
@@ -779,10 +811,28 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
                 return sanitized
 
             # Label token check
-            clean_k = str(k).lower().replace("_", " ").replace("field ", "").strip()
+            # Strip schema namespace prefix (e.g. formnomgt14.main...) so clean_k matches cleanly
+            k_unprefixed = re.sub(r'^[a-z0-9_]+\.(?:main|repeating|sec)\.', '', str(k).lower())
+            clean_k = k_unprefixed.replace("_", " ").replace("field ", "").strip()
+
+            STATUTORY_ACRONYMS = {
+                "din": "director identification number",
+                "cin": "corporate identity number",
+                "pan": "permanent account number",
+                "llpin": "limited liability partnership identification number",
+                "srn": "service request number"
+            }
+            expanded_k = STATUTORY_ACRONYMS.get(clean_k, clean_k)
+
             if flabel:
-                # Direct substring match
-                if clean_k in flabel or flabel in clean_k:
+                # Signatory mutual exclusivity token guard: Director DIN must not bleed into Manager/CS field
+                if is_kmp_sec_field and (clean_k in ["din", "director identification number", "director identification", "director din"] or expanded_k == "director identification number"):
+                    continue
+                if is_dir_din_field and any(kmp_term in clean_k for kmp_term in ["membership", "manager", "ceo", "cfo", "secretary", "liquidator"]):
+                    continue
+
+                # Direct substring match (require at least 4 chars to prevent single-character/digit bleed like '1' in '102')
+                if (len(clean_k) >= 4 and (clean_k in flabel or flabel in clean_k)) or (len(expanded_k) >= 4 and (expanded_k in flabel or flabel in expanded_k)):
                     matched_keys.add(k)
                     return sanitized
                 # Whole word match for acronyms (e.g. cin, din, pan, llpin)
@@ -790,7 +840,7 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
                     matched_keys.add(k)
                     return sanitized
                 # Multi-word token subset match (e.g. "company_name" in "Name of the Company")
-                tokens_k = set(re.findall(r'[a-z0-9]+', clean_k)) - {"the", "of", "and", "in", "to", "for", "is", "field"}
+                tokens_k = set(re.findall(r'[a-z0-9]+', expanded_k)) - {"the", "of", "and", "in", "to", "for", "is", "field"}
                 tokens_lbl = set(re.findall(r'[a-z0-9]+', flabel)) - {"the", "of", "and", "in", "to", "for", "is", "field"}
                 if len(tokens_k) >= 2 and tokens_k.issubset(tokens_lbl):
                     matched_keys.add(k)
@@ -864,12 +914,32 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
                 "raw_field": f
             })
 
+    INTERNAL_METADATA_KEYS = {
+        "statutory_scenario", "statutory_branch", "recommended_branch",
+        "scenario_key", "confidence", "confidence_score", "section_cited",
+        "dossier_merged_fields", "file_name", "document_type", "total_files",
+        "raw_text", "ocr_status", "fast_path_matched"
+    }
+
     # Append any extra mapped fields that were not covered by schema
     for k, v in mapped_data.items():
         if k in matched_keys:
             continue
         if not v or str(v).strip() in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
             continue
+
+        k_lower = str(k).lower().strip()
+        # 1. Skip known internal engine metadata
+        if k_lower in INTERNAL_METADATA_KEYS or any(m in k_lower for m in ["statutory_scenario", "statutory_branch", "scenario_key"]):
+            continue
+        # 2. Skip raw form-prefixed dot notation keys (e.g. formnomgt14.main..., formnopas6.main...)
+        if re.match(r'^form[a-z0-9_]+\.(?:main|repeating|sec)\.', k_lower):
+            continue
+        # 3. Skip keys that match or end with any schema field id suffix
+        k_tail = k_lower.split(".")[-1]
+        if any(f.get("id", "").lower().endswith(k_tail) or k_tail == f.get("id", "").lower() for f in fields):
+            continue
+
         clean_lbl = k.replace("_", " ").replace("field ", "").title()
         display_items.append({
             "label": f"*{clean_lbl}",
@@ -887,7 +957,8 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
         val_str = item["value"]
         f_type = item.get("type", "text")
         options = item.get("options")
-        is_radio = f_type in ["radio", "select", "toggle"] and options and len(options) > 0
+        # Select dropdowns with <= 3 options or radios/toggles render with selection circles; larger dropdowns display selected value cleanly
+        is_radio = (f_type in ["radio", "toggle"]) or (f_type == "select" and options and len(options) <= 3)
 
         # --- STATUTORY TABLE / GRID RENDERING ---
         if f_type == "table":
@@ -1013,10 +1084,33 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
         # Value cell: Render dynamic radio/select options with filled dots or formatted text
         if is_radio and options:
             val_lower = val_str.lower().strip()
+            # Pick ONLY ONE best-matching option to guarantee single-choice exclusivity
+            selected_opt = None
+            if val_lower:
+                clean_val = re.sub(r'[^a-z0-9]', '', val_lower)
+                # 1. Exact equality check
+                for opt in options:
+                    clean_opt = re.sub(r'[^a-z0-9]', '', str(opt).lower())
+                    if clean_opt == clean_val:
+                        selected_opt = opt
+                        break
+                # 2. Token overlap check if no exact equality
+                if not selected_opt:
+                    tokens_val = set(re.findall(r'[a-z0-9]+', val_lower))
+                    best_score = 0.0
+                    for opt in options:
+                        tokens_opt = set(re.findall(r'[a-z0-9]+', str(opt).lower()))
+                        if tokens_opt:
+                            overlap = len(tokens_opt & tokens_val)
+                            score = overlap / float(len(tokens_opt))
+                            if score > best_score and score >= 0.8:
+                                best_score = score
+                                selected_opt = opt
+
             opt_y = y + 4
             for opt in options:
                 opt_str = str(opt).strip()
-                is_selected = (opt_str.lower() in val_lower) or (val_lower and val_lower in opt_str.lower())
+                is_selected = (selected_opt is not None and opt == selected_opt)
                 page.draw_circle((280, opt_y + 5), radius=3.2, color=(0.3, 0.3, 0.3), width=0.75)
                 if is_selected:
                     page.draw_circle((280, opt_y + 5), radius=1.8, color=(0.05, 0.1, 0.25), fill=(0.05, 0.1, 0.25))
@@ -2318,14 +2412,31 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
             if "email id" in l_lower or "email" in l_lower:
                 extracted[f_id] = email_val
 
-    # 5. DIN, PAN, and Board Resolution Date across all statutory forms
+    # 5. DIN, PAN, CS Membership, and Board Resolution Date across all statutory forms
     din_match = re.search(r'\b(?:DIN|Director Identification Number)\s*[:\-\s]*([0-9]{8})\b', full_text, re.IGNORECASE)
     if din_match:
         din_val = din_match.group(1).strip()
         for f_id, label in field_label_map.items():
             l_lower = (label or "").lower()
-            if "din" in l_lower or "director identification" in l_lower:
+            # Director DIN must only map to Director DIN fields, not to Manager/CEO/CFO/CS fields
+            if ("director identification" in l_lower or "din of director" in l_lower or "din" in l_lower) and "manager" not in l_lower and "secretary" not in l_lower and "liquidator" not in l_lower:
                 extracted[f_id] = din_val
+
+    cs_match = re.search(r'\b(?:ACS|FCS|Membership\s*(?:No\.?|Number))\s*[:\-\s]*([A-Z0-9]{4,8})\b', full_text, re.IGNORECASE)
+    if cs_match:
+        cs_val = cs_match.group(1).strip()
+        for f_id, label in field_label_map.items():
+            l_lower = (label or "").lower()
+            if "membership number of the company secretary" in l_lower or "membership number of company secretary" in l_lower:
+                extracted[f_id] = cs_val
+
+    kmp_match = re.search(r'(?:Manager|CEO|CFO|Liquidator)\s*(?:DIN|PAN)?\s*[:\-\s]*([A-Z0-9]{8,10})\b', full_text, re.IGNORECASE)
+    if kmp_match:
+        kmp_val = kmp_match.group(1).strip()
+        for f_id, label in field_label_map.items():
+            l_lower = (label or "").lower()
+            if ("manager" in l_lower or "ceo" in l_lower or "cfo" in l_lower) and ("din or pan" in l_lower or "din" in l_lower):
+                extracted[f_id] = kmp_val
 
     pan_match = re.search(r'\b(?:PAN|Permanent Account Number)\s*[:\-\s]*([A-Z]{5}[0-9]{4}[A-Z])\b', full_text, re.IGNORECASE)
     if pan_match:
