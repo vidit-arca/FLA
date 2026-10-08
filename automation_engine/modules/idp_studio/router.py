@@ -733,8 +733,10 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
                 or "din" in flabel
                 or "pan" in flabel
             )
-            if is_code_field and val_str.lower() in ["yes", "no", "true", "false"]:
-                return None
+            # 4. File Attachment Guard: File fields only accept genuine document/file names
+            if f_type == "file":
+                if not any(val_str.lower().endswith(ext) for ext in [".pdf", ".zip", ".jpg", ".png", ".xlsx", ".docx", ".doc"]):
+                    return None
 
             return val_str
 
@@ -829,8 +831,8 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
                 if is_dir_din_field and any(kmp_term in clean_k for kmp_term in ["membership", "manager", "ceo", "cfo", "secretary", "liquidator"]):
                     continue
 
-                # Direct substring match (check both clean_k and expanded_k)
-                if clean_k in flabel or flabel in clean_k or expanded_k in flabel or flabel in expanded_k:
+                # Direct substring match (require at least 4 chars to prevent single-character/digit bleed like '1' in '102')
+                if (len(clean_k) >= 4 and (clean_k in flabel or flabel in clean_k)) or (len(expanded_k) >= 4 and (expanded_k in flabel or flabel in expanded_k)):
                     matched_keys.add(k)
                     return sanitized
                 # Whole word match for acronyms (e.g. cin, din, pan, llpin)
@@ -2410,14 +2412,31 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
             if "email id" in l_lower or "email" in l_lower:
                 extracted[f_id] = email_val
 
-    # 5. DIN, PAN, and Board Resolution Date across all statutory forms
+    # 5. DIN, PAN, CS Membership, and Board Resolution Date across all statutory forms
     din_match = re.search(r'\b(?:DIN|Director Identification Number)\s*[:\-\s]*([0-9]{8})\b', full_text, re.IGNORECASE)
     if din_match:
         din_val = din_match.group(1).strip()
         for f_id, label in field_label_map.items():
             l_lower = (label or "").lower()
-            if "din" in l_lower or "director identification" in l_lower:
+            # Director DIN must only map to Director DIN fields, not to Manager/CEO/CFO/CS fields
+            if ("director identification" in l_lower or "din of director" in l_lower or "din" in l_lower) and "manager" not in l_lower and "secretary" not in l_lower and "liquidator" not in l_lower:
                 extracted[f_id] = din_val
+
+    cs_match = re.search(r'\b(?:ACS|FCS|Membership\s*(?:No\.?|Number))\s*[:\-\s]*([A-Z0-9]{4,8})\b', full_text, re.IGNORECASE)
+    if cs_match:
+        cs_val = cs_match.group(1).strip()
+        for f_id, label in field_label_map.items():
+            l_lower = (label or "").lower()
+            if "membership number of the company secretary" in l_lower or "membership number of company secretary" in l_lower:
+                extracted[f_id] = cs_val
+
+    kmp_match = re.search(r'(?:Manager|CEO|CFO|Liquidator)\s*(?:DIN|PAN)?\s*[:\-\s]*([A-Z0-9]{8,10})\b', full_text, re.IGNORECASE)
+    if kmp_match:
+        kmp_val = kmp_match.group(1).strip()
+        for f_id, label in field_label_map.items():
+            l_lower = (label or "").lower()
+            if ("manager" in l_lower or "ceo" in l_lower or "cfo" in l_lower) and ("din or pan" in l_lower or "din" in l_lower):
+                extracted[f_id] = kmp_val
 
     pan_match = re.search(r'\b(?:PAN|Permanent Account Number)\s*[:\-\s]*([A-Z]{5}[0-9]{4}[A-Z])\b', full_text, re.IGNORECASE)
     if pan_match:
