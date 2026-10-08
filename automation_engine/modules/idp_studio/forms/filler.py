@@ -57,6 +57,7 @@ class DynamicFormFiller:
             confirmed_branch = context["confirmed_branch"]
             for f in fields:
                 flbl = f.get("label", "").lower()
+                fid = f.get("id", "").lower()
                 if (any(x in fid for x in ["nature_of_appointment", "natureofappointment", "purpose_of_filing", "field_3a", "field_5a", "field_5c_2"])
                     or "purpose of filing" in flbl or "nature of appointment" in flbl):
                     raw_mappings[f["id"]] = {

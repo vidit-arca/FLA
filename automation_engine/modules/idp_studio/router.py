@@ -1686,14 +1686,25 @@ def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_nam
             print(f"[DOM] ❌ Rejected '{variable_name}' — value is a URL, not a field value. Passing to LLM.")
             return None, None
 
-        # Increment success_count on the rule
-        dom_rule.success_count = (dom_rule.success_count or 0) + 1
-        db.commit()
+        # Safely increment success_count on the rule without failing extraction on DB write errors
+        try:
+            dom_rule.success_count = (dom_rule.success_count or 0) + 1
+            db.commit()
+            print(f"[DOM] ✓ Extracted '{variable_name}' = '{value}' via DOM rule (success #{dom_rule.success_count})")
+        except Exception as write_err:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            print(f"[DOM] ⚠ Extracted '{variable_name}' = '{value}' via DOM rule (counter update skipped: {write_err})")
 
-        print(f"[DOM] ✓ Extracted '{variable_name}' = '{value}' via DOM rule (success #{dom_rule.success_count})")
         return value, dom_rule.dom_path
 
     except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
         print(f"[DOM] _try_dom_extraction failed for '{variable_name}': {e}")
         return None, None
 
@@ -2832,6 +2843,10 @@ Document Text:
             })
 
         except Exception as e:
+            try:
+                db.rollback()
+            except Exception:
+                pass
             print(f"[!] Batch extraction error on {filename}: {e}")
             results.append({
                 "filename": filename,
