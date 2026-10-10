@@ -1686,14 +1686,25 @@ def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_nam
             print(f"[DOM] ❌ Rejected '{variable_name}' — value is a URL, not a field value. Passing to LLM.")
             return None, None
 
-        # Increment success_count on the rule
-        dom_rule.success_count = (dom_rule.success_count or 0) + 1
-        db.commit()
+        # Safely increment success_count on the rule without failing extraction on DB write errors
+        try:
+            dom_rule.success_count = (dom_rule.success_count or 0) + 1
+            db.commit()
+            print(f"[DOM] ✓ Extracted '{variable_name}' = '{value}' via DOM rule (success #{dom_rule.success_count})")
+        except Exception as write_err:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            print(f"[DOM] ⚠ Extracted '{variable_name}' = '{value}' via DOM rule (counter update skipped: {write_err})")
 
-        print(f"[DOM] ✓ Extracted '{variable_name}' = '{value}' via DOM rule (success #{dom_rule.success_count})")
         return value, dom_rule.dom_path
 
     except Exception as e:
+        try:
+            db.rollback()
+        except Exception:
+            pass
         print(f"[DOM] _try_dom_extraction failed for '{variable_name}': {e}")
         return None, None
 
@@ -2316,10 +2327,26 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
                     extracted[f_id] = shares_val
 
         # Field 5(g): Promoters, Directors, KMP shares breakdown (Demat & Physical)
+        table_rows_5g = [
+            {"category": "(i) Promoters / Promoter Group", "demat": "0", "physical": "0", "total": "0"},
+            {"category": "(ii) Directors", "demat": "0", "physical": "0", "total": "0"},
+            {"category": "(iii) Key Managerial Personnel (KMP)", "demat": "0", "physical": "0", "total": "0"}
+        ]
+        has_table_data = False
+
         prom_match = re.search(r'(?:^|\n)\s*\|?\s*(?:\(i\)\s*)?Promoters\s*\|?\s*([0-9,]+)\s*\|?\s*([0-9,]+)', full_text, re.IGNORECASE)
         if prom_match:
+            has_table_data = True
             demat_val = prom_match.group(1).strip()
             phys_val = prom_match.group(2).strip()
+            table_rows_5g[0]["demat"] = demat_val
+            table_rows_5g[0]["physical"] = phys_val
+            try:
+                table_rows_5g[0]["total"] = f"{int(demat_val.replace(',', '')) + int(phys_val.replace(',', '')):,}"
+            except Exception:
+                table_rows_5g[0]["total"] = f"{demat_val}"
+            extracted["formnopas6.main.field_5gi"] = demat_val
+            extracted["formnopas6.main.field_5gi_3"] = phys_val
             for f_id in field_label_map:
                 if f_id.endswith(".field_5gi") or f_id == "field_5gi":
                     extracted[f_id] = demat_val
@@ -2328,8 +2355,17 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
 
         dir_match = re.search(r'(?:^|\n)\s*\|?\s*(?:\(ii\)\s*)?Directors\s*\|?\s*([0-9,]+)\s*\|?\s*([0-9,]+)', full_text, re.IGNORECASE)
         if dir_match:
+            has_table_data = True
             demat_val = dir_match.group(1).strip()
             phys_val = dir_match.group(2).strip()
+            table_rows_5g[1]["demat"] = demat_val
+            table_rows_5g[1]["physical"] = phys_val
+            try:
+                table_rows_5g[1]["total"] = f"{int(demat_val.replace(',', '')) + int(phys_val.replace(',', '')):,}"
+            except Exception:
+                table_rows_5g[1]["total"] = f"{demat_val}"
+            extracted["formnopas6.main.field_5gi_2"] = demat_val
+            extracted["formnopas6.main.field_5gi_4"] = phys_val
             for f_id in field_label_map:
                 if f_id.endswith(".field_5gi_2") or f_id == "field_5gi_2":
                     extracted[f_id] = demat_val
@@ -2338,13 +2374,28 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
 
         kmp_match = re.search(r'(?:^|\n)\s*\|?\s*(?:\(iii\)\s*)?KMPs?\s*\|?\s*([0-9,]+)\s*\|?\s*([0-9,]+)', full_text, re.IGNORECASE)
         if kmp_match:
+            has_table_data = True
             demat_val = kmp_match.group(1).strip()
             phys_val = kmp_match.group(2).strip()
+            table_rows_5g[2]["demat"] = demat_val
+            table_rows_5g[2]["physical"] = phys_val
+            try:
+                table_rows_5g[2]["total"] = f"{int(demat_val.replace(',', '')) + int(phys_val.replace(',', '')):,}"
+            except Exception:
+                table_rows_5g[2]["total"] = f"{demat_val}"
+            extracted["formnopas6.main.field_5gii"] = demat_val
+            extracted["formnopas6.main.field_5gii_2"] = phys_val
             for f_id in field_label_map:
                 if f_id.endswith(".field_5gii") or f_id == "field_5gii":
                     extracted[f_id] = demat_val
                 elif f_id.endswith(".field_5gii_2") or f_id == "field_5gii_2":
                     extracted[f_id] = phys_val
+
+        if has_table_data:
+            extracted["formnopas6.main.field_5g"] = json.dumps(table_rows_5g)
+            for f_id in field_label_map:
+                if f_id.endswith(".field_5g") or f_id == "field_5g":
+                    extracted[f_id] = json.dumps(table_rows_5g)
 
         # RTA Certificate & ISIN Pattern Matching
         m_isin = re.search(r'\b([A-Z]{2}[A-Z0-9]{9}\d)\b', full_text)
@@ -2832,6 +2883,10 @@ Document Text:
             })
 
         except Exception as e:
+            try:
+                db.rollback()
+            except Exception:
+                pass
             print(f"[!] Batch extraction error on {filename}: {e}")
             results.append({
                 "filename": filename,
