@@ -49,10 +49,20 @@ class DynamicFormFiller:
         form_name = form_schema.get("form_name", "MCA Form")
         fields = form_schema.get("fields", [])
 
-        # 1. Run Semantic Mapping via LLM (incorporating context & dynamic lexicon)
-        raw_mappings = self._semantic_mapping_llm(form_schema, evidence_list, context=context)
+        # 1. Deterministic statutory direct mapping pass FIRST
+        deterministic_mappings = self._deterministic_mapping_pass(fields, evidence_list)
+        unmapped_fields = [f for f in fields if f["id"] not in deterministic_mappings]
 
-        # 2. Inject confirmed HITL branch selections into raw_mappings
+        # 2. For fields not deterministically resolved, run LLM semantic mapping
+        raw_mappings = dict(deterministic_mappings)
+        if unmapped_fields:
+            llm_subschema = {**form_schema, "fields": unmapped_fields}
+            llm_mappings = self._semantic_mapping_llm(llm_subschema, evidence_list, context=context)
+            for f_id, m in llm_mappings.items():
+                if m.get("value") is not None and str(m.get("value")).strip() not in ["", "Unknown", "N/A"]:
+                    raw_mappings[f_id] = m
+
+        # 3. Inject confirmed HITL branch selections into raw_mappings
         if context and context.get("confirmed_branch"):
             confirmed_branch = context["confirmed_branch"]
             for f in fields:
@@ -212,35 +222,155 @@ Output strictly valid JSON with this structure:
 
         return raw_mappings
 
+    @staticmethod
+    def _clean_alpha(s: Any) -> str:
+        if not s:
+            return ""
+        return "".join(c for c in str(s).lower() if c.isalnum())
+
+    def _match_field_deterministically(
+        self,
+        f: Dict[str, Any],
+        evidence_list: List[Dict[str, Any]]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Determines if an evidence item matches a target field with 100% precision.
+        Prevents loose single-character substring collisions while reliably catching:
+        - Exact ID matches (e.g. formnomgt14.main.field_1)
+        - Short ID matches (e.g. field_1)
+        - Canonical number matches (e.g. 1, 2a, 5g)
+        - Exact normalized label matches
+        - Standard MCA statutory aliases (CIN, Company Name, PAN, etc.)
+        - Safe multi-word token overlap
+        """
+        BAD_VALUES = {None, "", "Unknown", "N/A", "Empty / N/A", "None", "null"}
+        valid_evs = [ev for ev in evidence_list if ev.get("value") not in BAD_VALUES and str(ev.get("value")).strip() not in BAD_VALUES]
+        if not valid_evs:
+            return None
+
+        f_id = f.get("id", "")
+        f_short = f_id.split(".")[-1]
+        f_canonical = str(f.get("canonical_no", "")).strip().lower()
+        f_label = f.get("label", "")
+        f_label_lower = f_label.lower()
+        f_label_clean = self._clean_alpha(f_label)
+        f_type = f.get("type", "text")
+
+        # 1. Exact field ID match
+        for ev in valid_evs:
+            k = str(ev.get("key") or "")
+            if k == f_id:
+                return ev
+
+        # 2. Short ID match (strip namespaces e.g. formnomgt14.main.field_1 -> field_1)
+        for ev in valid_evs:
+            k = str(ev.get("key") or "")
+            k_short = k.split(".")[-1]
+            if k_short == f_short and f_short not in ["", "main"]:
+                return ev
+
+        # 3. Canonical number match
+        if f_canonical:
+            for ev in valid_evs:
+                k = str(ev.get("key") or "").strip().lower()
+                k_clean = self._clean_alpha(k)
+                if k == f_canonical or k == f"field_{f_canonical}" or k_clean == f"canonical{f_canonical}":
+                    return ev
+
+        # 4. Normalized exact label match
+        if f_label_clean and len(f_label_clean) > 3:
+            for ev in valid_evs:
+                k = str(ev.get("key") or "")
+                k_clean = self._clean_alpha(k)
+                if k_clean == f_label_clean:
+                    return ev
+
+        # 5. Standard MCA Statutory Aliases
+        # 5A. CIN
+        is_cin = f_type == "cin" or f_short == "field_1" or "cin" in f_short.lower() or "corporate identity number" in f_label_lower or (" cin" in f_label_lower and "vaccine" not in f_label_lower)
+        if is_cin:
+            for ev in valid_evs:
+                k_clean = self._clean_alpha(ev.get("key"))
+                if k_clean in ["cin", "cinnumber", "corporateidentitynumber", "cinno"]:
+                    return ev
+
+        # 5B. Company Name
+        is_comp = f_short == "field_2a" or "company name" in f_label_lower or "name of the company" in f_label_lower or "name of the indian company" in f_label_lower
+        if is_comp:
+            for ev in valid_evs:
+                k_clean = self._clean_alpha(ev.get("key"))
+                if k_clean in ["companyname", "nameofthecompany", "nameoftheindiancompany", "nameofcompany"]:
+                    return ev
+
+        # 5C. PAN
+        is_pan = f_type == "pan" or "permanent account number" in f_label_lower or (" pan" in f_label_lower and "company" not in f_label_lower)
+        if is_pan:
+            for ev in valid_evs:
+                k_clean = self._clean_alpha(ev.get("key"))
+                if k_clean in ["pan", "pannumber", "permanentaccountnumber", "panno"]:
+                    return ev
+
+        # 5D. Registered Office Address
+        is_addr = "registered office" in f_label_lower or "address of the company" in f_label_lower
+        if is_addr:
+            for ev in valid_evs:
+                k_clean = self._clean_alpha(ev.get("key"))
+                if k_clean in ["registeredofficeaddress", "registeredaddress", "companyaddress", "address"]:
+                    return ev
+
+        # 5E. Email
+        is_email = "email" in f_label_lower
+        if is_email:
+            for ev in valid_evs:
+                k_clean = self._clean_alpha(ev.get("key"))
+                if k_clean in ["email", "emailid", "emailaddress", "emailheadofinstitution", "emailofcontactperson"]:
+                    return ev
+
+        # 6. High-Precision Token Overlap (Avoid loose 1-char / number matches)
+        f_tokens = set(re.findall(r"[a-z0-9]{4,}", f_label_lower))
+        if len(f_tokens) >= 2:
+            for ev in valid_evs:
+                k = str(ev.get("key") or "").lower()
+                if len(k.strip()) < 4 or k.strip().isdigit():
+                    continue
+                k_tokens = set(re.findall(r"[a-z0-9]{4,}", k))
+                if len(k_tokens) >= 2 and k_tokens.issubset(f_tokens):
+                    return ev
+
+        return None
+
+    def _deterministic_mapping_pass(
+        self,
+        fields: List[Dict[str, Any]],
+        evidence_list: List[Dict[str, Any]]
+    ) -> Dict[str, Dict[str, Any]]:
+        """Maps fields deterministically prior to LLM evaluation."""
+        mappings = {}
+        for f in fields:
+            f_id = f["id"]
+            matched_ev = self._match_field_deterministically(f, evidence_list)
+            if matched_ev:
+                val = matched_ev.get("value")
+                mappings[f_id] = {
+                    "field_id": f_id,
+                    "status": "populated",
+                    "value": val,
+                    "confidence": 0.95,
+                    "reasoning": f"Deterministic statutory field match from source key '{matched_ev.get('key')}'",
+                    "source_key": matched_ev.get("key")
+                }
+        return mappings
+
     def _deterministic_fallback_matching(
         self,
         fields: List[Dict[str, Any]],
         evidence_list: List[Dict[str, Any]]
     ) -> Dict[str, Dict[str, Any]]:
         """Rule-based fallback matching if LLM is temporarily unreachable."""
-        fallback = {}
+        fallback = self._deterministic_mapping_pass(fields, evidence_list)
         for f in fields:
             f_id = f["id"]
-            label_lower = f["label"].lower()
-            matched_ev = None
-
-            for ev in evidence_list:
-                k = str(ev.get("key") or "").lower()
-                if k in label_lower or label_lower in k:
-                    matched_ev = ev
-                    break
-
-            if matched_ev:
-                val = matched_ev.get("value")
-                fallback[f_id] = {
-                    "field_id": f_id,
-                    "status": "populated",
-                    "value": val,
-                    "confidence": 0.7,
-                    "reasoning": "Fallback deterministic key-substring match",
-                    "source_key": matched_ev.get("key")
-                }
-            else:
+            if f_id not in fallback:
                 fallback[f_id] = {
                     "field_id": f_id,
                     "status": "missing",
@@ -427,13 +557,23 @@ Output strictly valid JSON with this structure:
             else:
                 parent_id = dep.get("field")
                 parent_raw = validated_fields.get(parent_id)
+                if not parent_raw and parent_id:
+                    p_short = parent_id.split(".")[-1]
+                    for k_v, v_v in validated_fields.items():
+                        if k_v.endswith(f".{p_short}") or k_v == p_short:
+                            parent_raw = v_v
+                            break
                 parent_data = parent_raw if isinstance(parent_raw, dict) else ({"value": parent_raw} if parent_raw is not None else None)
 
                 if not parent_data or parent_data.get("value") is None:
-                    # Parent has no value yet -> child inactive
-                    field_data["is_active"] = False
-                    field_data["status"] = "inactive_by_rule"
-                    field_data["value"] = None
+                    # Parent has no value yet: if child was directly extracted with valid data, keep child active
+                    has_direct_val = field_data.get("value") is not None and str(field_data.get("value")).strip() not in ["", "Unknown", "N/A"]
+                    if has_direct_val:
+                        field_data["is_active"] = True
+                    else:
+                        field_data["is_active"] = False
+                        field_data["status"] = "inactive_by_rule"
+                        field_data["value"] = None
                 else:
                     operator = dep.get("operator", "equals")
                     target_val = dep.get("value")

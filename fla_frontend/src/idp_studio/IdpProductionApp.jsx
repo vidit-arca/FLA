@@ -296,12 +296,25 @@ export default function IdpProductionApp() {
     uploadedFiles.forEach(doc => {
       (doc.data || []).forEach(field => {
         const val = field.value;
-        if (val && val !== "Unknown" && val !== "N/A" && val !== "") {
-          payload[field.key] = val;
-          const cleanK = String(field.key).toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (isFieldMapped(val)) {
+          const rawKey = field.key;
+          // Precedence: don't overwrite existing non-empty value with '0'
+          if (!isFieldMapped(payload[rawKey]) || payload[rawKey] === "0") {
+            payload[rawKey] = val;
+          }
+          // Also index namespace-stripped key (e.g. formnomgt14.main.field_1 -> field_1)
+          if (rawKey && rawKey.includes('.')) {
+            const shortKey = rawKey.split('.').pop();
+            if (!isFieldMapped(payload[shortKey]) || payload[shortKey] === "0") {
+              payload[shortKey] = val;
+            }
+          }
+          const cleanK = String(rawKey).toLowerCase().replace(/[^a-z0-9]/g, '');
           for (const [pattern, targetField] of Object.entries(KEY_MAP)) {
             if (cleanK.includes(pattern)) {
-              payload[targetField] = val;
+              if (!isFieldMapped(payload[targetField])) {
+                payload[targetField] = val;
+              }
               break;
             }
           }
@@ -322,15 +335,104 @@ export default function IdpProductionApp() {
     return payload;
   };
 
+  const resolveValueForField = (field, payload) => {
+    if (!field) return '';
+    const fid = field.id || '';
+    if (userOverrides[fid] !== undefined) return userOverrides[fid];
+    
+    // 1. Direct field.value if already non-empty and valid
+    if (isFieldMapped(field.value)) return field.value;
+    
+    if (!payload) return '';
+    
+    // 2. Exact match in payload
+    if (isFieldMapped(payload[fid])) return payload[fid];
+    
+    // 3. Short key match (strip namespace prefixes like formnomgt14.main.field_1 -> field_1)
+    const shortId = fid.includes('.') ? fid.split('.').pop() : fid;
+    if (shortId && isFieldMapped(payload[shortId])) return payload[shortId];
+    
+    // 4. Canonical number match
+    const cNo = field.canonical_no ? String(field.canonical_no).trim() : '';
+    if (cNo) {
+      if (isFieldMapped(payload[cNo])) return payload[cNo];
+      if (isFieldMapped(payload[`field_${cNo}`])) return payload[`field_${cNo}`];
+      if (isFieldMapped(payload[`canonical_${cNo}`])) return payload[`canonical_${cNo}`];
+    }
+    
+    // 5. Clean alphanumeric label match
+    const cleanLabel = String(field.label || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (cleanLabel && cleanLabel.length > 3) {
+      if (isFieldMapped(payload[field.label])) return payload[field.label];
+      for (const [k, v] of Object.entries(payload)) {
+        if (!isFieldMapped(v)) continue;
+        const cleanK = String(k).toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (cleanK && cleanK === cleanLabel) return v;
+      }
+    }
+    
+    // 6. Common statutory field aliases
+    const labelLower = String(field.label || '').toLowerCase();
+    const shortLower = shortId.toLowerCase();
+    
+    // CIN
+    if (field.type === 'cin' || shortLower === 'field_1' || shortLower.includes('cin') || labelLower.includes('corporate identity number') || labelLower.includes(' cin')) {
+      for (const alias of ['cin', 'cin_number', 'corporate_identity_number', 'corporateidentitynumber', 'cinno']) {
+        if (isFieldMapped(payload[alias])) return payload[alias];
+      }
+    }
+    
+    // Company Name
+    if (shortLower === 'field_2a' || labelLower.includes('company name') || labelLower.includes('name of the company') || labelLower.includes('name of the indian company')) {
+      for (const alias of ['company_name', 'companyname', 'name_of_the_company', 'nameoftheindiancompany']) {
+        if (isFieldMapped(payload[alias])) return payload[alias];
+      }
+    }
+    
+    // PAN
+    if (field.type === 'pan' || labelLower.includes('permanent account number') || (labelLower.includes(' pan') && !labelLower.includes('company'))) {
+      for (const alias of ['pan', 'pan_number', 'pannumber']) {
+        if (isFieldMapped(payload[alias])) return payload[alias];
+      }
+    }
+    
+    // Registered Office Address
+    if (labelLower.includes('registered office') || labelLower.includes('address of the company')) {
+      for (const alias of ['registered_office_address', 'address', 'company_address', 'registeredaddress']) {
+        if (isFieldMapped(payload[alias])) return payload[alias];
+      }
+    }
+    
+    // Email
+    if (labelLower.includes('email')) {
+      for (const alias of ['email', 'email_id', 'emailheadofinstitution', 'emailofcontactperson']) {
+        if (isFieldMapped(payload[alias])) return payload[alias];
+      }
+    }
+    
+    // 7. Check if any key in payload ends with `.${shortId}`
+    if (shortId && shortId.length > 2) {
+      for (const [k, v] of Object.entries(payload)) {
+        if (isFieldMapped(v) && (k.endsWith(`.${shortId}`) || k === shortId)) {
+          return v;
+        }
+      }
+    }
+    
+    return '';
+  };
+
   const getFieldSourceDoc = (fieldKey) => {
     if (userOverrides[fieldKey]) {
       return { docName: 'Human Override', docType: 'user_edit', status: 'override' };
     }
     const cleanK = String(fieldKey).toLowerCase().replace(/[^a-z0-9]/g, '');
+    const shortK = String(fieldKey).includes('.') ? String(fieldKey).split('.').pop().toLowerCase().replace(/[^a-z0-9]/g, '') : cleanK;
+
     for (const doc of uploadedFiles) {
       for (const field of (doc.data || [])) {
         const docCleanK = String(field.key).toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (docCleanK === cleanK || cleanK.includes(docCleanK) || docCleanK.includes(cleanK)) {
+        if (docCleanK === cleanK || docCleanK === shortK || cleanK.includes(docCleanK) || (shortK && shortK.includes(docCleanK))) {
           if (isFieldMapped(field.value)) {
             return {
               docName: doc.file?.name || 'Document',
@@ -435,10 +537,17 @@ export default function IdpProductionApp() {
         }
 
         if (activeFieldsArray) {
-          activeFieldsArray.forEach(f => {
-            if (f.value !== undefined && f.value !== null && String(f.value).trim() !== "" && !finalPayload[f.id]) {
-              finalPayload[f.id] = f.value;
+          activeFieldsArray = activeFieldsArray.map(f => {
+            const resolved = resolveValueForField(f, finalPayload);
+            const effectiveVal = isFieldMapped(f.value) ? f.value : (isFieldMapped(resolved) ? resolved : f.value);
+            if (isFieldMapped(effectiveVal) && !finalPayload[f.id]) {
+              finalPayload[f.id] = effectiveVal;
             }
+            return {
+              ...f,
+              value: effectiveVal,
+              status: isFieldMapped(effectiveVal) ? 'populated' : f.status
+            };
           });
         }
 
@@ -1072,20 +1181,26 @@ export default function IdpProductionApp() {
                             if (tmplFields.length > 0) {
                               resolvedFieldsList = tmplFields.map(f => ({
                                 ...f,
-                                value: consolidatedPayload[f.id] || consolidatedPayload[f.canonical_no] || ''
+                                value: resolveValueForField(f, consolidatedPayload)
                               }));
                             }
                           } catch (e) {
                             console.warn("Could not parse fallback template fields:", e);
                           }
                         }
+                      } else {
+                        // Ensure each field in activeFieldsList has its value resolved from consolidatedPayload
+                        resolvedFieldsList = activeFieldsList.map(f => ({
+                          ...f,
+                          value: resolveValueForField(f, consolidatedPayload)
+                        }));
                       }
 
                       // Apply hideEmptyModalRows filter, but NEVER hide table fields
                       const displayedFields = (resolvedFieldsList || []).filter(f => {
                         if (f.type === 'table') return true;
                         if (!hideEmptyModalRows) return true;
-                        const val = userOverrides[f.id] !== undefined ? userOverrides[f.id] : f.value;
+                        const val = resolveValueForField(f, consolidatedPayload);
                         return isFieldMapped(val);
                       });
 
@@ -1093,7 +1208,7 @@ export default function IdpProductionApp() {
                         return displayedFields.map((f, idx) => {
                           const provenance = getFieldSourceDoc(f.id);
                           const isOverridden = !!userOverrides[f.id];
-                          const currentVal = userOverrides[f.id] !== undefined ? userOverrides[f.id] : (f.value || '');
+                          const currentVal = resolveValueForField(f, consolidatedPayload);
                           const isTable = f.type === 'table' || (f.columns && f.columns.length > 0);
 
                           if (isTable) {
