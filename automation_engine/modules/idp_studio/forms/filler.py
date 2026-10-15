@@ -295,7 +295,7 @@ Output strictly valid JSON with this structure:
                     return ev
 
         # 5B. Company Name
-        is_comp = f_short == "field_2a" or "company name" in f_label_lower or "name of the company" in f_label_lower or "name of the indian company" in f_label_lower
+        is_comp = ("company name" in f_label_lower or "name of the company" in f_label_lower or "name of the indian company" in f_label_lower or (f_short == "field_2a" and "document" not in f_label_lower))
         if is_comp:
             for ev in valid_evs:
                 k_clean = self._clean_alpha(ev.get("key"))
@@ -324,6 +324,25 @@ Output strictly valid JSON with this structure:
             for ev in valid_evs:
                 k_clean = self._clean_alpha(ev.get("key"))
                 if k_clean in ["email", "emailid", "emailaddress", "emailheadofinstitution", "emailofcontactperson"]:
+                    return ev
+
+        # 5F. GNL-2 Section 2(a) - Document being filed & 2(b) If others specify
+        if "indicate the document being filed" in f_label_lower or (f_short == "field_2a" and "document" in f_label_lower):
+            options = f.get("options") or []
+            for ev in valid_evs:
+                ev_val = str(ev.get("value") or "").strip()
+                k_clean = self._clean_alpha(ev.get("key"))
+                if "field_2a" in k_clean or "document" in k_clean or "filing" in k_clean or "indicate" in k_clean:
+                    matched_opt = self._match_canonical_option(ev_val, options)
+                    if matched_opt:
+                        return {"key": ev.get("key"), "value": matched_opt}
+                    else:
+                        return {"key": ev.get("key"), "value": "Others"}
+
+        if "if others, then specify" in f_label_lower or f_short == "field_2b":
+            for ev in valid_evs:
+                k_clean = self._clean_alpha(ev.get("key"))
+                if "field_2b" in k_clean or "other" in k_clean or "specify" in k_clean or "documenttitle" in k_clean or "customdoc" in k_clean:
                     return ev
 
         # 6. High-Precision Token Overlap (Avoid loose 1-char / number matches)
@@ -501,19 +520,54 @@ Output strictly valid JSON with this structure:
 
     @staticmethod
     def _normalize_date(date_str: str) -> Optional[str]:
-        """Normalizes various date formats to DD/MM/YYYY."""
-        cleaned = re.sub(r"[^\d/-]", "/", date_str.strip())
-        patterns = ["%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%Y/%m/%d", "%d/%m/%y"]
-        for p in patterns:
-            try:
-                dt = datetime.datetime.strptime(cleaned, p)
-                # Expand 2-digit years if needed
-                if dt.year < 100:
-                    dt = dt.replace(year=dt.year + 2000)
-                return dt.strftime("%d/%m/%Y")
-            except ValueError:
-                continue
+        """Normalizes various standard and alphanumeric date formats (e.g. '24th april 2025') to DD/MM/YYYY."""
+        return parse_and_normalize_date(date_str)
+
+
+def parse_and_normalize_date(date_str: Any) -> Optional[str]:
+    """
+    Robust statutory date parser supporting standard numerical and alphanumeric dates:
+    - '24th april 2025' -> '24/04/2025'
+    - '24th April, 2025' -> '24/04/2025'
+    - '24-Apr-2025' -> '24/04/2025'
+    - 'April 24, 2025' -> '24/04/2025'
+    - '24/04/2025' -> '24/04/2025'
+    - '2025-04-24' -> '24/04/2025'
+    - '1st January 2026' -> '01/01/2026'
+    """
+    if not date_str:
         return None
+    s = str(date_str).strip()
+    if s.lower() in ["none", "null", "unknown", "n/a", "empty / n/a", ""]:
+        return None
+
+    # 1. Clean ordinal suffixes (24th -> 24, 1st -> 1, 2nd -> 2, 3rd -> 3)
+    cleaned = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', s, flags=re.IGNORECASE)
+    cleaned = cleaned.replace(',', ' ').strip()
+
+    # 2. Try dateutil parser with dayfirst=True
+    try:
+        from dateutil import parser as dateutil_parser
+        dt = dateutil_parser.parse(cleaned, dayfirst=True)
+        if dt.year < 100:
+            dt = dt.replace(year=dt.year + 2000)
+        return dt.strftime("%d/%m/%Y")
+    except Exception:
+        pass
+
+    # 3. Fallback regex patterns
+    patterns = ["%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%Y/%m/%d", "%d/%m/%y"]
+    cleaned_digits = re.sub(r"[^\d/-]", "/", s.strip())
+    for p in patterns:
+        try:
+            dt = datetime.datetime.strptime(cleaned_digits, p)
+            if dt.year < 100:
+                dt = dt.replace(year=dt.year + 2000)
+            return dt.strftime("%d/%m/%Y")
+        except ValueError:
+            continue
+
+    return None
 
     @staticmethod
     def _find_source_evidence(source_key: Optional[str], evidence_list: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:

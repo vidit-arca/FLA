@@ -189,7 +189,141 @@ class Stage3InstructionAI:
                 default_rows=table_meta.get("default_rows", []) if table_meta else []
             ))
 
+        # Stage 3.5: Synthesize Missing Self-Explanatory Parent Fields from Child Triggers
+        results = self._synthesize_missing_parent_fields(results, raw_rows)
         return results
+
+    @staticmethod
+    def _canonical_sort_key(c_str: str) -> Tuple[int, str]:
+        m = re.match(r'^([0-9]+)([a-z]*)', c_str)
+        if m:
+            return (int(m.group(1)), m.group(2))
+        return (999, c_str)
+
+    def _synthesize_missing_parent_fields(
+        self,
+        results: List[SemanticFieldDefinition],
+        raw_rows: List[RawStatutoryRow]
+    ) -> List[SemanticFieldDefinition]:
+        """
+        Synthesizes missing parent fields (omitted by MCA as 'self-explanatory')
+        by analyzing child instruction trigger clauses.
+        E.g. In Form GNL-2, Field 2(a) ("Please indicate the document being filed")
+        is omitted from the table, but referenced in child instructions with all 14 dropdown options.
+        """
+        existing_c_nos = {re.sub(r'\s+', '', r.canonical_no.lower()) for r in results if r.canonical_no}
+        
+        # Regex to match: in case <clause> is selected in field number <P> i.e., "<Label>"
+        pat = re.compile(
+            r'(?:in\s+case\s+([^.]+?)\s+is\s+selected\s+in\s+field\s+number\s+([0-9]+(?:\s*\([a-zA-Z0-9]+\))*)(?:\s+i\.e\.[\,\s]*[“\"\‘\']([^”\"\'\’]+?)[”\"\'\’])?)',
+            re.I | re.DOTALL
+        )
+
+        missing_parents: Dict[str, Dict[str, Any]] = {}
+        for r in raw_rows:
+            inst = getattr(r, 'instructions', '') or ''
+            for m in pat.finditer(inst):
+                clause = m.group(1) or ''
+                c_no_raw = m.group(2)
+                c_no = re.sub(r'\s+', '', c_no_raw)
+                label = re.sub(r'\s+', ' ', m.group(3) or '').strip()
+
+                clean_canonical = c_no.lower()
+                # Only synthesize if parent does NOT exist in table rows
+                if clean_canonical in existing_c_nos:
+                    continue
+
+                if clean_canonical not in missing_parents:
+                    missing_parents[clean_canonical] = {
+                        'canonical_no': c_no,
+                        'label': label,
+                        'options': set(),
+                        'section_slug': getattr(r, 'section_slug', 'main'),
+                        'page': getattr(r, 'page', 1),
+                        'physical_idx': getattr(r, 'physical_idx', 0)
+                    }
+
+                if label and not missing_parents[clean_canonical]['label']:
+                    missing_parents[clean_canonical]['label'] = label
+
+                quotes = re.findall(r'[‘\'“\"]([^’\'”\"]+?)[’\'”\"]', clause)
+                for q in quotes:
+                    q_clean = re.sub(r'\s+', ' ', q).strip()
+                    if len(q_clean) > 2 and not q_clean.lower().startswith("field number"):
+                        missing_parents[clean_canonical]['options'].add(q_clean)
+
+        if not missing_parents:
+            return results
+
+        synthesized_fields: List[SemanticFieldDefinition] = []
+        for c_clean, data in missing_parents.items():
+            c_no = data['canonical_no']
+            lbl = data['label'] or f"Field {c_no}"
+            opts = sorted(list(data['options']))
+            if not opts:
+                continue
+
+            print(f"[Stage 3] 🌟 Synthesizing missing self-explanatory parent field {c_no} ('{lbl}') with {len(opts)} harvested options")
+            
+            parent_field = SemanticFieldDefinition(
+                physical_idx=data['physical_idx'],
+                page=data['page'],
+                canonical_no=c_no,
+                label=lbl,
+                instructions="Synthesized statutory parent selector inferred from child field instruction triggers.",
+                field_type="select" if len(opts) > 2 else "radio",
+                options=opts,
+                required=True,
+                section_slug=data['section_slug'],
+                raw_trigger_condition=None,
+                trigger_parent_ref=None,
+                trigger_values=[],
+                is_root_selector=False
+            )
+            synthesized_fields.append(parent_field)
+
+            # If 'Others' is one of the options, synthesize conditional "If others, then specify" text field
+            has_others = any(o.lower() == "others" for o in opts)
+            if has_others:
+                # Derive 2(b) from 2(a)
+                sub_match = re.match(r"^([0-9]+)\(([a-z])\)$", c_no, re.I)
+                if sub_match:
+                    num_part, char_part = sub_match.group(1), sub_match.group(2)
+                    next_char = chr(ord(char_part.lower()) + 1)
+                    specify_c_no = f"{num_part}({next_char})"
+                else:
+                    specify_c_no = f"{c_no}_specify"
+
+                specify_field = SemanticFieldDefinition(
+                    physical_idx=data['physical_idx'] + 1,
+                    page=data['page'],
+                    canonical_no=specify_c_no,
+                    label="If others, then specify",
+                    instructions="Specify document title if 'Others' is selected.",
+                    field_type="text",
+                    options=[],
+                    required=True,
+                    section_slug=data['section_slug'],
+                    raw_trigger_condition=f"If Others is selected in field number {c_no}",
+                    trigger_parent_ref=c_no,
+                    trigger_values=["Others"],
+                    is_root_selector=False
+                )
+                synthesized_fields.append(specify_field)
+
+        # Merge synthesized fields into results preserving canonical order
+        combined = list(results)
+        for sf in synthesized_fields:
+            insert_idx = len(combined)
+            sf_clean = re.sub(r'[^0-9a-z]', '', sf.canonical_no.lower())
+            for idx, existing in enumerate(combined):
+                ex_clean = re.sub(r'[^0-9a-z]', '', (existing.canonical_no or '').lower())
+                if ex_clean and self._canonical_sort_key(sf_clean) < self._canonical_sort_key(ex_clean):
+                    insert_idx = idx
+                    break
+            combined.insert(insert_idx, sf)
+
+        return combined
 
     def _extract_table_metadata(
         self,

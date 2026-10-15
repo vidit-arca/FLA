@@ -83,6 +83,15 @@ export default function IdpProductionApp() {
     }
   };
 
+  const handleClearBatch = () => {
+    setUploadedFiles([]);
+    setActiveFileIndex(0);
+    setConsolidatedState(null);
+    setActiveScenario(null);
+    setDetectedBranchData(null);
+    setUserOverrides({});
+  };
+
   const handleFileUpload = async (e) => {
     if (!templateName) {
       alert("No form schema selected! Please select or create a template in IDP Studio first.");
@@ -97,7 +106,8 @@ export default function IdpProductionApp() {
       data: []
     }));
 
-    setUploadedFiles(prev => [...prev, ...newQueue]);
+    // Isolate batch per upload session - prevent old company data bleeding into new upload
+    setUploadedFiles(newQueue);
     setActiveFileIndex(0);
     setIsExtracting(true);
     // Reset consolidated output and scenario state so preview and scenarios re-generate cleanly
@@ -335,39 +345,87 @@ export default function IdpProductionApp() {
     return payload;
   };
 
+  const normalizeDateString = (dateStr) => {
+    if (!dateStr || typeof dateStr !== 'string') return dateStr;
+    const s = dateStr.trim();
+    if (!s) return s;
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
+    const isoMatch = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+    if (isoMatch) {
+      const [, y, m, d] = isoMatch;
+      return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+    }
+    const dmyMatch = s.match(/^(\d{1,2})[-.](\d{1,2})[-.](\d{4})$/);
+    if (dmyMatch) {
+      const [, d, m, y] = dmyMatch;
+      return `${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')}/${y}`;
+    }
+    const MONTHS = {
+      jan: '01', january: '01', feb: '02', february: '02', mar: '03', march: '03',
+      apr: '04', april: '04', may: '05', june: '06', jul: '07', july: '07',
+      aug: '08', august: '08', sep: '09', sept: '09', september: '09',
+      oct: '10', october: '10', nov: '11', november: '11', dec: '12', december: '12'
+    };
+    const m1 = s.match(/(\d{1,2})(?:st|nd|rd|th)?[\s,-]+([a-zA-Z]{3,9})[\s,-]+(\d{4})/i);
+    if (m1) {
+      const day = String(m1[1]).padStart(2, '0');
+      const mon = MONTHS[m1[2].toLowerCase()];
+      const year = m1[3];
+      if (mon) return `${day}/${mon}/${year}`;
+    }
+    const m2 = s.match(/([a-zA-Z]{3,9})[\s,-]+(\d{1,2})(?:st|nd|rd|th)?[\s,-]+(\d{4})/i);
+    if (m2) {
+      const mon = MONTHS[m2[1].toLowerCase()];
+      const day = String(m2[2]).padStart(2, '0');
+      const year = m2[3];
+      if (mon) return `${day}/${mon}/${year}`;
+    }
+    return s;
+  };
+
   const resolveValueForField = (field, payload) => {
     if (!field) return '';
     const fid = field.id || '';
     if (userOverrides[fid] !== undefined) return userOverrides[fid];
+
+    const formatResolved = (val) => {
+      if (!isFieldMapped(val)) return '';
+      const typeLower = String(field?.type || '').toLowerCase();
+      const lLower = String(field?.label || '').toLowerCase();
+      if (typeLower === 'date' || lLower.includes('(dd/mm/yyyy)') || lLower.includes('date of') || lLower.includes('event date')) {
+        return normalizeDateString(String(val));
+      }
+      return val;
+    };
     
     // 1. Direct field.value if already non-empty and valid
-    if (isFieldMapped(field.value)) return field.value;
+    if (isFieldMapped(field.value)) return formatResolved(field.value);
     
     if (!payload) return '';
     
     // 2. Exact match in payload
-    if (isFieldMapped(payload[fid])) return payload[fid];
+    if (isFieldMapped(payload[fid])) return formatResolved(payload[fid]);
     
     // 3. Short key match (strip namespace prefixes like formnomgt14.main.field_1 -> field_1)
     const shortId = fid.includes('.') ? fid.split('.').pop() : fid;
-    if (shortId && isFieldMapped(payload[shortId])) return payload[shortId];
+    if (shortId && isFieldMapped(payload[shortId])) return formatResolved(payload[shortId]);
     
     // 4. Canonical number match
     const cNo = field.canonical_no ? String(field.canonical_no).trim() : '';
     if (cNo) {
-      if (isFieldMapped(payload[cNo])) return payload[cNo];
-      if (isFieldMapped(payload[`field_${cNo}`])) return payload[`field_${cNo}`];
-      if (isFieldMapped(payload[`canonical_${cNo}`])) return payload[`canonical_${cNo}`];
+      if (isFieldMapped(payload[cNo])) return formatResolved(payload[cNo]);
+      if (isFieldMapped(payload[`field_${cNo}`])) return formatResolved(payload[`field_${cNo}`]);
+      if (isFieldMapped(payload[`canonical_${cNo}`])) return formatResolved(payload[`canonical_${cNo}`]);
     }
     
     // 5. Clean alphanumeric label match
     const cleanLabel = String(field.label || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     if (cleanLabel && cleanLabel.length > 3) {
-      if (isFieldMapped(payload[field.label])) return payload[field.label];
+      if (isFieldMapped(payload[field.label])) return formatResolved(payload[field.label]);
       for (const [k, v] of Object.entries(payload)) {
         if (!isFieldMapped(v)) continue;
         const cleanK = String(k).toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (cleanK && cleanK === cleanLabel) return v;
+        if (cleanK && cleanK === cleanLabel) return formatResolved(v);
       }
     }
     
@@ -375,38 +433,57 @@ export default function IdpProductionApp() {
     const labelLower = String(field.label || '').toLowerCase();
     const shortLower = shortId.toLowerCase();
     
+    // Form GNL-2: Section 2(a) Document Being Filed & 2(b) If Others Specify
+    if (shortLower === 'field_2a' || labelLower.includes('indicate the document being filed')) {
+      for (const alias of ['field_2a', 'gnl2.main.field_2a', 'document_being_filed', 'doc_filed']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+    if (shortLower === 'field_2b' || labelLower.includes('if others, then specify')) {
+      for (const alias of ['field_2b', 'gnl2.main.field_2b', 'other_document_specify', 'other_specify']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+
+    // Form GNL-2: Section 6(a) Date of Event
+    if (shortLower === 'field_6a' || labelLower.includes('date of event')) {
+      for (const alias of ['field_6a', 'gnl2.main.field_6a', 'date_of_event', 'event_date']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+
     // CIN
-    if (field.type === 'cin' || shortLower === 'field_1' || shortLower.includes('cin') || labelLower.includes('corporate identity number') || labelLower.includes(' cin')) {
+    if ((field.type === 'cin' || shortLower === 'field_1' || shortLower.includes('cin') || labelLower.includes('corporate identity number') || labelLower.includes(' cin')) && !labelLower.includes('document being filed')) {
       for (const alias of ['cin', 'cin_number', 'corporate_identity_number', 'corporateidentitynumber', 'cinno']) {
-        if (isFieldMapped(payload[alias])) return payload[alias];
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
       }
     }
     
-    // Company Name
-    if (shortLower === 'field_2a' || labelLower.includes('company name') || labelLower.includes('name of the company') || labelLower.includes('name of the indian company')) {
+    // Company Name (Ensure no collision with GNL-2 Section 2a)
+    if ((field.type === 'company_name' || labelLower.includes('company name') || labelLower.includes('name of the company') || labelLower.includes('name of the indian company')) && !labelLower.includes('document being filed')) {
       for (const alias of ['company_name', 'companyname', 'name_of_the_company', 'nameoftheindiancompany']) {
-        if (isFieldMapped(payload[alias])) return payload[alias];
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
       }
     }
     
     // PAN
     if (field.type === 'pan' || labelLower.includes('permanent account number') || (labelLower.includes(' pan') && !labelLower.includes('company'))) {
       for (const alias of ['pan', 'pan_number', 'pannumber']) {
-        if (isFieldMapped(payload[alias])) return payload[alias];
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
       }
     }
     
     // Registered Office Address
     if (labelLower.includes('registered office') || labelLower.includes('address of the company')) {
       for (const alias of ['registered_office_address', 'address', 'company_address', 'registeredaddress']) {
-        if (isFieldMapped(payload[alias])) return payload[alias];
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
       }
     }
     
     // Email
     if (labelLower.includes('email')) {
       for (const alias of ['email', 'email_id', 'emailheadofinstitution', 'emailofcontactperson']) {
-        if (isFieldMapped(payload[alias])) return payload[alias];
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
       }
     }
     
@@ -414,7 +491,7 @@ export default function IdpProductionApp() {
     if (shortId && shortId.length > 2) {
       for (const [k, v] of Object.entries(payload)) {
         if (isFieldMapped(v) && (k.endsWith(`.${shortId}`) || k === shortId)) {
-          return v;
+          return formatResolved(v);
         }
       }
     }
@@ -720,6 +797,16 @@ export default function IdpProductionApp() {
           >
             <Download className="w-3.5 h-3.5" />
             <span>CSV</span>
+          </button>
+
+          <button
+            onClick={handleClearBatch}
+            disabled={totalCount === 0}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-50 hover:bg-rose-100 dark:bg-rose-500/10 dark:hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-500/30 transition-all disabled:opacity-40"
+            title="Clear all uploaded documents and reset for a new company"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>New Company / Clear</span>
           </button>
 
           <a

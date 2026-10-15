@@ -19,7 +19,7 @@ from .extractors.classifier import classify_document, detect_operative_statutory
 from .extractors.spatial import get_effective_rules, get_scenario_lexicon
 from .forms.kit_parser import InstructionKitParser
 from .forms.registry import FormRegistry
-from .forms.filler import DynamicFormFiller
+from .forms.filler import DynamicFormFiller, parse_and_normalize_date
 
 
 
@@ -2506,6 +2506,70 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
             if "board of directors" in l_lower or "vide resolution" in l_lower:
                 extracted[f_id] = f"Resolution No: {br_num} Dated: {br_date}".strip()
 
+    # 6. Form No. GNL-2 specific deterministic extraction
+    if "gnl" in tmpl_lower or "gnl-2" in tmpl_lower or "gnl2" in tmpl_lower:
+        GNL2_DOC_MAP = [
+            (r'affidavit\s+under\s+section\s+59\s+of\s+the\s+insolvency\s+and\s+bankruptcy\s+code',
+             'Affidavit under Section 59 of the Insolvency and Bankruptcy Code, 2016'),
+            (r'form\s*159\s+of\s+the\s+companies\s*\(\s*court\s*\)\s*rules',
+             'Form 159 of the Companies (Court) Rules, 1959'),
+            (r'form\s*157\s+of\s+the\s+companies\s*\(\s*court\s*\)\s*rules',
+             'Form 157 of the Companies (Court) Rules, 1959'),
+            (r'form\s*154\s+of\s+the\s+companies\s*\(\s*court\s*\)\s*rules',
+             'Form 154 of the Companies (Court) Rules, 1959'),
+            (r'form\s*158\s+of\s+the\s+companies\s*\(\s*court\s*\)\s*rules',
+             'Form 158 of the Companies (Court) Rules, 1959'),
+            (r'form\s*156\s+of\s+the\s+companies\s*\(\s*court\s*\)\s*rules',
+             'Form 156 of the Companies (Court) Rules, 1959'),
+            (r'form\s*149\s+of\s+the\s+companies\s*\(\s*court\s*\)\s*rules',
+             'Form 149 of the Companies (Court) Rules, 1959'),
+            (r'form\s*153\s+of\s+the\s+companies\s*\(\s*court\s*\)\s*rules',
+             'Form 153 of the Companies (Court) Rules, 1959'),
+            (r'form\s*152\s+of\s+the\s+companies\s*\(\s*court\s*\)\s*rules',
+             'Form 152 of the Companies (Court) Rules, 1959'),
+            (r'(?:private\s+placement\s+offer\s+letter|pas\s*[-_]?\s*4|record\s+of\s+a\s+private\s+placement)',
+             'Private placement offer letter or Record of a private placement offer to be kept by the company'),
+            (r'red\s+herring\s+prospectus',
+             'Red Herring Prospectus'),
+            (r'(?:final\s+report\s+on\s+completion\s+of\s+liquidation|liquidation\s+process\s+by\s+liquidator)',
+             'Final Report on Completion of liquidation process by Liquidator'),
+            (r'(?<!red\s+herring\s+)prospectus',
+             'Prospectus'),
+            (r'(?:circular\s+or\s+circular\s+in\s+the\s+form\s+of\s+advertisement|dpt\s*[-_]?\s*1)',
+             'Circular or Circular in the form of Advertisement')
+        ]
+
+        matched_doc_option = None
+        for pattern, standard_opt in GNL2_DOC_MAP:
+            if re.search(pattern, full_text, re.IGNORECASE):
+                matched_doc_option = standard_opt
+                break
+
+        for f_id, label in field_label_map.items():
+            f_low = (f_id or "").lower()
+            l_low = (label or "").lower()
+            if "field_2a" in f_low or "indicate the document being filed" in l_low:
+                if matched_doc_option:
+                    extracted[f_id] = matched_doc_option
+                else:
+                    m_other = re.search(r'(?:Document\s*Title|Subject|In\s*the\s*matter\s*of)\s*[:\|]\s*([^\n\|]+)', full_text, re.IGNORECASE)
+                    if m_other:
+                        extracted[f_id] = "Others"
+                        for f_id_b, l_b in field_label_map.items():
+                            if "field_2b" in (f_id_b or "").lower() or "if others, then specify" in (l_b or "").lower():
+                                extracted[f_id_b] = m_other.group(1).strip()
+
+        # Date of event for Section 6(a)
+        m_event_date = re.search(r'(?:Date of Event|Event Date|Date of passing|Effective Date|Dated)\s*[:\|]\s*([^\n\|]+)', full_text, re.IGNORECASE)
+        if m_event_date:
+            parsed_event_date = parse_and_normalize_date(m_event_date.group(1).strip())
+            if parsed_event_date:
+                for f_id, label in field_label_map.items():
+                    f_low = (f_id or "").lower()
+                    l_low = (label or "").lower()
+                    if "field_6a" in f_low or "date of event" in l_low:
+                        extracted[f_id] = parsed_event_date
+
     return extracted
 
 
@@ -2701,6 +2765,32 @@ async def extract_batch_documents(
                                 "_hint": rule.extracted_key
                             })
 
+            elif field_label_map:
+                # When no explicit SchemaAliasRules exist in DB, scope LLM to unextracted template fields
+                for f_id, label in field_label_map.items():
+                    if f_id not in extracted_lookup and f_id not in [f["key"] for f in extracted_fields]:
+                        # DAG Pruning Check: evaluate condition against already extracted values
+                        dep = field_dependency_map.get(f_id)
+                        if dep and isinstance(dep, dict):
+                            parent_id = dep.get("field")
+                            op = dep.get("operator", "equals")
+                            target_val = dep.get("value")
+                            parent_val = extracted_lookup.get(parent_id)
+
+                            if parent_val is not None:
+                                p_str = str(parent_val).strip().lower()
+                                t_str = str(target_val).strip().lower() if target_val is not None else ""
+                                cond = (p_str == t_str) if op == "equals" else (any(p_str == str(v).strip().lower() for v in target_val) if op == "in" and isinstance(target_val, list) else True)
+                                if not cond:
+                                    continue
+                        any_dom_miss = True
+                        extracted_fields.append({
+                            "key": f_id,
+                            "value": None,
+                            "_source": "pending_llm",
+                            "_hint": label
+                        })
+
             # --- TIER 2 / 3: LLM fallback for any fields that DOM missed ---
             if True:
                 try:
@@ -2715,9 +2805,7 @@ async def extract_batch_documents(
                     print(f"[LLM] Tier 2 starting for '{filename}' ({doc_type}) — {len(pending_items)} fields need LLM, text length={len(full_text)}")
 
                     if full_text.strip():
-                        if not schema_rules:
-                            targeted_fields_instruction = "Extract all relevant key-value pairs from the document."
-                        elif pending_items:
+                        if pending_items:
                             field_lines = []
                             seen_prompt_keys = set()
                             for pf in pending_items:
@@ -2782,66 +2870,70 @@ Document Text:
                         else:
                             llm_fields = []
 
+                        def _clean_alpha(s: str) -> str:
+                            if not s: return ""
+                            s = str(s).lower().strip()
+                            if s.startswith("field_"): s = s[6:]
+                            return "".join(c for c in s if c.isalnum())
+
+                        llm_raw_map = {f["key"]: f["value"] for f in llm_fields if f.get("key") and f.get("value")}
+                        llm_alpha_map = {_clean_alpha(f["key"]): f["value"] for f in llm_fields if f.get("key") and f.get("value")}
+
+                        for field in extracted_fields:
+                            if field.get("_source") == "pending_llm":
+                                field_key = field["key"]
+                                hint = field.get("_hint", "")
+                                matched_val = None
+
+                                # 1. Exact key match
+                                if field_key in llm_raw_map:
+                                    matched_val = llm_raw_map[field_key]
+
+                                # 2. Case-insensitive key match
+                                if not matched_val:
+                                    for k, v in llm_raw_map.items():
+                                        if k.lower().strip() == field_key.lower().strip():
+                                            matched_val = v
+                                            break
+
+                                # 3. Clean Alphanumeric match (ignores field_, underscores, spaces, punctuation)
+                                if not matched_val:
+                                    target_alpha = _clean_alpha(field_key)
+                                    if target_alpha in llm_alpha_map:
+                                        matched_val = llm_alpha_map[target_alpha]
+
+                                # 4. Alphanumeric Substring & Hint match
+                                if not matched_val:
+                                    target_alpha = _clean_alpha(field_key)
+                                    hint_alpha = _clean_alpha(hint)
+                                    for k, v in llm_raw_map.items():
+                                        k_alpha = _clean_alpha(k)
+                                        if target_alpha and (target_alpha in k_alpha or k_alpha in target_alpha):
+                                            matched_val = v
+                                            break
+                                        if hint_alpha and len(hint_alpha) > 3 and (hint_alpha in k_alpha or k_alpha in hint_alpha):
+                                            matched_val = v
+                                            break
+
+                                # Date normalization for any date fields extracted via LLM
+                                if matched_val and matched_val not in ["Unknown", "N/A", "None", None]:
+                                    f_lbl = field_label_map.get(field_key, "")
+                                    if "date" in field_key.lower() or "date" in f_lbl.lower():
+                                        norm_d = parse_and_normalize_date(str(matched_val))
+                                        if norm_d:
+                                            matched_val = norm_d
+
+                                field["value"] = matched_val or "Unknown"
+                                field["_source"] = "llm"
+
+                        # Append extra fields ONLY if not strictly scoped to schema_rules and not already present
                         if not schema_rules:
-                            extracted_fields = llm_fields
-                            any_dom_miss = bool(llm_fields)
-                        else:
-                            def _clean_alpha(s: str) -> str:
-                                if not s: return ""
-                                s = str(s).lower().strip()
-                                if s.startswith("field_"): s = s[6:]
-                                return "".join(c for c in s if c.isalnum())
-
-                            llm_raw_map = {f["key"]: f["value"] for f in llm_fields if f.get("key") and f.get("value")}
-                            llm_alpha_map = {_clean_alpha(f["key"]): f["value"] for f in llm_fields if f.get("key") and f.get("value")}
-
-                            for field in extracted_fields:
-                                if field.get("_source") == "pending_llm":
-                                    field_key = field["key"]
-                                    hint = field.get("_hint", "")
-                                    matched_val = None
-
-                                    # 1. Exact key match
-                                    if field_key in llm_raw_map:
-                                        matched_val = llm_raw_map[field_key]
-
-                                    # 2. Case-insensitive key match
-                                    if not matched_val:
-                                        for k, v in llm_raw_map.items():
-                                            if k.lower().strip() == field_key.lower().strip():
-                                                matched_val = v
-                                                break
-
-                                    # 3. Clean Alphanumeric match (ignores field_, underscores, spaces, punctuation)
-                                    if not matched_val:
-                                        target_alpha = _clean_alpha(field_key)
-                                        if target_alpha in llm_alpha_map:
-                                            matched_val = llm_alpha_map[target_alpha]
-
-                                    # 4. Alphanumeric Substring & Hint match
-                                    if not matched_val:
-                                        target_alpha = _clean_alpha(field_key)
-                                        hint_alpha = _clean_alpha(hint)
-                                        for k, v in llm_raw_map.items():
-                                            k_alpha = _clean_alpha(k)
-                                            if target_alpha and (target_alpha in k_alpha or k_alpha in target_alpha):
-                                                matched_val = v
-                                                break
-                                            if hint_alpha and len(hint_alpha) > 3 and (hint_alpha in k_alpha or k_alpha in hint_alpha):
-                                                matched_val = v
-                                                break
-
-                                    field["value"] = matched_val or "Unknown"
-                                    field["_source"] = "llm"
-
-                            # Append extra fields ONLY if not strictly scoped to schema_rules
-                            if not schema_rules:
-                                existing_keys = {f["key"].lower() for f in extracted_fields}
-                                for item in llm_fields:
-                                    k = item.get("key", "")
-                                    v = item.get("value", "")
-                                    if k and k.lower() not in existing_keys and v not in [None, "", "Unknown", "N/A"]:
-                                        extracted_fields.append({"key": k, "value": v, "_source": "llm"})
+                            existing_keys = {f["key"].lower() for f in extracted_fields}
+                            for item in llm_fields:
+                                k = item.get("key", "")
+                                v = item.get("value", "")
+                                if k and k.lower() not in existing_keys and v not in [None, "", "Unknown", "N/A"]:
+                                    extracted_fields.append({"key": k, "value": v, "_source": "llm"})
                     else:
                         print(f"[!] No text content available for LLM fallback on {filename}")
                         for field in extracted_fields:
@@ -2855,6 +2947,17 @@ Document Text:
                         if field.get("_source") == "pending_llm":
                             field["value"] = "Unknown"
                             field["_source"] = "llm"
+
+            # Universal date normalization pass on all date fields
+            for field in extracted_fields:
+                f_key = field.get("key", "")
+                f_lbl = field_label_map.get(f_key, "")
+                if "date" in f_key.lower() or "date" in f_lbl.lower():
+                    v = field.get("value")
+                    if v and str(v).strip() not in ["Unknown", "N/A", "None", ""]:
+                        norm_d = parse_and_normalize_date(str(v))
+                        if norm_d:
+                            field["value"] = norm_d
 
 
             # Clean up internal metadata (_source, _hint) and remove any fields with no real value
