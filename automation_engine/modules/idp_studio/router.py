@@ -19,7 +19,12 @@ from .extractors.classifier import classify_document, detect_operative_statutory
 from .extractors.spatial import get_effective_rules, get_scenario_lexicon
 from .forms.kit_parser import InstructionKitParser
 from .forms.registry import FormRegistry
-from .forms.filler import DynamicFormFiller, parse_and_normalize_date
+from .forms.filler import DynamicFormFiller
+from .extractors.universal_statutory import (
+    UniversalStatutoryExtractor,
+    parse_and_normalize_date,
+    match_canonical_option
+)
 
 
 
@@ -2265,15 +2270,32 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
     extracted = {}
     tmpl_lower = (template_name or "").lower()
 
-    # 1. Corporate Identity Number (CIN) - 21 characters: [LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}
-    cin_match = re.search(r'\b([LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6})\b', full_text)
-    if cin_match:
-        cin_val = cin_match.group(1).strip()
-        for f_id, label in field_label_map.items():
-            l_lower = (label or "").lower()
-            f_lower = (f_id or "").lower()
-            if f_lower.endswith(".field_1") or f_lower == "field_1" or f_lower == "cin" or re.search(r'\bcin\b|\bcorporate identity number\b', l_lower):
-                extracted[f_id] = cin_val
+    # 1. Universal Statutory Extraction (CIN, PAN, DIN, Dates, Resolutions, SRNs)
+    stat_entities = UniversalStatutoryExtractor.extract_entities(full_text)
+
+    for f_id, label in field_label_map.items():
+        l_lower = (label or "").lower()
+        f_lower = (f_id or "").lower()
+
+        # CIN mapping
+        if stat_entities.get("primary_cin"):
+            if f_lower.endswith(".field_1") or f_lower == "field_1" or "corporate identity number" in l_lower or (re.search(r'\bcin\b', l_lower) and "pan" not in l_lower):
+                extracted[f_id] = stat_entities["primary_cin"]
+
+        # PAN mapping
+        if stat_entities.get("primary_pan"):
+            if "permanent account number" in l_lower or re.search(r'\bpan\b', l_lower):
+                extracted[f_id] = stat_entities["primary_pan"]
+
+        # DIN mapping
+        if stat_entities.get("primary_din"):
+            if "director identification number" in l_lower or re.search(r'\bdin\b', l_lower):
+                extracted[f_id] = stat_entities["primary_din"]
+
+        # Resolution Number
+        if stat_entities.get("primary_resolution"):
+            if "resolution" in l_lower and ("number" in l_lower or "no" in l_lower):
+                extracted[f_id] = stat_entities["primary_resolution"]
 
     # 2. Company Name
     comp_name = None
@@ -2494,7 +2516,7 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
         pan_val = pan_match.group(1).strip()
         for f_id, label in field_label_map.items():
             l_lower = (label or "").lower()
-            if "pan" in l_lower:
+            if ("permanent account number" in l_lower or re.search(r'\bpan\b', l_lower)) and "company" not in l_lower:
                 extracted[f_id] = pan_val
 
     br_match = re.search(r'resolution\s*(?:no\.?|number)?\s*[:\-\s]*([0-9A-Za-z/]+)?\s*dated\s*[:\-\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})', full_text, re.IGNORECASE)

@@ -82,30 +82,51 @@ class Stage3InstructionAI:
             f"Respond with strictly valid JSON only."
         )
 
-        payload = {
-            "model": self.model,
-            "prompt": prompt,
-            "format": "json",
-            "stream": False,
-            "options": {"temperature": 0.0}
-        }
-
         try:
-            req = urllib.request.Request(
-                self.ollama_url,
-                data=json.dumps(payload).encode("utf-8"),
-                headers={"Content-Type": "application/json"}
-            )
-            with urllib.request.urlopen(req, timeout=25) as resp:
-                data = json.loads(resp.read())
-                raw_txt = data.get("response", "").strip()
-                if raw_txt:
-                    return json.loads(raw_txt)
+            from automation_engine.modules.idp_studio.core.llm_router import call_llm_json
+            return call_llm_json("legal_reasoning", prompt, timeout=25)
         except Exception as e:
             # Fall back gracefully to heuristics if offline or timed out
             print(f"[Stage 3 Qwen 14B] Fallback to heuristics for '{field_name[:30]}': {e}")
             return None
-        return None
+
+    def _parse_table_columns_with_coder(self, name: str, inst: str) -> List[Dict[str, Any]]:
+        """
+        Dynamically extracts table columns from statutory table instructions using qwen2.5-coder:7b.
+        Returns a list of column definitions: [{'key': ..., 'label': ..., 'type': ..., 'required': bool}]
+        """
+        if not inst and not name:
+            return []
+        try:
+            from automation_engine.modules.idp_studio.core.llm_router import call_llm_json
+            prompt = (
+                f"You are an MCA Statutory Form Compiler. Extract column definitions from this statutory table.\n"
+                f"Table Name: {name}\n"
+                f"Instructions: {inst}\n\n"
+                f"Return a JSON array of column objects, each with:\n"
+                f"- 'key': snake_case unique identifier (e.g. 'cin', 'shareholder_name')\n"
+                f"- 'label': human-readable column heading\n"
+                f"- 'type': one of 'text', 'number', 'date', 'select', 'radio'\n"
+                f"- 'required': boolean\n"
+                f"- 'options': list of string options if type is select or radio\n\n"
+                f"Respond with strictly valid JSON array only."
+            )
+            res = call_llm_json("schema_coder", prompt, timeout=30)
+            if isinstance(res, list) and res:
+                cleaned_cols = []
+                for item in res:
+                    if isinstance(item, dict) and "key" in item and "label" in item:
+                        cleaned_cols.append({
+                            "key": re.sub(r"[^a-z0-9_]+", "", str(item["key"]).lower())[:30],
+                            "label": str(item["label"]).strip(),
+                            "type": item.get("type", "text"),
+                            "required": bool(item.get("required", True)),
+                            "options": item.get("options", [])
+                        })
+                return cleaned_cols
+        except Exception as e:
+            print(f"[SchemaCoder Dynamic Table] Fallback due to: {e}")
+        return []
 
     def process(self, raw_rows: List[RawStatutoryRow], root_branches: List[Dict[str, Any]]) -> List[SemanticFieldDefinition]:
         """
@@ -647,6 +668,9 @@ class Stage3InstructionAI:
                 {"financial_head": "XXIII. Provision for Tax", "current_year": "", "previous_year": ""},
                 {"financial_head": "XXIV. Profit / (Loss) After Tax", "current_year": "", "previous_year": ""},
             ]
+
+        if not columns and (inst or name):
+            columns = self._parse_table_columns_with_coder(name, inst)
 
         return {
             "table_archetype": archetype,

@@ -14,6 +14,11 @@ import datetime
 from typing import Dict, Any, List, Optional, Tuple
 import requests
 
+from automation_engine.modules.idp_studio.extractors.universal_statutory import (
+    parse_and_normalize_date, match_canonical_option
+)
+from automation_engine.modules.idp_studio.core.llm_router import call_llm_json
+
 logger = logging.getLogger(__name__)
 
 OLLAMA_API_URL = os.getenv("OLLAMA_API_URL", "http://192.168.112.2:11434/api/generate")
@@ -191,28 +196,14 @@ Output strictly valid JSON with this structure:
         raw_mappings = {}
 
         try:
-            logger.info(f"[DynamicFormFiller] Calling {self.model} for {len(fields)} fields...")
-            resp = requests.post(
-                self.ollama_url,
-                json={
-                    "model": self.model,
-                    "prompt": prompt,
-                    "stream": False,
-                    "format": "json",
-                    "options": {"temperature": 0.05, "num_predict": 3000}
-                },
-                timeout=90
-            )
-            resp.raise_for_status()
-            res_json = resp.json()
-            raw_text = res_json.get("response", "").strip()
-
-            parsed = json.loads(raw_text)
-            mappings_list = parsed.get("mappings", [])
+            logger.info(f"[DynamicFormFiller] Calling legal_reasoning model for {len(fields)} fields...")
+            parsed = call_llm_json("legal_reasoning", prompt, timeout=90)
+            mappings_list = parsed.get("mappings", []) if isinstance(parsed, dict) else (parsed if isinstance(parsed, list) else [])
             for m in mappings_list:
-                f_id = m.get("field_id")
-                if f_id:
-                    raw_mappings[f_id] = m
+                if isinstance(m, dict):
+                    f_id = m.get("field_id")
+                    if f_id:
+                        raw_mappings[f_id] = m
 
             logger.info(f"[DynamicFormFiller] LLM mapped {len(raw_mappings)} fields successfully.")
 
@@ -522,52 +513,6 @@ Output strictly valid JSON with this structure:
     def _normalize_date(date_str: str) -> Optional[str]:
         """Normalizes various standard and alphanumeric date formats (e.g. '24th april 2025') to DD/MM/YYYY."""
         return parse_and_normalize_date(date_str)
-
-
-def parse_and_normalize_date(date_str: Any) -> Optional[str]:
-    """
-    Robust statutory date parser supporting standard numerical and alphanumeric dates:
-    - '24th april 2025' -> '24/04/2025'
-    - '24th April, 2025' -> '24/04/2025'
-    - '24-Apr-2025' -> '24/04/2025'
-    - 'April 24, 2025' -> '24/04/2025'
-    - '24/04/2025' -> '24/04/2025'
-    - '2025-04-24' -> '24/04/2025'
-    - '1st January 2026' -> '01/01/2026'
-    """
-    if not date_str:
-        return None
-    s = str(date_str).strip()
-    if s.lower() in ["none", "null", "unknown", "n/a", "empty / n/a", ""]:
-        return None
-
-    # 1. Clean ordinal suffixes (24th -> 24, 1st -> 1, 2nd -> 2, 3rd -> 3)
-    cleaned = re.sub(r'(\d+)(st|nd|rd|th)', r'\1', s, flags=re.IGNORECASE)
-    cleaned = cleaned.replace(',', ' ').strip()
-
-    # 2. Try dateutil parser with dayfirst=True
-    try:
-        from dateutil import parser as dateutil_parser
-        dt = dateutil_parser.parse(cleaned, dayfirst=True)
-        if dt.year < 100:
-            dt = dt.replace(year=dt.year + 2000)
-        return dt.strftime("%d/%m/%Y")
-    except Exception:
-        pass
-
-    # 3. Fallback regex patterns
-    patterns = ["%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%Y/%m/%d", "%d/%m/%y"]
-    cleaned_digits = re.sub(r"[^\d/-]", "/", s.strip())
-    for p in patterns:
-        try:
-            dt = datetime.datetime.strptime(cleaned_digits, p)
-            if dt.year < 100:
-                dt = dt.replace(year=dt.year + 2000)
-            return dt.strftime("%d/%m/%Y")
-        except ValueError:
-            continue
-
-    return None
 
     @staticmethod
     def _find_source_evidence(source_key: Optional[str], evidence_list: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
