@@ -335,3 +335,161 @@ class TestGnl2BatchExtractor(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# =============================================================================
+# Additional Regression Tests: User Testing Feedback Fixes
+# Tests A through F correspond to each issue in the forensic debug report.
+# =============================================================================
+
+class TestGnl2UserTestingFixes(unittest.TestCase):
+    """
+    Regression suite for user testing feedback fixes (committed in fix/gnl2-template-fidelity).
+    Tests run entirely in-process (no live server required).
+    """
+
+    # -------------------------------------------------------------------------
+    # Test A: SRN format guard — is_valid_srn() and sanitize_srn()
+    # -------------------------------------------------------------------------
+    def test_srn_format_guard_rejects_bleed_values(self):
+        """D1: sanitize_srn() must reject 'Companies Act, 2013' and similar bleed."""
+        from modules.idp_studio.extractors.universal_statutory import is_valid_srn, sanitize_srn
+
+        # Valid SRNs
+        self.assertTrue(is_valid_srn("F47089312"),  "9-char SRN starting with letter should be valid")
+        self.assertTrue(is_valid_srn("AB4008531"),  "8-char SRN with 2-letter prefix should be valid")
+        self.assertTrue(is_valid_srn("G12345678"),  "G-prefixed 8-digit SRN should be valid")
+
+        # Invalid / bleed values
+        self.assertFalse(is_valid_srn("Companies Act, 2013"), "Act name must be rejected")
+        self.assertFalse(is_valid_srn(""),                    "Empty string must be rejected")
+        self.assertFalse(is_valid_srn(None),                  "None must be rejected")
+        self.assertFalse(is_valid_srn("Act under which"),     "Label text must be rejected")
+        self.assertFalse(is_valid_srn("123456789"),           "Digits-only string must be rejected (no letter prefix)")
+
+        # sanitize_srn passthrough
+        self.assertEqual(sanitize_srn("F47089312"),        "F47089312")
+        self.assertEqual(sanitize_srn("Companies Act, 2013"), "")
+        self.assertEqual(sanitize_srn(""),                 "")
+
+    # -------------------------------------------------------------------------
+    # Test B: primary_srn shortcut always validated
+    # -------------------------------------------------------------------------
+    def test_primary_srn_shortcut_never_bleeds(self):
+        """D1: UniversalStatutoryExtractor.primary_srn must never return a non-SRN value."""
+        from modules.idp_studio.extractors.universal_statutory import UniversalStatutoryExtractor
+
+        # Text where a naive RE match could pick up a number from Act references
+        text = (
+            "The company filed under Companies Act, 2013 Section 117. "
+            "Service Request Number: F47089312 was issued for Form MGT-14."
+        )
+        res = UniversalStatutoryExtractor.extract_entities(text)
+        self.assertIsNotNone(res.get("primary_srn"),    "Should find real SRN")
+        self.assertEqual(res["primary_srn"], "F47089312", "Must return exact SRN, not Act numbers")
+
+    # -------------------------------------------------------------------------
+    # Test C: _render_gnl2_official_pdf imports without error
+    # -------------------------------------------------------------------------
+    def test_gnl2_canvas_renderer_importable_and_callable(self):
+        """C: _render_gnl2_official_pdf must be importable and return a fitz Document."""
+        try:
+            import fitz
+        except ImportError:
+            self.skipTest("PyMuPDF (fitz) not installed — skipping canvas renderer test")
+
+        from modules.idp_studio.router import _render_gnl2_official_pdf
+
+        sample_data = {
+            "gnl2.main.field_1":  "L17110MH1973PLC019786",
+            "gnl2.main.field_1b": "Reliance Industries Limited",
+            "gnl2.main.field_1c": "3rd Floor, Maker Chambers IV, Mumbai",
+            "gnl2.main.field_1d": "investor.relations@ril.com",
+            "gnl2.main.field_2a": "Prospectus",
+            "gnl2.main.field_4a": "Companies Act, 2013",
+            "gnl2.main.field_5a": "F47089312",
+            "gnl2.main.field_a":  "true",
+        }
+        doc = _render_gnl2_official_pdf(sample_data)
+        self.assertIsNotNone(doc)
+        self.assertGreaterEqual(len(doc), 1, "Rendered doc must have at least 1 page")
+        raw = bytes(doc.tobytes())
+        self.assertGreater(len(raw), 1000, "PDF bytes must be non-trivial")
+        doc.close()
+
+    # -------------------------------------------------------------------------
+    # Test D: Section 1 fields all present in canvas output
+    # -------------------------------------------------------------------------
+    def test_section1_all_fields_rendered_in_canvas(self):
+        """A1 + C: Name, Address, Email appear in the canvas PDF text content."""
+        try:
+            import fitz
+        except ImportError:
+            self.skipTest("PyMuPDF not installed")
+
+        from modules.idp_studio.router import _render_gnl2_official_pdf
+
+        data = {
+            "gnl2.main.field_1":  "U74899DL1995PTC069345",
+            "gnl2.main.field_1b": "ACME CORP LIMITED",
+            "gnl2.main.field_1c": "Plot 42, Industrial Area, New Delhi",
+            "gnl2.main.field_1d": "contact@acmecorp.in",
+        }
+        doc = _render_gnl2_official_pdf(data)
+        all_text = "".join(p.get_text() for p in doc)
+        self.assertIn("ACME CORP LIMITED",                     all_text, "Company name must appear")
+        self.assertIn("Plot 42, Industrial Area, New Delhi",   all_text, "Address must appear")
+        self.assertIn("contact@acmecorp.in",                   all_text, "Email must appear")
+        self.assertIn("U74899DL1995PTC069345",                 all_text, "CIN must appear")
+        doc.close()
+
+    # -------------------------------------------------------------------------
+    # Test E: Verification text is isolated (not fused into attachment label)
+    # -------------------------------------------------------------------------
+    def test_verification_declaration_isolated_from_attachment_r(self):
+        """A3 + C: Verification text must appear in its own block, not inside '(r)' attachment label."""
+        try:
+            import fitz
+        except ImportError:
+            self.skipTest("PyMuPDF not installed")
+
+        from modules.idp_studio.router import _render_gnl2_official_pdf
+
+        doc = _render_gnl2_official_pdf({})
+        all_text = "".join(p.get_text() for p in doc)
+
+        # The standalone verification section text must appear
+        self.assertIn("authorised by a resolution of the Board of Directors", all_text,
+                      "Verification declaration must appear in its own block")
+        # The attachment (r) row must contain the short label (fitz may wrap text)
+        self.assertIn("Optional attachment", all_text,
+                      "Attachment (r) label must be present")
+        # The FUSED label from the old schema must NOT appear
+        fused = "Optional atachment(s) - if any I have been authorised"
+        self.assertNotIn(fused, all_text,
+                         "Fused 7(r)+verification label must NOT appear in canvas output")
+        doc.close()
+
+    # -------------------------------------------------------------------------
+    # Test F: Signature boxes do not contain "(Not Applicable / Not Filled)"
+    # -------------------------------------------------------------------------
+    def test_signature_boxes_have_no_not_applicable_text(self):
+        """B2: DSC boxes must be blank, not stamped with fallback text."""
+        try:
+            import fitz
+        except ImportError:
+            self.skipTest("PyMuPDF not installed")
+
+        from modules.idp_studio.router import _render_gnl2_official_pdf
+
+        doc = _render_gnl2_official_pdf({})
+        all_text = "".join(p.get_text() for p in doc)
+        self.assertNotIn("Not Applicable / Not Filled", all_text,
+                         "'(Not Applicable / Not Filled)' must not appear anywhere in GNL-2 canvas output")
+        self.assertIn("DSC Placeholder", all_text,
+                      "DSC placeholder boxes must be present")
+        doc.close()
+
+
+if __name__ == "__main__":
+    unittest.main()

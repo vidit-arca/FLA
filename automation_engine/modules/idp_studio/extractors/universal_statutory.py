@@ -47,6 +47,34 @@ RE_SRN = re.compile(
     r"\b([A-Za-z]{1,2}[0-9]{7,8})\b"
 )
 
+# SRN strict format guard: rejects any value that is NOT a valid MCA SRN.
+# Prevents bleed from Act names ("Companies Act, 2013"), section labels, etc.
+_SRN_STRICT = re.compile(r'^[A-Za-z]{1,3}[0-9]{6,9}$')
+
+
+def is_valid_srn(value: Any) -> bool:
+    """
+    Returns True ONLY for strings that look like genuine MCA Service Request Numbers.
+    Rejects everything else (Act names, section labels, freeform text, None, empty).
+    Examples:
+      is_valid_srn('F47089312')         -> True
+      is_valid_srn('AB4008531')         -> True
+      is_valid_srn('Companies Act, 2013') -> False
+      is_valid_srn('')                  -> False
+    """
+    if not value:
+        return False
+    v = str(value).strip()
+    return bool(_SRN_STRICT.match(v))
+
+
+def sanitize_srn(value: Any) -> str:
+    """
+    Returns the value if it passes the SRN format guard, otherwise returns empty string.
+    Use this when mapping extracted text to field_5a (SRN of Form MGT-14).
+    """
+    return str(value).strip() if is_valid_srn(value) else ""
+
 # ICSI Membership No: ACS or FCS followed by 4-6 digits
 RE_ICSI_MEMBERSHIP = re.compile(
     r"\b((?:ACS|FCS)[-\s]?[0-9]{4,6})\b", re.IGNORECASE
@@ -282,5 +310,9 @@ class UniversalStatutoryExtractor:
         results["primary_din"] = results["dins"][0] if results["dins"] else None
         results["primary_date"] = results["dates"][0] if results["dates"] else None
         results["primary_resolution"] = results["resolutions"][0] if results["resolutions"] else None
+        # SRN shortcut: always validated — never returns a bleed value
+        results["primary_srn"] = next(
+            (s for s in results["srns"] if is_valid_srn(s)), None
+        )
 
         return results

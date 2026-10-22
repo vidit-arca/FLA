@@ -962,9 +962,14 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
         val_str = item["value"]
         f_type = item.get("type", "text")
         options = item.get("options")
-        # Select dropdowns with <= 3 options or radios/toggles render with selection circles; larger dropdowns display selected value cleanly
-        is_radio = (f_type in ["radio", "toggle"]) or (f_type == "select" and options and len(options) <= 3)
-
+        # Radios / small toggles (<=3 opts) show filled-circle selector.
+        # Larger selects (4-20 options) render as a 2-col grid with radio dots.
+        # DSC/signatory blocks and checkboxes have their own dedicated branches.
+        is_radio     = (f_type in ["radio", "toggle"]) or (f_type == "select" and options and len(options) <= 3)
+        is_full_grid = (f_type == "select" and options and 3 < len(options) <= 20)
+        is_checkbox  = f_type in ["checkbox"]
+        is_dsc       = f_type in ["dsc_block"]
+        is_signatory = f_type in ["signatory"]
         # --- STATUTORY TABLE / GRID RENDERING ---
         if f_type == "table":
             table_cols = item.get("columns") or []
@@ -1059,7 +1064,127 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
             y += 6
             continue
 
-        display_val = val_str if val_str else "(Not Applicable / Not Filled)"
+        # --- CHECKBOX RENDERING (attachment fields a-r) ---
+        if is_checkbox:
+            chk_h = 18.0
+            if y + chk_h > 780:
+                page.insert_text((42, 802), f"Page {len(doc)} • Official MCA Filing Return", fontsize=7.5, fontname="helv", color=(0.5, 0.5, 0.5))
+                page = doc.new_page(width=595, height=842)
+                page.draw_rect(fitz.Rect(28, 28, 567, 814), color=(0.15, 0.2, 0.3), width=1.2)
+                y = 45
+            is_checked = str(val_str).strip().lower() in ("true", "1", "yes", "checked", "x")
+            # Draw checkbox square
+            box_r = fitz.Rect(40, y + 3, 51, y + 14)
+            page.draw_rect(box_r, color=(0.3, 0.3, 0.3), width=0.8)
+            if is_checked:
+                page.draw_line(fitz.Point(41, y + 8), fitz.Point(46, y + 13), color=(0.05, 0.4, 0.15), width=1.5)
+                page.draw_line(fitz.Point(46, y + 13), fitz.Point(54, y + 4), color=(0.05, 0.4, 0.15), width=1.5)
+            page.insert_text((57, y + 12), label, fontsize=7.5, fontname="helv", color=(0.1, 0.15, 0.25))
+            y += chk_h
+            continue
+
+        # --- DSC BLOCK RENDERING ---
+        if is_dsc:
+            dsc_h = 50.0
+            if y + dsc_h > 780:
+                page.insert_text((42, 802), f"Page {len(doc)} • Official MCA Filing Return", fontsize=7.5, fontname="helv", color=(0.5, 0.5, 0.5))
+                page = doc.new_page(width=595, height=842)
+                page.draw_rect(fitz.Rect(28, 28, 567, 814), color=(0.15, 0.2, 0.3), width=1.2)
+                y = 45
+            page.insert_text((42, y + 11), label, fontsize=7.5, fontname="helv", color=(0.15, 0.22, 0.35))
+            # Two DSC placeholder boxes side by side
+            page.draw_rect(fitz.Rect(42, y + 15, 190, y + 45), color=(0.6, 0.6, 0.6), width=0.8)
+            page.insert_text((50, y + 32), "Digital Signature", fontsize=6.5, fontname="helv", color=(0.6, 0.65, 0.7))
+            page.draw_rect(fitz.Rect(200, y + 15, 348, y + 45), color=(0.6, 0.6, 0.6), width=0.8)
+            page.insert_text((208, y + 32), "Digital Signature", fontsize=6.5, fontname="helv", color=(0.6, 0.65, 0.7))
+            y += dsc_h
+            continue
+
+        # --- SIGNATORY BLOCK RENDERING ---
+        if is_signatory:
+            sig_h = 30.0
+            if y + sig_h > 780:
+                page.insert_text((42, 802), f"Page {len(doc)} • Official MCA Filing Return", fontsize=7.5, fontname="helv", color=(0.5, 0.5, 0.5))
+                page = doc.new_page(width=595, height=842)
+                page.draw_rect(fitz.Rect(28, 28, 567, 814), color=(0.15, 0.2, 0.3), width=1.2)
+                y = 45
+            page.insert_text((42, y + 10), label, fontsize=7.5, fontname="helv", color=(0.15, 0.22, 0.35))
+            name_val = str(val_str).strip() if val_str else ""
+            page.draw_rect(fitz.Rect(42, y + 13, 300, y + 27), color=(0.75, 0.80, 0.88), width=0.6)
+            if name_val:
+                page.insert_text((46, y + 24), name_val, fontsize=8.0, fontname="helv", color=(0.05, 0.1, 0.25))
+            y += sig_h
+            continue
+
+        # --- FULL GRID rendering for selects with 4-20 options (e.g. Section 2a) ---
+        if is_full_grid and options:
+            # Determine selected option via fuzzy match
+            val_lower = str(val_str).lower().strip()
+            selected_opt = None
+            if val_lower:
+                clean_val = re.sub(r'[^a-z0-9]', '', val_lower)
+                for opt in options:
+                    if re.sub(r'[^a-z0-9]', '', str(opt).lower()) == clean_val:
+                        selected_opt = opt
+                        break
+                if not selected_opt:
+                    tokens_val = set(re.findall(r'[a-z0-9]+', val_lower))
+                    best_score = 0.0
+                    for opt in options:
+                        tokens_opt = set(re.findall(r'[a-z0-9]+', str(opt).lower()))
+                        if tokens_opt:
+                            score = len(tokens_opt & tokens_val) / float(len(tokens_opt))
+                            if score > best_score and score >= 0.7:
+                                best_score = score
+                                selected_opt = opt
+
+            n_opts = len(options)
+            col_w = 255.0
+            opt_row_h = 15.0
+            n_rows = math.ceil(n_opts / 2)
+            header_h = 20.0
+            grid_h = header_h + n_rows * opt_row_h + 6
+
+            if y + grid_h > 780:
+                page.insert_text((42, 802), f"Page {len(doc)} • Official MCA Filing Return", fontsize=7.5, fontname="helv", color=(0.5, 0.5, 0.5))
+                page = doc.new_page(width=595, height=842)
+                page.draw_rect(fitz.Rect(28, 28, 567, 814), color=(0.15, 0.2, 0.3), width=1.2)
+                y = 45
+
+            # Section label banner
+            page.draw_rect(fitz.Rect(35, y, 560, y + header_h), color=(0.75, 0.80, 0.88), fill=(0.88, 0.91, 0.96), width=0.8)
+            page.insert_textbox(fitz.Rect(40, y + 3, 555, y + header_h - 2), label, fontsize=7.5, fontname="helv", color=(0.08, 0.16, 0.35))
+            y += header_h
+
+            # 2-column radio grid
+            for row_i in range(n_rows):
+                for col_i in range(2):
+                    opt_i = row_i * 2 + col_i
+                    if opt_i >= n_opts:
+                        break
+                    opt = options[opt_i]
+                    is_sel = (selected_opt is not None and opt == selected_opt)
+                    x_off = 40 + col_i * col_w
+                    cy = y + row_i * opt_row_h + 7
+                    # Radio circle
+                    page.draw_circle((x_off, cy), radius=3.5, color=(0.3, 0.3, 0.3), width=0.7)
+                    if is_sel:
+                        page.draw_circle((x_off, cy), radius=2.0, color=(0.05, 0.1, 0.25), fill=(0.05, 0.1, 0.25))
+                    txt_col = (0.05, 0.1, 0.25) if is_sel else (0.35, 0.4, 0.5)
+                    opt_rect = fitz.Rect(x_off + 8, cy - 5, x_off + col_w - 4, cy + 9)
+                    page.insert_textbox(opt_rect, str(opt), fontsize=6.8, fontname="helv", color=txt_col)
+
+            y += n_rows * opt_row_h + 6
+            continue
+
+        # --- Standard field value ---
+        # For DSC/signatory types, never stamp fallback text — leave blank.
+        if is_dsc or is_signatory:
+            display_val = ""
+        elif val_str:
+            display_val = val_str
+        else:
+            display_val = ""
 
         # Accurate Dynamic Row Height Calculation: accounts for BOTH label and value length
         lbl_lines = max(1, math.ceil(len(label) / 36.0))
@@ -1136,6 +1261,424 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
 
 
 # ==============================================================================
+# GNL-2 DEDICATED OFFICIAL MCA CANVAS RENDERER
+# Builds a pixel-faithful replica of the official MCA Form GNL-2 layout.
+# Called before the generic fallback for any GNL-2 request.
+# ==============================================================================
+def _render_gnl2_official_pdf(mapped_data: Dict[str, Any]) -> Any:
+    """
+    Renders an exact visual replica of MCA Form GNL-2 using PyMuPDF.
+    Sections: Header, Form Language, 1 (Company Info), 2 (Purpose),
+              3 (Advertisement), 4 (Act/Section), 5 (SRN/Resolution),
+              6 (Event), 7 (Attachments), Verification, Signatory,
+              For Office Use Only footer.
+    Returns a fitz.Document ready for bytes() serialization.
+    """
+    import fitz
+    import math
+    import re
+
+    # -----------------------------------------------------------------
+    # Helper: get mapped value by key (case-insensitive partial match)
+    # -----------------------------------------------------------------
+    def _v(key: str, default: str = "") -> str:
+        """Fetch a value from mapped_data by exact or suffix key match."""
+        if key in mapped_data:
+            v = mapped_data[key]
+            return str(v).strip() if v not in (None, "", "null", "None") else default
+        # Suffix match (e.g. 'field_1' matches 'gnl2.main.field_1')
+        for k, v in mapped_data.items():
+            if str(k).endswith(key) or key in str(k):
+                return str(v).strip() if v not in (None, "", "null", "None") else default
+        return default
+
+    # Color palette (MCA blue-grey theme)
+    C_BORDER  = (0.13, 0.20, 0.35)
+    C_HEADER  = (0.08, 0.16, 0.36)
+    C_FILL_H  = (0.90, 0.93, 0.97)
+    C_FILL_R  = (0.97, 0.98, 1.00)   # row fill
+    C_FILL_A  = (1.00, 1.00, 1.00)   # alternate row fill
+    C_SEC_LBL = (0.06, 0.14, 0.30)   # section label text
+    C_VAL     = (0.05, 0.10, 0.20)   # value text
+    C_MUTED   = (0.55, 0.60, 0.65)   # muted / empty field
+    C_LINE    = (0.78, 0.82, 0.90)
+    C_RADIO   = (0.05, 0.10, 0.25)   # selected radio fill
+    C_RADIO_O = (0.35, 0.40, 0.50)   # unselected radio text
+    C_GREEN   = (0.05, 0.40, 0.15)   # checkmark
+    C_VERIF   = (0.90, 0.94, 0.98)   # verification box fill
+    C_FOOTER  = (0.94, 0.94, 0.97)   # For Office Use Only footer
+    C_SIG     = (0.75, 0.78, 0.85)   # DSC box border
+
+    DOC_W, DOC_H = 595, 842  # A4
+    L_MARGIN, R_MARGIN = 32, 563
+    TOP_Y = 32
+
+    doc = fitz.open()
+    page = doc.new_page(width=DOC_W, height=DOC_H)
+
+    # Outer border
+    page.draw_rect(fitz.Rect(TOP_Y - 4, TOP_Y - 4, R_MARGIN + 4, DOC_H - 28),
+                   color=C_BORDER, width=1.0)
+
+    y = float(TOP_Y)
+
+    def _new_page():
+        nonlocal page, y
+        page.insert_text((L_MARGIN, DOC_H - 14),
+                         f"Page {len(doc)} • MCA Form GNL-2 • CRAFT IDP Engine",
+                         fontsize=6.5, fontname="helv", color=(0.5, 0.5, 0.5))
+        page = doc.new_page(width=DOC_W, height=DOC_H)
+        page.draw_rect(fitz.Rect(TOP_Y - 4, TOP_Y - 4, R_MARGIN + 4, DOC_H - 28),
+                       color=C_BORDER, width=1.0)
+        y = float(TOP_Y)
+
+    def _check_page(need_h: float):
+        if y + need_h > DOC_H - 50:
+            _new_page()
+
+    def _draw_section_header(title: str, h: float = 16.0):
+        nonlocal y
+        _check_page(h)
+        page.draw_rect(fitz.Rect(L_MARGIN, y, R_MARGIN, y + h),
+                       color=C_BORDER, fill=C_FILL_H, width=0.8)
+        page.insert_textbox(fitz.Rect(L_MARGIN + 5, y + 1, R_MARGIN - 5, y + h),
+                            title, fontsize=7.8, fontname="helv", color=C_HEADER)
+        y += h
+
+    def _draw_row(label: str, value: str, h: float = 20.0, label_w_frac: float = 0.42, alternate: bool = False):
+        nonlocal y
+        _check_page(h)
+        fill = C_FILL_A if alternate else C_FILL_R
+        page.draw_rect(fitz.Rect(L_MARGIN, y, R_MARGIN, y + h),
+                       color=C_LINE, fill=fill, width=0.4)
+        split_x = L_MARGIN + (R_MARGIN - L_MARGIN) * label_w_frac
+        page.draw_line(fitz.Point(split_x, y), fitz.Point(split_x, y + h),
+                       color=C_LINE, width=0.4)
+        # Label
+        lbl_rect = fitz.Rect(L_MARGIN + 3, y + 2, split_x - 2, y + h - 2)
+        page.insert_textbox(lbl_rect, label, fontsize=7.5, fontname="helv", color=C_SEC_LBL)
+        # Value
+        val_rect = fitz.Rect(split_x + 3, y + 2, R_MARGIN - 3, y + h - 2)
+        if value:
+            page.insert_textbox(val_rect, value, fontsize=8.0, fontname="helv", color=C_VAL)
+        else:
+            page.insert_textbox(val_rect, "________________", fontsize=7.5, fontname="helv", color=C_MUTED)
+        y += h
+
+    def _draw_radio_row(label: str, options_list, chosen: str, h_per_row: float = 14.0, label_h: float = 16.0):
+        nonlocal y
+        n_opts = len(options_list)
+        total_h = label_h + math.ceil(n_opts / 2) * h_per_row + 4
+        _check_page(total_h)
+        # Label banner
+        page.draw_rect(fitz.Rect(L_MARGIN, y, R_MARGIN, y + label_h),
+                       color=C_LINE, fill=C_FILL_R, width=0.4)
+        page.insert_textbox(fitz.Rect(L_MARGIN + 3, y + 1, R_MARGIN - 3, y + label_h),
+                            label, fontsize=7.5, fontname="helv", color=C_SEC_LBL)
+        y += label_h
+
+        chosen_norm = re.sub(r'[^a-z0-9]', '', str(chosen).lower())
+        col_w = (R_MARGIN - L_MARGIN) / 2.0
+        n_rows = math.ceil(n_opts / 2)
+        for row_i in range(n_rows):
+            row_h = h_per_row
+            _check_page(row_h)
+            page.draw_rect(fitz.Rect(L_MARGIN, y, R_MARGIN, y + row_h),
+                           color=C_LINE, fill=C_FILL_A, width=0.3)
+            for col_i in range(2):
+                opt_i = row_i * 2 + col_i
+                if opt_i >= n_opts:
+                    break
+                opt = options_list[opt_i]
+                opt_norm = re.sub(r'[^a-z0-9]', '', str(opt).lower())
+                is_sel = (chosen_norm and (opt_norm == chosen_norm or chosen_norm in opt_norm))
+                cx = L_MARGIN + col_i * col_w + 9
+                cy = y + row_h / 2
+                # Radio circle
+                page.draw_circle((cx, cy), radius=3.8, color=(0.35, 0.35, 0.35), width=0.7)
+                if is_sel:
+                    page.draw_circle((cx, cy), radius=2.2, color=C_RADIO, fill=C_RADIO)
+                opt_col = C_RADIO if is_sel else C_RADIO_O
+                opt_rect = fitz.Rect(cx + 7, y + 1, L_MARGIN + (col_i + 1) * col_w - 4, y + row_h)
+                page.insert_textbox(opt_rect, str(opt), fontsize=6.8, fontname="helv", color=opt_col)
+            y += row_h
+        y += 3
+
+    def _draw_checkbox_row(label: str, checked: bool, alternate: bool = False):
+        nonlocal y
+        chk_h = 16.0
+        _check_page(chk_h)
+        fill = C_FILL_A if alternate else C_FILL_R
+        page.draw_rect(fitz.Rect(L_MARGIN, y, R_MARGIN, y + chk_h),
+                       color=C_LINE, fill=fill, width=0.3)
+        bx1, by1, bx2, by2 = L_MARGIN + 4, y + 3, L_MARGIN + 13, y + 12
+        page.draw_rect(fitz.Rect(bx1, by1, bx2, by2), color=(0.35, 0.35, 0.35), width=0.8)
+        if checked:
+            page.draw_line(fitz.Point(bx1 + 1, by1 + 4), fitz.Point(bx1 + 4, by2 - 1), color=C_GREEN, width=1.5)
+            page.draw_line(fitz.Point(bx1 + 4, by2 - 1), fitz.Point(bx2 + 2, by1 - 1), color=C_GREEN, width=1.5)
+        page.insert_textbox(fitz.Rect(L_MARGIN + 17, y + 1, R_MARGIN - 3, y + chk_h),
+                            label, fontsize=7.2, fontname="helv", color=C_SEC_LBL)
+        y += chk_h
+
+    # =================================================================
+    # HEADER
+    # =================================================================
+    hdr_h = 64.0
+    page.draw_rect(fitz.Rect(L_MARGIN, y, R_MARGIN, y + hdr_h),
+                   color=C_BORDER, fill=C_FILL_H, width=0.8)
+    page.insert_text((L_MARGIN + 8, y + 14), "GOVERNMENT OF INDIA",
+                     fontsize=8.0, fontname="helv", color=(0.30, 0.30, 0.30))
+    page.insert_text((L_MARGIN + 8, y + 26), "MINISTRY OF CORPORATE AFFAIRS",
+                     fontsize=10.5, fontname="helv", color=C_HEADER)
+    page.insert_text((L_MARGIN + 8, y + 43), "Form GNL-2",
+                     fontsize=14.0, fontname="helv", color=C_SEC_LBL)
+    page.insert_text((L_MARGIN + 8, y + 56),
+                     "[Webform for filing of documents and information with the Central Government]",
+                     fontsize=7.0, fontname="helv", color=(0.40, 0.45, 0.50))
+    # Form language toggle (top-right)
+    lang_x = R_MARGIN - 145
+    lang_y = y + 15
+    page.insert_text((lang_x, lang_y), "Form language:", fontsize=7.0, fontname="helv", color=C_SEC_LBL)
+    page.draw_circle((lang_x + 70, lang_y - 2), radius=3.5, color=(0.3, 0.3, 0.3), width=0.7)
+    page.draw_circle((lang_x + 70, lang_y - 2), radius=2.0, color=C_RADIO, fill=C_RADIO)
+    page.insert_text((lang_x + 76, lang_y), "English", fontsize=7.0, fontname="helv", color=C_RADIO)
+    page.draw_circle((lang_x + 110, lang_y - 2), radius=3.5, color=(0.3, 0.3, 0.3), width=0.7)
+    page.insert_text((lang_x + 116, lang_y), "Hindi", fontsize=7.0, fontname="helv", color=C_RADIO_O)
+    y += hdr_h + 4
+
+    # =================================================================
+    # SECTION 1 — Company Information
+    # =================================================================
+    _draw_section_header("1. Company Information")
+    cin   = _v("field_1") or _v("cin") or _v("CIN")
+    name  = _v("field_1b") or _v("company_name") or _v("name_of_company")
+    addr  = _v("field_1c") or _v("registered_address") or _v("address")
+    email = _v("field_1d") or _v("email")
+    _draw_row("(a) *Corporate Identity Number (CIN)", cin, h=22.0)
+    _draw_row("(b) Name of the Company", name, h=22.0, alternate=True)
+    _draw_row("(c) Registered Office Address", addr, h=26.0)
+    _draw_row("(d) Email ID", email, h=20.0, alternate=True)
+    y += 3
+
+    # =================================================================
+    # SECTION 2 — Purpose of Filing
+    # =================================================================
+    _draw_section_header("2. Purpose of Filing")
+    doc_filed   = _v("field_2a") or _v("document_type") or _v("purpose")
+    others_spec = _v("field_2b")
+
+    sec2a_options = [
+        "Affidavit under Section 59 of the Insolvency and Bankruptcy Code, 2016",
+        "Circular or Circular in the form of Advertisement inviting Deposits in DPT-1",
+        "Final Report on Completion of liquidation process by Liquidator",
+        "Form 149 of the Companies (Court) Rules, 1959",
+        "Form 152 of the Companies (Court) Rules, 1959",
+        "Form 153 of the Companies (Court) Rules, 1959",
+        "Form 154 of the Companies (Court) Rules, 1959",
+        "Form 156 of the Companies (Court) Rules, 1959",
+        "Form 157 of the Companies (Court) Rules, 1959",
+        "Form 158 of the Companies (Court) Rules, 1959",
+        "Form 159 of the Companies (Court) Rules, 1959",
+        "Others",
+        "Private placement offer letter or Record of a private placement offer to be kept by the company",
+        "Prospectus",
+        "Red Herring Prospectus",
+    ]
+    _draw_radio_row("(a) *Please indicate the document being filed:", sec2a_options, doc_filed)
+    _draw_row("(b) If others, then specify:", others_spec, h=20.0)
+    y += 3
+
+    # =================================================================
+    # SECTION 3 — Advertisement / Order Details
+    # =================================================================
+    _draw_section_header("3. Advertisement / Order Details")
+    d3a        = _v("field_3a")
+    d3a_order  = _v("field_3a_2") or _v("order_passed_by")
+    d3b        = _v("field_3b")
+    d3c        = _v("field_3c")
+    d3d        = _v("field_3d") or _v("petition_number")
+    d3e        = _v("field_3e") or _v("order_number")
+    _draw_row("(a) Expected date of issue of Advertisement (DD/MM/YYYY)", d3a, alternate=False)
+    _draw_row("    Order passed by", d3a_order, h=20.0, alternate=True)
+    _draw_row("(b) Expected opening date of Acceptance of Deposits (DD/MM/YYYY)", d3b)
+    _draw_row("(c) Expected date of expiry of validity of advertisement (DD/MM/YYYY)", d3c, alternate=True)
+    _draw_row("(d) Petition / Application / Appeal Number", d3d)
+    _draw_row("(e) Order Number", d3e, alternate=True)
+    y += 3
+
+    # =================================================================
+    # SECTION 4 — Act and Section Reference
+    # =================================================================
+    _draw_section_header("4. Act and Section Reference")
+    act_choice = _v("field_4a") or _v("act")
+    sec_4bi    = _v("field_4bi") or _v("section_ca2013")
+    sec_4bi2   = _v("field_4bi_2") or _v("section_ca1956")
+    sec_4bii   = _v("field_4bii") or _v("section_ibc")
+    _draw_radio_row(
+        "(a) Act under which the document is being filed:",
+        ["Companies Act, 2013", "Companies Act, 1956", "Insolvency and Bankruptcy Code, 2016"],
+        act_choice
+    )
+    _draw_row("(b)(i) Section(s) of the Companies Act, 2013 under which the document is being filed", sec_4bi)
+    _draw_row("(b)(i) Section(s) of the Companies Act, 1956 under which the document is being filed", sec_4bi2, alternate=True)
+    _draw_row("(b)(ii) Section(s) of the Insolvency and Bankruptcy Code, 2016", sec_4bii)
+    y += 3
+
+    # =================================================================
+    # SECTION 5 — Special / Ordinary Resolution (MGT-14)
+    # =================================================================
+    _draw_section_header("5. Special / Ordinary Resolution (MGT-14)")
+    srn_raw = _v("field_5a") or _v("srn") or _v("service_request_number")
+    # SRN guard: reject bleed values like "Companies Act, 2013"
+    _srn_strict = re.compile(r'^[A-Za-z]{1,3}[0-9]{6,9}$')
+    srn_val = srn_raw.strip() if srn_raw and _srn_strict.match(srn_raw.strip()) else ""
+    res_date = _v("field_5b") or _v("resolution_date")
+    _draw_row("(a) Service Request Number of Form MGT-14", srn_val, h=22.0)
+    _draw_row("(b) Date of passing special/ordinary resolution (DD/MM/YYYY)", res_date, h=22.0, alternate=True)
+    y += 3
+
+    # =================================================================
+    # SECTION 6 — Event Details
+    # =================================================================
+    _draw_section_header("6. Event Details")
+    ev_date   = _v("field_6a") or _v("date_of_event")
+    decl_date = _v("field_6b") or _v("date_of_declaration")
+    _draw_row("(a) Date of event (DD/MM/YYYY)", ev_date)
+    _draw_row("(b) Date of declaration by majority of directors (DD/MM/YYYY)", decl_date, alternate=True)
+    y += 3
+
+    # =================================================================
+    # SECTION 7 — Attachments
+    # =================================================================
+    _draw_section_header("7. Attachments")
+    attach_defs = [
+        ("field_a",  "(a) Copy of prospectus"),
+        ("field_b",  "(b) Copy of red herring prospectus"),
+        ("field_c",  "(c) Circular or Circular in the form of Advertisement inviting Deposits in DPT-1"),
+        ("field_d",  "(d) Private placement offer letter or record of private placement offer letter"),
+        ("field_e",  "(e) Form 149 of the Companies (Court) Rules, 1959"),
+        ("field_f",  "(f) Form 152 of the Companies (Court) Rules, 1959"),
+        ("field_g",  "(g) Form 153 of the Companies (Court) Rules, 1959"),
+        ("field_h",  "(h) Form 154 of the Companies (Court) Rules, 1959"),
+        ("field_i",  "(i) Form 156 of the Companies (Court) Rules, 1959"),
+        ("field_j",  "(j) Form 157 of the Companies (Court) Rules, 1959"),
+        ("field_k",  "(k) Form 158 of the Companies (Court) Rules, 1959"),
+        ("field_l",  "(l) Form 159 of the Companies (Court) Rules, 1959"),
+        ("field_m",  "(m) Final Report on Completion of liquidation process by Liquidator"),
+        ("field_n",  "(n) Any other relevant document"),
+        ("field_o",  "(o) Audited financial statements and record of business operations (previous two years)"),
+        ("field_p",  "(p) A report of the valuation of assets of the company, if any, prepared by a Registered Valuer"),
+        ("field_q",  "(q) Affidavit under section 59 of the Insolvency and Bankruptcy Code, 2016"),
+        ("field_r",  "(r) Optional attachment(s) - if any"),
+    ]
+    for i, (fkey, flabel) in enumerate(attach_defs):
+        raw_val = _v(fkey)
+        is_checked = str(raw_val).strip().lower() in ("true", "1", "yes", "checked", "x")
+        _draw_checkbox_row(flabel, is_checked, alternate=(i % 2 == 1))
+    y += 4
+
+    # =================================================================
+    # VERIFICATION BLOCK
+    # =================================================================
+    _draw_section_header("Verification")
+    verif_date = _v("field_verification") or _v("verification_date") or _v("resolution_date_verification")
+    verif_h = 52.0
+    _check_page(verif_h)
+    page.draw_rect(fitz.Rect(L_MARGIN, y, R_MARGIN, y + verif_h),
+                   color=C_LINE, fill=C_VERIF, width=0.6)
+    verif_text = (
+        "I have been authorised by a resolution of the Board of Directors of the company "
+        "passed in their meeting held on ________________ to sign and submit this form."
+    )
+    page.insert_textbox(
+        fitz.Rect(L_MARGIN + 5, y + 4, R_MARGIN - 5, y + verif_h - 20),
+        verif_text, fontsize=7.5, fontname="helv", color=C_SEC_LBL
+    )
+    page.insert_text((L_MARGIN + 5, y + verif_h - 14),
+                     f"Resolution No. and date (DD/MM/YYYY): {verif_date or '________________'}",
+                     fontsize=7.5, fontname="helv", color=C_VAL if verif_date else C_MUTED)
+    y += verif_h + 5
+
+    # =================================================================
+    # SIGNATORY BLOCK
+    # =================================================================
+    _draw_section_header("To be digitally signed by")
+    sig_name   = _v("field_particulars_of_the_person") or _v("signatory_name") or _v("name")
+    sig_desig  = _v("field_designation") or _v("designation")
+    sig_din    = _v("field_director_identification_number_of") or _v("din") or _v("membership_number")
+
+    sig_info_h = 24.0
+    _check_page(sig_info_h + 55)
+    page.draw_rect(fitz.Rect(L_MARGIN, y, R_MARGIN, y + sig_info_h),
+                   color=C_LINE, fill=C_FILL_R, width=0.4)
+    split1 = L_MARGIN + 175
+    split2 = L_MARGIN + 350
+    page.draw_line(fitz.Point(split1, y), fitz.Point(split1, y + sig_info_h), color=C_LINE, width=0.4)
+    page.draw_line(fitz.Point(split2, y), fitz.Point(split2, y + sig_info_h), color=C_LINE, width=0.4)
+    # Name
+    page.insert_text((L_MARGIN + 3, y + 9), "Name:", fontsize=7.0, fontname="helv", color=C_SEC_LBL)
+    page.insert_text((L_MARGIN + 28, y + 9), sig_name or "________________",
+                     fontsize=8.0, fontname="helv", color=C_VAL if sig_name else C_MUTED)
+    # Designation
+    page.insert_text((split1 + 3, y + 9), "Designation:", fontsize=7.0, fontname="helv", color=C_SEC_LBL)
+    page.insert_text((split1 + 55, y + 9), sig_desig or "___________",
+                     fontsize=7.5, fontname="helv", color=C_VAL if sig_desig else C_MUTED)
+    # DIN
+    page.insert_text((split2 + 3, y + 9), "DIN / Membership No:", fontsize=6.5, fontname="helv", color=C_SEC_LBL)
+    page.insert_text((split2 + 3, y + 18), sig_din or "________",
+                     fontsize=7.5, fontname="helv", color=C_VAL if sig_din else C_MUTED)
+    y += sig_info_h + 6
+
+    # DSC placeholder boxes
+    _check_page(52)
+    dsc_label_y = y
+    page.insert_text((L_MARGIN + 3, dsc_label_y + 9),
+                     "Digital Signature of authorised signatory",
+                     fontsize=7.0, fontname="helv", color=C_SEC_LBL)
+    page.insert_text((L_MARGIN + 193, dsc_label_y + 9),
+                     "Digital Signature of Liquidator (if applicable)",
+                     fontsize=7.0, fontname="helv", color=C_SEC_LBL)
+    y += 14
+    page.draw_rect(fitz.Rect(L_MARGIN, y, L_MARGIN + 180, y + 38), color=C_SIG, width=0.9)
+    page.insert_text((L_MARGIN + 55, y + 22), "[DSC Placeholder]",
+                     fontsize=7.0, fontname="helv", color=(0.65, 0.68, 0.74))
+    page.draw_rect(fitz.Rect(L_MARGIN + 191, y, L_MARGIN + 371, y + 38), color=C_SIG, width=0.9)
+    page.insert_text((L_MARGIN + 246, y + 22), "[DSC Placeholder]",
+                     fontsize=7.0, fontname="helv", color=(0.65, 0.68, 0.74))
+    y += 44
+
+    # =================================================================
+    # FOR OFFICE USE ONLY FOOTER
+    # =================================================================
+    footer_h = 40.0
+    _check_page(footer_h)
+    page.draw_rect(fitz.Rect(L_MARGIN, y, R_MARGIN, y + footer_h),
+                   color=C_BORDER, fill=C_FOOTER, width=0.9)
+    page.draw_line(fitz.Point(L_MARGIN, y + 14), fitz.Point(R_MARGIN, y + 14),
+                   color=C_LINE, width=0.5)
+    page.insert_text((L_MARGIN + 5, y + 10),
+                     "FOR OFFICE USE ONLY",
+                     fontsize=8.0, fontname="helv", color=C_HEADER)
+    split_footer = L_MARGIN + 270
+    page.draw_line(fitz.Point(split_footer, y + 14), fitz.Point(split_footer, y + footer_h),
+                   color=C_LINE, width=0.5)
+    page.insert_text((L_MARGIN + 5, y + 26), "Date of Filing:", fontsize=7.0, fontname="helv", color=C_SEC_LBL)
+    page.insert_text((L_MARGIN + 5, y + 37), "__________________", fontsize=7.0, fontname="helv", color=C_MUTED)
+    page.insert_text((split_footer + 5, y + 26), "eForm Service Request No.:",
+                     fontsize=7.0, fontname="helv", color=C_SEC_LBL)
+    page.insert_text((split_footer + 5, y + 37), "__________________",
+                     fontsize=7.0, fontname="helv", color=C_MUTED)
+    y += footer_h
+
+    # Final page footer
+    page.insert_text((L_MARGIN, DOC_H - 14),
+                     f"Page {len(doc)} • MCA Form GNL-2 • CRAFT IDP Engine",
+                     fontsize=6.5, fontname="helv", color=(0.5, 0.5, 0.5))
+
+    return doc
+
+
+# ==============================================================================
 # NEW: POST /generate_preview_pdf — Generic PDF Preview Generation
 # ==============================================================================
 @router.post("/generate_preview_pdf")
@@ -1193,7 +1736,12 @@ async def generate_preview_pdf(payload: Dict[str, Any] = Body(...), db: Session 
 
         if doc is None:
             print(f"[Preview PDF] Generating dynamic statutory output template on-the-fly for '{template_name}'...")
-            doc = _create_dynamic_statutory_form_pdf(template_name, mapped_data, db=db)
+            # GNL-2: route through dedicated official MCA canvas renderer
+            if clean_tname.upper().replace(" ", "") in ("GNL-2", "GNL2"):
+                print(f"[Preview PDF] Using dedicated GNL-2 official canvas renderer.")
+                doc = _render_gnl2_official_pdf(mapped_data)
+            else:
+                doc = _create_dynamic_statutory_form_pdf(template_name, mapped_data, db=db)
             is_dynamic_generated = True
 
         # 4. If using static PDF template, stamp extracted data onto coordinates
