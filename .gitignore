@@ -43,3 +43,8 @@ Screenrecoding/
 comparsion_dump.json
 new_fla.json
 old_fla.json
+
+# Local backward-compatibility symlinks
+document
+docs/instructions
+testing/
