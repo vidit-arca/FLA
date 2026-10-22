@@ -64,10 +64,10 @@ function App() {
           {/* Brand Logo */}
           <div className="p-6 pb-4 flex items-center justify-between">
             <div className="flex items-center gap-3 mb-1">
-              <img src="/akshayam_logo.png" alt="Akshayam Logo" className="w-9 h-9 object-contain rounded-xl shadow-lg shadow-black/20 bg-white p-1" />
+              <img src="/akshayam_logo.png" alt="CRAFT Logo" className="w-9 h-9 object-contain rounded-xl shadow-lg shadow-black/20 bg-white p-1" />
               <div className="flex flex-col">
-                <h1 className="text-lg font-extrabold text-slate-900 dark:text-white tracking-tight leading-none">AKSHAYAM</h1>
-                <p className="text-[0.6rem] text-indigo-300/80 font-semibold uppercase tracking-wider mt-1">Extraction Platform</p>
+                <h1 className="text-lg font-extrabold text-slate-900 dark:text-white tracking-tight leading-none">CRAFT</h1>
+                <p className="text-[0.55rem] text-indigo-400 dark:text-indigo-300 font-semibold tracking-wider mt-1">Compliance • Reporting • Forms</p>
               </div>
             </div>
             <button onClick={toggleTheme} className="p-1.5 rounded-lg text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-white/10 transition-colors" title="Toggle Theme">

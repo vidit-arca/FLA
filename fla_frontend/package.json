@@ -1,5 +1,6 @@
 {
-  "name": "LedgerLens",
+  "name": "craft",
+  "description": "CRAFT - Compliance, Reporting, Automation, Forms & Tasks",
   "private": true,
   "version": "0.0.0",
   "type": "module",
