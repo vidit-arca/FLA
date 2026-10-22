@@ -84,7 +84,7 @@ class Stage3InstructionAI:
 
         try:
             from automation_engine.modules.idp_studio.core.llm_router import call_llm_json
-            return call_llm_json("legal_reasoning", prompt, timeout=25)
+            return call_llm_json("legal_reasoning", prompt, timeout=3)
         except Exception as e:
             # Fall back gracefully to heuristics if offline or timed out
             print(f"[Stage 3 Qwen 14B] Fallback to heuristics for '{field_name[:30]}': {e}")
@@ -190,7 +190,7 @@ class Stage3InstructionAI:
                 canonical_no=c_no,
                 label=name,
                 instructions=inst,
-                field_type=f_type,
+                field_type="table" if table_meta else f_type,
                 options=options,
                 required=is_req,
                 section_slug=sec,
@@ -216,7 +216,8 @@ class Stage3InstructionAI:
 
     @staticmethod
     def _canonical_sort_key(c_str: str) -> Tuple[int, str]:
-        m = re.match(r'^([0-9]+)([a-z]*)', c_str)
+        c_clean = re.sub(r'[\s\(\)]', '', c_str.lower())
+        m = re.match(r'^([0-9]+)([a-z0-9]*)', c_clean)
         if m:
             return (int(m.group(1)), m.group(2))
         return (999, c_str)
@@ -228,50 +229,148 @@ class Stage3InstructionAI:
     ) -> List[SemanticFieldDefinition]:
         """
         Synthesizes missing parent fields (omitted by MCA as 'self-explanatory')
-        by analyzing child instruction trigger clauses.
-        E.g. In Form GNL-2, Field 2(a) ("Please indicate the document being filed")
-        is omitted from the table, but referenced in child instructions with all 14 dropdown options.
+        by analyzing child instruction trigger clauses and cross-field references.
+        E.g. In Form INC-28, fields 3(a, b, d, e), 4, 5(a), 9, 11(a, b), 12(c)
+        are omitted from the instruction table, but referenced throughout.
         """
-        existing_c_nos = {re.sub(r'\s+', '', r.canonical_no.lower()) for r in results if r.canonical_no}
-        
-        # Regex to match: in case <clause> is selected in field number <P> i.e., "<Label>"
-        pat = re.compile(
+        existing_c_nos = {re.sub(r'[\s\(\)]+', '', r.canonical_no.lower()) for r in results if r.canonical_no}
+
+        ref_pat = re.compile(
+            r'field\s+number\s+([0-9]+(?:\s*\([a-zA-Z0-9]+\))*)\s+i\.e\.[\,\s]*[“\"\‘\']([^”\"\'\’]+?)[”\"\'\’]',
+            re.I | re.DOTALL
+        )
+        clause_pat = re.compile(
             r'(?:in\s+case\s+([^.]+?)\s+is\s+selected\s+in\s+field\s+number\s+([0-9]+(?:\s*\([a-zA-Z0-9]+\))*)(?:\s+i\.e\.[\,\s]*[“\"\‘\']([^”\"\'\’]+?)[”\"\'\’])?)',
             re.I | re.DOTALL
         )
 
         missing_parents: Dict[str, Dict[str, Any]] = {}
+
+        def clean_c_no(c: str) -> str:
+            return re.sub(r'\s+', '', c)
+
+        def clean_lbl(raw_lbl: str) -> str:
+            lbl = re.sub(r'---\s*PAGE\s*[0-9]+\s*---.*?Field\s+Name\s+Instructions', '', raw_lbl, flags=re.I | re.DOTALL)
+            lbl = re.sub(r'\s+', ' ', lbl).strip()
+            return lbl.rstrip('?.,;:')
+
         for r in raw_rows:
             inst = getattr(r, 'instructions', '') or ''
-            for m in pat.finditer(inst):
-                clause = m.group(1) or ''
-                c_no_raw = m.group(2)
-                c_no = re.sub(r'\s+', '', c_no_raw)
-                label = re.sub(r'\s+', ' ', m.group(3) or '').strip()
 
-                clean_canonical = c_no.lower()
-                # Only synthesize if parent does NOT exist in table rows
-                if clean_canonical in existing_c_nos:
+            # 1. Direct references
+            for m in ref_pat.finditer(inst):
+                c_no = clean_c_no(m.group(1))
+                lbl = clean_lbl(m.group(2))
+                clean_key = re.sub(r'[\s\(\)]+', '', c_no.lower())
+                if clean_key in existing_c_nos:
                     continue
-
-                if clean_canonical not in missing_parents:
-                    missing_parents[clean_canonical] = {
+                if clean_key not in missing_parents:
+                    missing_parents[clean_key] = {
                         'canonical_no': c_no,
-                        'label': label,
+                        'label': lbl,
                         'options': set(),
                         'section_slug': getattr(r, 'section_slug', 'main'),
                         'page': getattr(r, 'page', 1),
                         'physical_idx': getattr(r, 'physical_idx', 0)
                     }
+                elif lbl and not missing_parents[clean_key]['label']:
+                    missing_parents[clean_key]['label'] = lbl
 
-                if label and not missing_parents[clean_canonical]['label']:
-                    missing_parents[clean_canonical]['label'] = label
-
+            # 2. Trigger clauses with option values
+            for m in clause_pat.finditer(inst):
+                clause = m.group(1) or ''
+                c_no = clean_c_no(m.group(2))
+                lbl = clean_lbl(m.group(3) or '')
+                clean_key = re.sub(r'[\s\(\)]+', '', c_no.lower())
+                if clean_key in existing_c_nos:
+                    continue
+                if clean_key not in missing_parents:
+                    missing_parents[clean_key] = {
+                        'canonical_no': c_no,
+                        'label': lbl,
+                        'options': set(),
+                        'section_slug': getattr(r, 'section_slug', 'main'),
+                        'page': getattr(r, 'page', 1),
+                        'physical_idx': getattr(r, 'physical_idx', 0)
+                    }
                 quotes = re.findall(r'[‘\'“\"]([^’\'”\"]+?)[’\'”\"]', clause)
                 for q in quotes:
                     q_clean = re.sub(r'\s+', ' ', q).strip()
                     if len(q_clean) > 2 and not q_clean.lower().startswith("field number"):
-                        missing_parents[clean_canonical]['options'].add(q_clean)
+                        missing_parents[clean_key]['options'].add(q_clean)
+
+        # 3. Composite Section 3 siblings if 3(a) or 3(c) exists
+        if '3c' in existing_c_nos or '3a' in missing_parents:
+            missing_parents['3a'] = {
+                'canonical_no': '3(a)',
+                'label': 'Order passed by',
+                'options': {'Court', 'NCLT', 'NCLAT', 'Central Government', 'Regional Director', 'Others'},
+                'section_slug': 'main',
+                'page': 1,
+                'physical_idx': 20
+            }
+            if '3b' not in existing_c_nos:
+                missing_parents['3b'] = {
+                    'canonical_no': '3(b)',
+                    'label': 'Name of the court or tribunal or authority',
+                    'options': set(),
+                    'section_slug': 'main',
+                    'page': 1,
+                    'physical_idx': 21
+                }
+            if '3d' not in existing_c_nos:
+                missing_parents['3d'] = {
+                    'canonical_no': '3(d)',
+                    'label': 'Petition or application or appeal number',
+                    'options': set(),
+                    'section_slug': 'main',
+                    'page': 1,
+                    'physical_idx': 23
+                }
+            if '3e' not in existing_c_nos:
+                missing_parents['3e'] = {
+                    'canonical_no': '3(e)',
+                    'label': 'Order number',
+                    'options': set(),
+                    'section_slug': 'main',
+                    'page': 1,
+                    'physical_idx': 24
+                }
+
+        # 4. Synthesize 11(a) and 11(b) if 11 is referenced
+        if any('11' in k for k in missing_parents) or any('11' in k for k in existing_c_nos):
+            if '11a' not in existing_c_nos:
+                missing_parents['11a'] = {
+                    'canonical_no': '11(a)',
+                    'label': 'Whether penalty involved or not',
+                    'options': {'Yes', 'No'},
+                    'section_slug': 'main',
+                    'page': 2,
+                    'physical_idx': 80
+                }
+            if '11b' not in existing_c_nos:
+                missing_parents['11b'] = {
+                    'canonical_no': '11(b)',
+                    'label': 'Amount of penalty (in ₹)',
+                    'options': set(),
+                    'section_slug': 'main',
+                    'page': 2,
+                    'physical_idx': 81,
+                    'trigger_parent_ref': '11(a)',
+                    'trigger_values': ['Yes']
+                }
+
+        # 5. Synthesize 12(c) if 13A/13B exists or 12(c) is referenced
+        if '12c' in missing_parents or any(x in existing_c_nos for x in ['13a', '13b']):
+            if '12c' not in existing_c_nos:
+                missing_parents['12c'] = {
+                    'canonical_no': '12(c)',
+                    'label': 'Whether the order provides for increase in authorised share capital of the transferee company',
+                    'options': {'Yes', 'No'},
+                    'section_slug': 'main',
+                    'page': 2,
+                    'physical_idx': 90
+                }
 
         if not missing_parents:
             return results
@@ -281,32 +380,45 @@ class Stage3InstructionAI:
             c_no = data['canonical_no']
             lbl = data['label'] or f"Field {c_no}"
             opts = sorted(list(data['options']))
-            if not opts:
-                continue
 
-            print(f"[Stage 3] 🌟 Synthesizing missing self-explanatory parent field {c_no} ('{lbl}') with {len(opts)} harvested options")
-            
+            # Semantic Type Inference
+            if re.search(r'\bdd[/\-]mm[/\-]yyyy\b|\bdate\b', lbl, re.I):
+                f_type = "date"
+                opts = []
+            elif lbl.lower().startswith("whether") or "yes/no" in lbl.lower():
+                f_type = "radio"
+                opts = ["Yes", "No"]
+            elif re.search(r'\bamount\b|\bnumber\b|\bcount\b', lbl, re.I) and not any(k in lbl.lower() for k in ["pan", "cin", "din", "srn"]):
+                f_type = "number"
+                opts = []
+            elif len(opts) > 2:
+                f_type = "select"
+            elif len(opts) > 0:
+                f_type = "radio"
+            else:
+                f_type = "text"
+
+            print(f"[Stage 3] 🌟 Synthesizing missing self-explanatory parent field {c_no} ('{lbl}') -> type: {f_type}, {len(opts)} options")
+
             parent_field = SemanticFieldDefinition(
                 physical_idx=data['physical_idx'],
                 page=data['page'],
                 canonical_no=c_no,
                 label=lbl,
-                instructions="Synthesized statutory parent selector inferred from child field instruction triggers.",
-                field_type="select" if len(opts) > 2 else "radio",
+                instructions="Synthesized statutory field inferred from cross-field references.",
+                field_type=f_type,
                 options=opts,
                 required=True,
                 section_slug=data['section_slug'],
                 raw_trigger_condition=None,
-                trigger_parent_ref=None,
-                trigger_values=[],
+                trigger_parent_ref=data.get('trigger_parent_ref'),
+                trigger_values=data.get('trigger_values', []),
                 is_root_selector=False
             )
             synthesized_fields.append(parent_field)
 
-            # If 'Others' is one of the options, synthesize conditional "If others, then specify" text field
-            has_others = any(o.lower() == "others" for o in opts)
-            if has_others:
-                # Derive 2(b) from 2(a)
+            # If 'Others' is in options, synthesize conditional "If others, then specify"
+            if any(o.lower() == "others" for o in opts) and c_no not in {"3(a)"}:
                 sub_match = re.match(r"^([0-9]+)\(([a-z])\)$", c_no, re.I)
                 if sub_match:
                     num_part, char_part = sub_match.group(1), sub_match.group(2)
@@ -332,14 +444,14 @@ class Stage3InstructionAI:
                 )
                 synthesized_fields.append(specify_field)
 
-        # Merge synthesized fields into results preserving canonical order
+        # Merge preserving canonical order
         combined = list(results)
         for sf in synthesized_fields:
             insert_idx = len(combined)
-            sf_clean = re.sub(r'[^0-9a-z]', '', sf.canonical_no.lower())
+            sf_key = self._canonical_sort_key(sf.canonical_no)
             for idx, existing in enumerate(combined):
-                ex_clean = re.sub(r'[^0-9a-z]', '', (existing.canonical_no or '').lower())
-                if ex_clean and self._canonical_sort_key(sf_clean) < self._canonical_sort_key(ex_clean):
+                ex_key = self._canonical_sort_key(existing.canonical_no or '')
+                if ex_key and sf_key < ex_key:
                     insert_idx = idx
                     break
             combined.insert(insert_idx, sf)
@@ -357,7 +469,9 @@ class Stage3InstructionAI:
         name_l = name.lower()
         inst_l = inst.lower()
 
-        # Archetype 1: Web Dynamic Grid (e.g. BEN-2 5(a)_table, LLP-11 Field 10 Penalties, Field 11 Compounding)
+        c_clean = re.sub(r'[\s\(\)]', '', c_no.upper())
+
+        # Archetype 1: Web Dynamic Grid (e.g. BEN-2 5(a)_table, LLP-11 Field 10 Penalties, Field 11 Compounding, INC-28 13A/13B)
         is_archetype_1 = bool(
             c_no.endswith("_table") or 
             name_l.startswith("table:") or 
@@ -365,7 +479,11 @@ class Stage3InstructionAI:
             re.search(r"\btable:\s*column-", name_l) or
             ("number of row required" in inst_l and ("penalties" in name_l or "compounding" in name_l)) or
             (c_no == "10" and "penalties" in name_l) or
-            (c_no == "11" and "compounding" in name_l)
+            (c_no == "11" and "compounding" in name_l) or
+            ("details of authorized share" in name_l) or
+            ("authorized share capital" in name_l) or
+            (c_clean in {"13A", "13B"}) or
+            ("tabular format" in inst_l and "add row" in inst_l)
         )
 
         # Archetype 2: Excel Utility Bridge (e.g. LLP-8 Field 7 Download Excel, LLP-11 Field 7 & 8 Partners)
@@ -402,15 +520,15 @@ class Stage3InstructionAI:
             # 1. Parse columns from "Column-..." tokens
             raw_cols = re.split(r"Column\s*-\s*", name, flags=re.I)[1:]
             for c in raw_cols:
-                c_clean = re.sub(r"\s+", " ", c).strip()
-                if not c_clean:
+                c_clean_col = re.sub(r"\s+", " ", c).strip()
+                if not c_clean_col:
                     continue
-                key = re.sub(r"[^a-z0-9]+", "_", c_clean.lower())[:30].strip("_")
-                is_num = any(k in c_clean.lower() for k in ["number", "count"])
-                is_sbo = any(k in c_clean.lower() for k in ["sbo", "beneficial owner"])
+                key = re.sub(r"[^a-z0-9]+", "_", c_clean_col.lower())[:30].strip("_")
+                is_num = any(k in c_clean_col.lower() for k in ["number", "count"])
+                is_sbo = any(k in c_clean_col.lower() for k in ["sbo", "beneficial owner"])
                 col_def = {
                     "key": key,
-                    "label": c_clean,
+                    "label": c_clean_col,
                     "type": "number" if is_num else "text",
                     "readonly": is_sbo,
                     "required": is_num
@@ -422,8 +540,25 @@ class Stage3InstructionAI:
                     col_def["max"] = 10
                 columns.append(col_def)
 
+            # Special case for MCA Form INC-28 Field 13A and 13B (Details of Authorized Share Capital)
+            if not columns and (
+                "details of authorized share" in name_l or
+                "authorized share capital" in name_l or
+                c_clean in {"13A", "13B"} or
+                ("share capital" in name_l and "add row" in inst_l)
+            ):
+                columns = [
+                    {"key": "share_type", "label": "Type of Share", "type": "select", "options": ["Equity", "Preference", "Unclassified"], "required": True},
+                    {"key": "class_of_share", "label": "Class of Share", "type": "text", "required": True},
+                    {"key": "nominal_value", "label": "Nominal value per share (in ₹)", "type": "number", "required": True},
+                    {"key": "num_shares", "label": "Number of Shares", "type": "number", "required": True},
+                    {"key": "total_amount", "label": "Total Amount (in ₹)", "type": "number", "required": True}
+                ]
+                min_rows = 1
+                max_rows = 50
+
             # Special case for LLP-11 Field 10 (Penalties) and Field 11 (Compounding)
-            if not columns and "penalties" in name_l:
+            elif not columns and "penalties" in name_l:
                 repeat_count_field = "10(a)"
                 columns = [
                     {"key": "section", "label": "Section of the Act / Rule", "type": "text", "required": True},
@@ -691,19 +826,23 @@ class Stage3InstructionAI:
         f_type = "text"
         options: List[str] = []
 
-        # 1. File Attachments
-        if any(k in name_l for k in ["attachment", "copy of", "upload", "copy(s) of"]) or c_no in {"Attachments", "(a)", "(b)", "(c)", "(d)", "(e)"}:
+        # 1. Dates (check before file attachments so 'Certified copy of order (DD/MM/YYYY)' is treated as date)
+        if re.search(r"\bdd[/\-]mm[/\-]yyyy\b|^date\b|\bdate of\b", name_l) and not ("copy of order" in name_l and "court" in name_l):
+            f_type = "date"
+
+        # 2. File Attachments
+        elif any(k in name_l for k in ["attachment", "upload", "copy(s) of"]) or (("copy of" in name_l) and not re.search(r"\bdate\b|\bdd[/\-]mm[/\-]yyyy\b", name_l)) or c_no in {"Attachments", "(a)", "(b)", "(c)", "(d)", "(e)"}:
             f_type = "file"
 
-        # 2. Declarations (text/declaration, not date, even if "dated" appears in text)
+        # 3. Declarations (text/declaration, not date, even if "dated" appears in text)
         elif name_l.startswith("declaration") or "declare that" in name_l:
             f_type = "text"
 
-        # 3. Dates
+        # 4. Dates fallback
         elif re.search(r"\bdd[/\-]mm[/\-]yyyy\b|\bdate\b", name_l) or "dd/mm/yyyy" in inst_l:
             f_type = "date"
 
-        # 4. Numeric Fields
+        # 5. Numeric Fields
         elif re.search(r"\bnumber\s+of\b|\bcount\b|\bamount\b|\bno\.\s+of\b", name_l) and not any(k in name_l for k in ["pan", "cin", "din"]):
             # If it's "Number of resolutions", provide selectable counts
             if "resolution" in name_l:
@@ -712,7 +851,7 @@ class Stage3InstructionAI:
             else:
                 f_type = "number"
 
-        # 5. Radio / Boolean Options
+        # 6. Radio / Boolean Options
         elif "whether" in name_l or ("yes" in name_l and "no" in name_l):
             f_type = "radio"
             options = ["Yes", "No"]
@@ -729,7 +868,7 @@ class Stage3InstructionAI:
                 "Insolvency Resolution Professional (IRP)", "Resolution Professional (RP)", "Liquidator"
             ]
 
-        # 6. Natural Language Radio / Dropdown Options
+        # 7. Natural Language Radio / Dropdown Options
         elif "select" in inst_l or "dropdown" in inst_l or "radio" in inst_l:
             if "radio" in inst_l and ("yes" in inst_l and "no" in inst_l and "whether" in inst_l):
                 f_type = "radio"
@@ -783,6 +922,9 @@ class Stage3InstructionAI:
     def _extract_trigger_clause(self, inst: str) -> Tuple[Optional[str], List[str], Optional[str]]:
         """
         Extracts statutory conditional triggers (parent field reference and target trigger values).
+        Supports both natural language structures:
+        - Order A: 'in case [section/option/value] X is selected in field number Y'
+        - Order B: 'in case option selected in field number Y is X'
         """
         if not inst:
             return None, [], None
@@ -796,6 +938,29 @@ class Stage3InstructionAI:
                 v = "Fellow"
             return v
 
+        # Pattern A: in case [section/option/value] X is selected in field number Y
+        pat_a = re.compile(
+            r"(?:in\s+case\s+(?:where\s+|if\s+|of\s+)?|if\s+)(?:section\s+|option\s+|value\s+)?[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\']+)[\x27\u2019\u201d\']\s+(?:is\s+)?selected\s+in\s+(?:field|filed)\s+(?:number\s+)?([0-9]+(?:\s*\([a-zA-Z0-9]+\))*)",
+            re.I
+        )
+        ma = pat_a.search(inst)
+        if ma:
+            p_no = re.sub(r'\s+', '', ma.group(2))
+            return p_no, [_clean_val(ma.group(1))], ma.group(0)
+
+        # Pattern B: in case option selected in field number Y is X (or Z)
+        pat_b = re.compile(
+            r"(?:in\s+case\s+(?:where\s+|if\s+|of\s+)?|if\s+)(?:option\s+|value\s+|section\s+)?(?:is\s+)?selected\s+in\s+(?:field|filed)\s+(?:number\s+)?([0-9]+(?:\s*\([a-zA-Z0-9]+\))*)(?:\s*i\.e\.[\,\s]*[“\"\‘\'][^”\"\'\’]+?[”\"\'\’])?\s+is\s+[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\']+)[\x27\u2019\u201d\'](?:\s+or\s+[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\']+)[\x27\u2019\u201d\'])?",
+            re.I | re.DOTALL
+        )
+        mb = pat_b.search(inst)
+        if mb:
+            p_no = re.sub(r'\s+', '', mb.group(1))
+            v1 = mb.group(2)
+            v2 = mb.group(3)
+            vals = [_clean_val(v) for v in [v1, v2] if v]
+            return p_no, vals, mb.group(0)
+
         COND_PAT = re.compile(
             r"(?:in\s+case\s+(?:where\s+|of\s+)?|if\s+)(?:(?:only\s+)?single\s+)?(?:either\s+)?(?:(?:either\s+)?(?:of\s+the\s+)?options?\s+)?(?:[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\']+)[\x27\u2019\u201d\'](?:\s+or\s+[\x27\u2018\u201c]([^\x27\u2018\u201c\u201d\']+)[\x27\u2019\u201d\'])?|([A-Za-z0-9\s]{3,40}?))\s+(?:is\s+)?selected\s+in\s+(?:field\s+(?:number\s+)?)?([0-9]+(?:\s*\([a-zA-Z0-9]+\))*)(?:\s*i\.e\.)?",
             re.I
@@ -805,7 +970,7 @@ class Stage3InstructionAI:
             v1 = m.group(1)
             v2 = m.group(2)
             v3 = m.group(3)
-            p_no = m.group(4)
+            p_no = re.sub(r'\s+', '', m.group(4))
             vals = []
             if v1 and v2:
                 vals = [_clean_val(v1), _clean_val(v2)]
@@ -817,7 +982,7 @@ class Stage3InstructionAI:
                     continue
                 vals = [_clean_val(v3_clean)]
             if vals:
-                return p_no.strip(), vals, m.group(0)
+                return p_no, vals, m.group(0)
 
         # Alternative pattern: selects X from the dropdown present in field number Y
         m2 = re.search(
@@ -826,6 +991,6 @@ class Stage3InstructionAI:
             re.I
         )
         if m2:
-            return m2.group(2).strip(), [_clean_val(m2.group(1).strip())], m2.group(0)
+            return re.sub(r'\s+', '', m2.group(2)), [_clean_val(m2.group(1).strip())], m2.group(0)
 
         return None, [], None
