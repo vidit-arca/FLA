@@ -2551,38 +2551,115 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
              'Form 152 of the Companies (Court) Rules, 1959'),
             (r'(?:private\s+placement\s+offer\s+letter|pas\s*[-_]?\s*4|record\s+of\s+a\s+private\s+placement)',
              'Private placement offer letter or Record of a private placement offer to be kept by the company'),
-            (r'red\s+herring\s+prospectus',
+            (r'\bred\s+herring\s+prospectus\b',
              'Red Herring Prospectus'),
             (r'(?:final\s+report\s+on\s+completion\s+of\s+liquidation|liquidation\s+process\s+by\s+liquidator)',
              'Final Report on Completion of liquidation process by Liquidator'),
-            (r'(?<!red\s+herring\s+)prospectus',
+            (r'\bprospectus\b',
              'Prospectus'),
             (r'(?:circular\s+or\s+circular\s+in\s+the\s+form\s+of\s+advertisement|dpt\s*[-_]?\s*1)',
-             'Circular or Circular in the form of Advertisement')
+             'Circular or Circular in the form of Advertisement inviting Deposits in DPT-1')
         ]
 
         matched_doc_option = None
+        other_specify = None
+
         for pattern, standard_opt in GNL2_DOC_MAP:
             if re.search(pattern, full_text, re.IGNORECASE):
                 matched_doc_option = standard_opt
                 break
 
+        # Check for Declaration of Solvency / CAA-10 / Custom Documents
+        if not matched_doc_option:
+            if re.search(r'declaration\s+of\s+solvency|caa[-.\s]*10', full_text, re.IGNORECASE):
+                matched_doc_option = "Others"
+                other_specify = "Declaration of Solvency"
+            else:
+                m_other = re.search(r'(?:Document\s*Title|Subject|Sub|In\s*the\s*matter\s*of)\s*[:\|]\s*([^\n\|]+)', full_text, re.IGNORECASE)
+                if m_other:
+                    matched_doc_option = "Others"
+                    other_specify = m_other.group(1).strip()
+                elif re.search(r'order\s+under\s+section|nclt\s+order|tribunal\s+order', full_text, re.IGNORECASE):
+                    matched_doc_option = "Others"
+                    other_specify = "Order of Hon'ble NCLT"
+                elif re.search(r'aoc\s*[-_]?\s*4|mgt\s*[-_]?\s*7', full_text, re.IGNORECASE):
+                    matched_doc_option = "Others"
+                    other_specify = "Filing OF AOC-4 & MGT-7"
+
+        # Field 2(a) and 2(b)
         for f_id, label in field_label_map.items():
             f_low = (f_id or "").lower()
             l_low = (label or "").lower()
             if "field_2a" in f_low or "indicate the document being filed" in l_low:
-                if matched_doc_option:
-                    extracted[f_id] = matched_doc_option
-                else:
-                    m_other = re.search(r'(?:Document\s*Title|Subject|In\s*the\s*matter\s*of)\s*[:\|]\s*([^\n\|]+)', full_text, re.IGNORECASE)
-                    if m_other:
-                        extracted[f_id] = "Others"
-                        for f_id_b, l_b in field_label_map.items():
-                            if "field_2b" in (f_id_b or "").lower() or "if others, then specify" in (l_b or "").lower():
-                                extracted[f_id_b] = m_other.group(1).strip()
+                extracted[f_id] = matched_doc_option or "Others"
+            elif "field_2b" in f_low or "if others, then specify" in l_low:
+                if other_specify or (matched_doc_option == "Others"):
+                    extracted[f_id] = other_specify or "Statutory Document Filing"
 
-        # Date of event for Section 6(a)
-        m_event_date = re.search(r'(?:Date of Event|Event Date|Date of passing|Effective Date|Dated)\s*[:\|]\s*([^\n\|]+)', full_text, re.IGNORECASE)
+        # Field 4(a) - Act under which document is filed
+        act_val = "Companies Act, 2013"
+        if re.search(r'insolvency\s+and\s+bankruptcy|ibc\s*,?\s*2016|\bibc\b|section\s+59\s+of\s+the\s+insolvency', full_text, re.IGNORECASE):
+            act_val = "Insolvency and Bankruptcy Code, 2016"
+        elif re.search(r'companies\s+act\s*,?\s*1956', full_text, re.IGNORECASE):
+            act_val = "Companies Act, 1956"
+
+        for f_id, label in field_label_map.items():
+            f_low = (f_id or "").lower()
+            l_low = (label or "").lower()
+            if "field_4a" in f_low or "act under which" in l_low:
+                extracted[f_id] = act_val
+
+        # Field 4(b), 4(b)(i), 4(b)(ii) - Section under which document is filed
+        sec_val = None
+        if "declaration of solvency" in (other_specify or "").lower() or re.search(r'caa[-.\s]*10', full_text, re.IGNORECASE):
+            sec_val = "Section 233"
+        else:
+            sec_match = re.search(r'(?:pursuant\s+to\s+section|under\s+section|section|sec\.?)\s*([0-9A-Za-z\(\)\s,to\-]+?)(?:\s+of\s+(?:the\s+)?companies\s+act|\s+of\s+(?:the\s+)?insolvency|\s+and\s+rule|,|\n|\.|\)|$)', full_text, re.IGNORECASE)
+            if sec_match:
+                s_raw = sec_match.group(1).strip()
+                s_clean = re.sub(r'[\(\[\{].*$', '', s_raw).strip()
+                if s_clean:
+                    sec_val = f"Section {s_clean}" if not s_clean.lower().startswith("section") else s_clean
+
+        if sec_val:
+            for f_id, label in field_label_map.items():
+                f_low = (f_id or "").lower()
+                l_low = (label or "").lower()
+                if "field_4a" not in f_low and not l_low.startswith("act") and ("field_4b" in f_low or "section" in l_low):
+                    if "4bi_2" in f_low or "1956" in l_low:
+                        if act_val == "Companies Act, 1956":
+                            extracted[f_id] = sec_val
+                    elif "4bii" in f_low or "insolvency" in l_low:
+                        if act_val == "Insolvency and Bankruptcy Code, 2016":
+                            extracted[f_id] = sec_val
+                    else:
+                        extracted[f_id] = sec_val
+
+        # Field 5(a) - SRN of Form MGT-14
+        m_srn = re.search(r'(?:srn|service\s+request\s+number|form\s+mgt-?14\s+srn)\s*[:\|\-]?\s*([A-Za-z][0-9]{8})', full_text, re.IGNORECASE)
+        if m_srn:
+            srn_val = m_srn.group(1).strip()
+            for f_id, label in field_label_map.items():
+                f_low = (f_id or "").lower()
+                l_low = (label or "").lower()
+                if "field_5a" in f_low or "service request number" in l_low:
+                    extracted[f_id] = srn_val
+
+        # Field 5(b) - Date of passing special (SR) or ordinary resolution (OR)
+        m_res_date = re.search(r'(?:date\s+of\s+passing\s+(?:the\s+)?(?:board\s+)?resolution|resolution\s+dated|vide\s+resolution\s+dated)\s*[:\|\-]?\s*([^\n\|,\.]+)', full_text, re.IGNORECASE)
+        if m_res_date:
+            p_res = parse_and_normalize_date(m_res_date.group(1).strip())
+            if p_res:
+                for f_id, label in field_label_map.items():
+                    f_low = (f_id or "").lower()
+                    l_low = (label or "").lower()
+                    if "field_5b" in f_low or "date of passing special" in l_low:
+                        extracted[f_id] = p_res
+                    elif "field_r" in f_low or "authorised by board of directors" in l_low:
+                        extracted[f_id] = p_res
+
+        # Field 6(a) - Date of event
+        m_event_date = re.search(r'(?:date\s+of\s+event|event\s+date|effective\s+date|execution\s+date|order\s+pronounced\s+on|order\s+dated|dated)\s*[:\|\-]?\s*([^\n\|,\.]+)', full_text, re.IGNORECASE)
         if m_event_date:
             parsed_event_date = parse_and_normalize_date(m_event_date.group(1).strip())
             if parsed_event_date:
@@ -2591,6 +2668,36 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
                     l_low = (label or "").lower()
                     if "field_6a" in f_low or "date of event" in l_low:
                         extracted[f_id] = parsed_event_date
+
+        # Field 6(b) - Date of declaration by majority of directors
+        m_dec_date = re.search(r'(?:date\s+of\s+declaration|declaration\s+dated|solemnly\s+affirmed.*?on)\s*[:\|\-]?\s*([^\n\|,\.]+)', full_text, re.IGNORECASE)
+        p_dec = parse_and_normalize_date(m_dec_date.group(1).strip()) if m_dec_date else None
+        if not p_dec and ("declaration of solvency" in (other_specify or "").lower() or re.search(r'caa[-.\s]*10', full_text, re.IGNORECASE)):
+            p_dec = extracted.get("gnl2.main.field_6a") or extracted.get("gnl2.main.field_5b") or stat_entities.get("primary_date")
+
+        if p_dec:
+            for f_id, label in field_label_map.items():
+                f_low = (f_id or "").lower()
+                l_low = (label or "").lower()
+                if "field_6b" in f_low or "date of declaration" in l_low:
+                    extracted[f_id] = p_dec
+
+        # Signatory / DIN / Designation
+        for f_id, label in field_label_map.items():
+            f_low = (f_id or "").lower()
+            l_low = (label or "").lower()
+            if "designation" in f_low or "designation" in l_low:
+                if re.search(r'\bdirector\b', full_text, re.IGNORECASE):
+                    extracted[f_id] = "Director"
+                elif re.search(r'\bcompany\s+secretary\b|\bsecretary\b', full_text, re.IGNORECASE):
+                    extracted[f_id] = "Company Secretary"
+            elif "director_identification_number" in f_low or "din/pan" in l_low or "identification number of the director" in l_low:
+                if stat_entities.get("primary_din"):
+                    extracted[f_id] = stat_entities["primary_din"]
+                elif stat_entities.get("icsi_memberships"):
+                    extracted[f_id] = stat_entities["icsi_memberships"][0]
+                elif stat_entities.get("primary_pan"):
+                    extracted[f_id] = stat_entities["primary_pan"]
 
     return extracted
 
@@ -2869,17 +2976,37 @@ Document Text:
 {full_text[:8000]}
                             """
                             try:
-                                response = requests.post(
-                                    "http://192.168.112.2:11434/api/generate",
-                                    json={
-                                        "model": "qwen2.5:14b",
-                                        "prompt": prompt,
-                                        "stream": False,
-                                        "format": "json"
-                                    },
-                                    timeout=60
-                                )
-                                response.raise_for_status()
+                                ollama_url = os.getenv("OLLAMA_API_URL", "http://192.168.112.2:11434").rstrip("/")
+                                response = None
+                                try:
+                                    response = requests.post(
+                                        f"{ollama_url}/api/generate",
+                                        json={
+                                            "model": "qwen2.5:14b",
+                                            "prompt": prompt,
+                                            "stream": False,
+                                            "format": "json"
+                                        },
+                                        timeout=(3.0, 25.0)
+                                    )
+                                    response.raise_for_status()
+                                except Exception as primary_err:
+                                    print(f"[LLM] Primary endpoint ({ollama_url}) failed: {primary_err}. Trying localhost...")
+                                    try:
+                                        response = requests.post(
+                                            "http://127.0.0.1:11434/api/generate",
+                                            json={
+                                                "model": "qwen2.5:14b",
+                                                "prompt": prompt,
+                                                "stream": False,
+                                                "format": "json"
+                                            },
+                                            timeout=(1.5, 20.0)
+                                        )
+                                        response.raise_for_status()
+                                    except Exception as local_err:
+                                        raise RuntimeError(f"All Ollama endpoints unreachable: {primary_err} | {local_err}")
+
                                 result = response.json()
                                 extracted_text = result.get("response", "[]")
                                 print(f"[LLM] Raw response for '{filename}': {extracted_text[:300]}")

@@ -14,10 +14,16 @@ import datetime
 from typing import Dict, Any, List, Optional, Tuple
 import requests
 
-from automation_engine.modules.idp_studio.extractors.universal_statutory import (
-    parse_and_normalize_date, match_canonical_option
-)
-from automation_engine.modules.idp_studio.core.llm_router import call_llm_json
+try:
+    from automation_engine.modules.idp_studio.extractors.universal_statutory import (
+        parse_and_normalize_date, match_canonical_option
+    )
+    from automation_engine.modules.idp_studio.core.llm_router import call_llm_json
+except ImportError:
+    from modules.idp_studio.extractors.universal_statutory import (
+        parse_and_normalize_date, match_canonical_option
+    )
+    from modules.idp_studio.core.llm_router import call_llm_json
 
 logger = logging.getLogger(__name__)
 
