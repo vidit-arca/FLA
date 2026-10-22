@@ -14,6 +14,7 @@ This document tracks all engineering activities, issues encountered, root cause 
 | **2026-10-22** | Phase 2: Schema Engine Dynamic Generalization | Hardcoded table column definitions (LLP-11, INC-20A, LLP-8) | • Integrated `qwen2.5-coder:7b` for dynamic table AST parsing<br>• Formalized `_synthesize_missing_parent_fields` for omitted parent fields | *(Pending)* |
 | **2026-10-22** | Phase 3: Fast-Path & Router Decoupling | Hardcoded form branches in `router.py` & `filler.py` | • Decoupled fast-path using `UniversalStatutoryExtractor`<br>• Decoupled `filler.py` LLM call to use router<br>• Fixed unindented method definitions | *(Pending)* |
 | **2026-10-22** | Bug Fix: Company Name vs PAN Collision | `"formnopas6.main.field_2a"` populated with PAN `AABCP1234F` instead of Company Name | Discovered `if "pan" in l_lower` matched `'comPANy'`. Replaced with word-bounded regex `\bpan\b` and `and "company" not in l_lower`. | *(Pending)* |
+| **2026-10-22** | GNL-2 Batch Extraction Failure & Lookbehind Crash | 1. OCR succeeded but 0 fields returned (`extracted_fields: []`)<br>2. `re.PatternError` lookbehind crash<br>3. 60s Ollama timeout freeze | • Replaced invalid lookbehind with ordered precedence matching<br>• Expanded deterministic statutory extraction for GNL-2 (CIN, 2a, 2b, 4a, 4bi/4bii, 5a, 5b, 6a, 6b, r, DIN)<br>• Added 3s fast-timeout and localhost fallback for Ollama<br>• Added 12 regression tests in `test_gnl2_batch_extractor.py` | `a7810aa` |
 
 ---
 
@@ -80,9 +81,47 @@ This document tracks all engineering activities, issues encountered, root cause 
 
 ---
 
+### Issue 4: GNL-2 Batch Extraction Failure & Lookbehind Crash
+- **Symptom:** In the Batch Extractor, when uploading source documents under Form GNL-2, OCR executed successfully but zero fields were extracted (`status: "review"`, `extracted_fields: []`). Furthermore, requests hung for 60 seconds.
+- **Root Cause Analysis:**
+  1. **Fatal Regex Crash:** In `_fast_path_extract_mca_fields` within `router.py`, `GNL2_DOC_MAP` contained an invalid variable-width negative lookbehind:
+     ```python
+     (r'(?<!red\s+herring\s+)prospectus', 'Prospectus')
+     ```
+     Python's standard `re` module enforces fixed-width patterns in lookbehinds. Variable-width whitespace `\s+` immediately raised `re.PatternError: look-behind requires fixed-width pattern`, aborting the extraction block and causing it to jump directly to `except Exception`, appending empty `extracted_fields: []`.
+  2. **Missing Deterministic Mappings:** GNL-2 statutory fields (Act `4a`, Section `4b/4bi`, SRN `5a`, Resolution Date `5b`, Event Date `6a`, Declaration Date `6b`, and attachment resolution date `r`) were unmapped.
+  3. **Ollama Timeout Hang:** When DOM and fast-path lookups missed, the pipeline fell back to `http://192.168.112.2:11434` with a blocking 60-second timeout, freezing execution and setting pending fields to `"Unknown"`, which were then filtered out.
+- **Resolution:**
+  - Removed variable-width lookbehind; implemented strict precedence where `\bred\s+herring\s+prospectus\b` is evaluated before `\bprospectus\b`.
+  - Expanded GNL-2 deterministic fast-path to extract CIN, Document Being Filed (`field_2a`), If Others Specify (`field_2b`, classifying CAA-10 / Declaration of Solvency / NCLT orders / AOC-4 / MGT-7), Act (`field_4a`), Section (`field_4bi/4bii`), SRN (`field_5a`), Resolution Date (`field_5b`), Event Date (`field_6a`), Declaration Date (`field_6b`), and Signatory DIN/PAN/Designation.
+  - Implemented fast-connect `(3.0, 25.0)` timeout with localhost `127.0.0.1:11434` fallback.
+  - Created regression test suite `automation_engine/tests/test_gnl2_batch_extractor.py` (12 tests) verifying regex safety, statutory mappings, Ollama offline resilience, and live `/api/idp/extract/batch` execution.
+
+---
+
 ## Test Verification Suite Log
 
 Executed on Python 3.13 (`/opt/miniconda3/bin/python3`):
+
+```text
+======================================================================
+test_adt1_auditor_resolution_date_intact ... ok
+test_court_rules_form_159_companies_act_1956 ... ok
+test_declaration_of_solvency_caa10 ... ok
+test_dpt1_circular ... ok
+test_ibc_section_59_affidavit ... ok
+test_live_api_gnl2_batch_extraction ... ok
+test_live_api_pas6_batch_extraction ... ok
+test_nclt_order_and_resubmission ... ok
+test_no_variable_width_lookbehind_in_router ... ok
+test_ollama_fallback_resilience_when_offline ... ok
+test_pas6_remains_fully_functional ... ok
+test_prospectus_precedence ... ok
+----------------------------------------------------------------------
+Ran 12 tests in 1.234s
+
+OK
+```
 
 ```text
 =============================================

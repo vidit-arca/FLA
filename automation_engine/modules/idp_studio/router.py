@@ -2636,7 +2636,7 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
                         extracted[f_id] = sec_val
 
         # Field 5(a) - SRN of Form MGT-14
-        m_srn = re.search(r'(?:srn|service\s+request\s+number|form\s+mgt-?14\s+srn)\s*[:\|\-]?\s*([A-Za-z][0-9]{8})', full_text, re.IGNORECASE)
+        m_srn = re.search(r'(?:srn|service\s+request\s+number|form\s+mgt-?14\s+srn)\s*[:\|\-\s]*([A-Za-z0-9]{9})\b', full_text, re.IGNORECASE)
         if m_srn:
             srn_val = m_srn.group(1).strip()
             for f_id, label in field_label_map.items():
@@ -2645,8 +2645,11 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
                 if "field_5a" in f_low or "service request number" in l_low:
                     extracted[f_id] = srn_val
 
+        # Date capture pattern supporting DD/MM/YYYY, DD.MM.YYYY, DD-MM-YYYY, and textual dates
+        _DATE_PAT = r'([0-9]{1,2}[/\-\.][0-9]{1,2}[/\-\.][0-9]{2,4}|[0-9]{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+\s+[0-9]{4}|[A-Za-z]+\s+[0-9]{1,2}(?:st|nd|rd|th)?,?\s+[0-9]{4}|[^\n\|\r;]+)'
+
         # Field 5(b) - Date of passing special (SR) or ordinary resolution (OR)
-        m_res_date = re.search(r'(?:date\s+of\s+passing\s+(?:the\s+)?(?:board\s+)?resolution|resolution\s+dated|vide\s+resolution\s+dated)\s*[:\|\-]?\s*([^\n\|,\.]+)', full_text, re.IGNORECASE)
+        m_res_date = re.search(r'(?:date\s+of\s+passing\s+(?:the\s+)?(?:board\s+)?resolution|resolution\s+dated|vide\s+resolution\s+dated)\s*[:\|\-\s]*' + _DATE_PAT, full_text, re.IGNORECASE)
         if m_res_date:
             p_res = parse_and_normalize_date(m_res_date.group(1).strip())
             if p_res:
@@ -2659,7 +2662,7 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
                         extracted[f_id] = p_res
 
         # Field 6(a) - Date of event
-        m_event_date = re.search(r'(?:date\s+of\s+event|event\s+date|effective\s+date|execution\s+date|order\s+pronounced\s+on|order\s+dated|dated)\s*[:\|\-]?\s*([^\n\|,\.]+)', full_text, re.IGNORECASE)
+        m_event_date = re.search(r'(?:date\s+of\s+event|event\s+date|effective\s+date|execution\s+date|order\s+pronounced\s+on|order\s+dated|dated)\s*[:\|\-\s]*' + _DATE_PAT, full_text, re.IGNORECASE)
         if m_event_date:
             parsed_event_date = parse_and_normalize_date(m_event_date.group(1).strip())
             if parsed_event_date:
@@ -2670,7 +2673,7 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
                         extracted[f_id] = parsed_event_date
 
         # Field 6(b) - Date of declaration by majority of directors
-        m_dec_date = re.search(r'(?:date\s+of\s+declaration|declaration\s+dated|solemnly\s+affirmed.*?on)\s*[:\|\-]?\s*([^\n\|,\.]+)', full_text, re.IGNORECASE)
+        m_dec_date = re.search(r'(?:date\s+of\s+declaration|declaration\s+dated|solemnly\s+affirmed.*?on)\s*[:\|\-\s]*' + _DATE_PAT, full_text, re.IGNORECASE)
         p_dec = parse_and_normalize_date(m_dec_date.group(1).strip()) if m_dec_date else None
         if not p_dec and ("declaration of solvency" in (other_specify or "").lower() or re.search(r'caa[-.\s]*10', full_text, re.IGNORECASE)):
             p_dec = extracted.get("gnl2.main.field_6a") or extracted.get("gnl2.main.field_5b") or stat_entities.get("primary_date")

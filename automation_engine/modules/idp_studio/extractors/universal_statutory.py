@@ -42,9 +42,9 @@ RE_DIN = re.compile(
     r"(?:DIN\s*[:\-#]?\s*|DPIN\s*[:\-#]?\s*)?([0-9]{8})\b"
 )
 
-# MCA SRN (Service Request Number): Letter + 8 digits or 9 alphanumeric
+# MCA SRN (Service Request Number): Letter(s) + digits (e.g. F12345678 or AB4008531)
 RE_SRN = re.compile(
-    r"\b([A-Za-z][0-9]{8})\b"
+    r"\b([A-Za-z]{1,2}[0-9]{7,8})\b"
 )
 
 # ICSI Membership No: ACS or FCS followed by 4-6 digits
