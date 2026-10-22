@@ -12,8 +12,8 @@ class TestInstructionKitParser(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.parser = InstructionKitParser()
-        cls.instructions_dir = "/Users/apple/Desktop/FLA/document/instructions"
-        cls.fallback_dir = "/Users/apple/Desktop/FLA"
+        cls.instructions_dir = "/Users/apple/Desktop/FLA/docs/mca_instruction_kits"
+        cls.fallback_dir = "/Users/apple/Desktop/FLA/document/instructions"
 
         def get_pdf(name):
             p1 = os.path.join(cls.instructions_dir, name)
