@@ -220,10 +220,31 @@ async def detect_form_branch(
     """
     Scans uploaded documents (or document text) and runs the Operative Clause Detector
     to recommend the statutory branch for the Upfront HITL Decision Gate.
+    Only forms with divergent statutory pathways (like ADT-1 or DIR-12) use branch gating.
+    Omnibus webforms like GNL-2, PAS-6, MGT-7, AOC-4, etc. proceed directly.
     """
     schema = FormRegistry.get_form_schema(form_id, db)
     if not schema:
         raise HTTPException(status_code=404, detail=f"Form schema for '{form_id}' not found")
+
+    BRANCH_ENABLED_FORMS = {"ADT-1", "ADT1", "FORM NO. ADT-1", "DIR-12", "DIR12", "FORM NO. DIR-12"}
+    clean_fid = form_id.upper().strip()
+    is_branch_enabled = any(
+        clean_fid == b or clean_fid.replace(" ", "").replace("-", "") == b.replace(" ", "").replace("-", "")
+        for b in BRANCH_ENABLED_FORMS
+    )
+    if not is_branch_enabled:
+        return {
+            "status": "success",
+            "form_id": form_id,
+            "form_name": schema.get("form_name"),
+            "has_branches": False,
+            "branch_field_id": None,
+            "branch_field_label": None,
+            "branch_field_canonical": None,
+            "available_options": [],
+            "detected": None
+        }
 
     content_type = request.headers.get("content-type", "")
     full_text = ""

@@ -24,7 +24,7 @@ export default function FormTemplateViewer({
   // Internal state fallback if external selections not provided
   const [internalSelections, setInternalSelections] = useState({});
   const activeSelections = externalSelections || internalSelections;
-  const [showAllFields, setShowAllFields] = useState(false);
+  const [showAllFields, setShowAllFields] = useState(true);
   const [tableValues, setTableValues] = useState({});
 
   // When schema changes, reset selections and log to console for debugging

@@ -532,11 +532,15 @@ export default function IdpProductionApp() {
       const rawFiles = uploadedFiles.map(f => f.file).filter(Boolean);
       const branchRes = await idpClient.detectBranch(templateName, rawFiles);
       setDetectedBranchData(branchRes);
-      // Use backend's dynamic has_branches flag — no form-specific hardcoding
-      if (branchRes?.has_branches) {
+      // Defense-in-depth: only forms that genuinely possess divergent filing pathways (ADT-1, DIR-12) may ever open this modal
+      const STATUTORY_BRANCH_WHITELIST = ['adt-1', 'adt1', 'dir-12', 'dir12'];
+      const isWhitelistedBranchForm = STATUTORY_BRANCH_WHITELIST.some(f =>
+        templateName.toLowerCase().replace(/[\s\-_]/g, '').includes(f)
+      );
+      if (isWhitelistedBranchForm && branchRes?.has_branches) {
         setShowBranchModal(true);
       } else {
-        // No branching required (e.g. FLA, PAS-6, etc.) — clear scenario and proceed directly
+        // No branching required (e.g. GNL-2, GNL-1, FLA, PAS-6, MGT-7, MGT-14, AOC-4, etc.) — proceed directly
         setActiveScenario(null);
         await executeConsolidation(null);
       }
