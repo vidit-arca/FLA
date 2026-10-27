@@ -304,6 +304,45 @@ def detect_operative_statutory_branch(
                 "evidence_snippet": _snippet(operative_clause)
             }
 
+    # Check 11: Form GNL-1 - Compounding of Offences (Section 441)
+    if re.search(r"441|compound(?:ing)?\s+of\s+offence|compounding\s+application|suo[\s-]motu\s+compounding", operative_clause, re.IGNORECASE):
+        b = "Compounding of offences"
+        if _is_option_valid(b):
+            return {
+                "recommended_branch": b,
+                "scenario_key": "compounding_of_offences",
+                "sub_reason": None,
+                "section_cited": "Section 441",
+                "confidence": 0.98 if "441" in operative_clause else 0.92,
+                "evidence_snippet": _snippet(operative_clause)
+            }
+
+    # Check 12: Form GNL-1 - Extension of Period of AGM by 3 months (Section 96)
+    if re.search(r"extension\s+of\s+(?:period\s+of\s+)?(?:annual\s+general\s+meeting|agm)|section\s+96|96\s*\(\s*1\s*\)", operative_clause, re.IGNORECASE):
+        b = "Extension of period of annual general meeting by three months"
+        if _is_option_valid(b):
+            return {
+                "recommended_branch": b,
+                "scenario_key": "extension_of_period_of_annual_general_meeting_by_three_months",
+                "sub_reason": None,
+                "section_cited": "Section 96(1)",
+                "confidence": 0.98 if "96" in operative_clause else 0.90,
+                "evidence_snippet": _snippet(operative_clause)
+            }
+
+    # Check 13: Form GNL-1 - Scheme of Arrangement, Amalgamation (Section 230 to 232)
+    if re.search(r"scheme\s+of\s+arrangement|amalgamation|merger|section\s+23[0-2]|230\s*-\s*232", operative_clause, re.IGNORECASE):
+        b = "Scheme of arrangement, amalgamation"
+        if _is_option_valid(b):
+            return {
+                "recommended_branch": b,
+                "scenario_key": "scheme_of_arrangement_amalgamation",
+                "sub_reason": None,
+                "section_cited": "Section 230-232",
+                "confidence": 0.98 if re.search(r"23[0-2]", operative_clause) else 0.90,
+                "evidence_snippet": _snippet(operative_clause)
+            }
+
     # =========================================================================
     # TIER 1.5: DIRECT MATCH OF ACTIVE FORM OPTIONS AGAINST DOCUMENT TEXT
     # =========================================================================

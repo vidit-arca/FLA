@@ -41,12 +41,28 @@ def get_effective_rules(
         if scenario:
             scope_conditions.append(
                 (models.SchemaAliasRule.scope_type == "SCENARIO") &
-                (models.SchemaAliasRule.scope_id == scenario)
+                (
+                    (models.SchemaAliasRule.scope_id == scenario) |
+                    (models.SchemaAliasRule.scope_id == "default") |
+                    (models.SchemaAliasRule.scope_id.is_(None))
+                )
+            )
+        else:
+            scope_conditions.append(
+                (models.SchemaAliasRule.scope_type == "SCENARIO") &
+                (
+                    (models.SchemaAliasRule.scope_id == "default") |
+                    (models.SchemaAliasRule.scope_id.is_(None))
+                )
             )
         if company_id:
             scope_conditions.append(
                 (models.SchemaAliasRule.scope_type == "COMPANY") &
-                (models.SchemaAliasRule.scope_id == company_id)
+                (
+                    (models.SchemaAliasRule.scope_id == company_id) |
+                    (models.SchemaAliasRule.scope_id == "default") |
+                    (models.SchemaAliasRule.scope_id.is_(None))
+                )
             )
 
         query = query.filter(or_(*scope_conditions)).order_by(models.SchemaAliasRule.priority.desc())

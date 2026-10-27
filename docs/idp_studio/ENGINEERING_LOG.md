@@ -15,6 +15,8 @@ This document tracks all engineering activities, issues encountered, root cause 
 | **2026-10-22** | Phase 3: Fast-Path & Router Decoupling | Hardcoded form branches in `router.py` & `filler.py` | • Decoupled fast-path using `UniversalStatutoryExtractor`<br>• Decoupled `filler.py` LLM call to use router<br>• Fixed unindented method definitions | *(Pending)* |
 | **2026-10-22** | Bug Fix: Company Name vs PAN Collision | `"formnopas6.main.field_2a"` populated with PAN `AABCP1234F` instead of Company Name | Discovered `if "pan" in l_lower` matched `'comPANy'`. Replaced with word-bounded regex `\bpan\b` and `and "company" not in l_lower`. | *(Pending)* |
 | **2026-10-22** | GNL-2 Batch Extraction Failure & Lookbehind Crash | 1. OCR succeeded but 0 fields returned (`extracted_fields: []`)<br>2. `re.PatternError` lookbehind crash<br>3. 60s Ollama timeout freeze | • Replaced invalid lookbehind with ordered precedence matching<br>• Expanded deterministic statutory extraction for GNL-2 (CIN, 2a, 2b, 4a, 4bi/4bii, 5a, 5b, 6a, 6b, r, DIN)<br>• Added 3s fast-timeout and localhost fallback for Ollama<br>• Added 12 regression tests in `test_gnl2_batch_extractor.py` | `a7810aa` |
+| **2026-10-27** | GNL-1 Compounding Scope & Schema Completion | 1. Consolidated Return step skipped use cases modal<br>2. Field 7 missing across all use cases<br>3. Field 8(d-l) missing under Compounding | • Expanded GNL-1 schema from 36 to 51 fields with `gnl1.main.field_7` (`textarea`, active in all use cases)<br>• Restored Fields 8(d)–8(l) & 8(p)–8(s) in `idp_studio.db`<br>• Added Sections 441, 96, 230-232 classification rules<br>• Added `exists` / `not_empty` operators to `filler.py`<br>• Verified with 4/4 passing tests in `test_gnl1_branch_and_dag.py` | *(Current)* |
+| **2026-10-27** | Universal Schema Normalization & Semantic Branching Engine | 1. Instruction-kit bleed into field types and options (MGT-14 Fields 6, 6I, 7b, 7c)<br>2. Form-specific whitelists (`BRANCH_ENABLED_FORMS`, `STATUTORY_BRANCH_WHITELIST`)<br>3. False positive branch detection on flat forms (PAS-6, AOC-4, FLA)<br>4. Signatory DIN bleeding into CS Membership slot | • Built single source of truth `FieldNormalizer` with conservative count/code guards & provenance<br>• Replaced whitelists with universal semantic branch detection based on DAG divergence ($\ge 2$ dependents)<br>• Enforced signatory role mutual exclusivity via designation metadata<br>• Ran idempotent database migration on `idp_studio.db`<br>• Added universal test suite `test_universal_engine.py` (13/13 PASS) | *(Current)* |
 
 ---
 
@@ -99,9 +101,84 @@ This document tracks all engineering activities, issues encountered, root cause 
 
 ---
 
+### Issue 5: Missing Statutory Fields in GNL-1 (Field 7 & Fields 8(d)–(l), 8(p)–(s))
+- **Symptom:** In Form GNL-1 testing under use case *"Compounding of Offences"*, Field 8 needs to be filled, but Fields 8(d)–8(l) were missing; Field 7 (*"Brief particulars of the application"*) was missing across all use cases; and the Consolidated Return gate skipped the use-case selection modal.
+- **Root Cause Analysis:**
+  1. The compiled GNL-1 schema in `idp_studio.db` contained only 36 fields, truncating sub-fields of Field 8 after 8(c) and completely omitting Field 7 (`canonical_no: 7`, `label: "Brief particulars of the application"`).
+  2. In `IdpProductionApp.jsx` line 709 and `router.py` line 230, hardcoded whitelists (`STATUTORY_BRANCH_WHITELIST`, `BRANCH_ENABLED_FORMS`) initially only allowed ADT-1 and DIR-12, skipping the HITL decision modal for GNL-1.
+- **Resolution:**
+  - Built and executed `migrate_gnl1_schema.py`, expanding GNL-1 from 36 to 51 fields with `gnl1.main.field_7` (`type: "textarea"`, un-gated across all use cases) and full sub-fields 8(a)–8(s).
+  - Added operative clause classifier rules for Sections 441, 96, and 230–232 in `classifier.py`.
+  - Extended `DynamicFormFiller` in `filler.py` to support `exists` and `not_empty` operators.
+  - Verified via `automation_engine/tests/test_gnl1_branch_and_dag.py` (4/4 PASS).
+
+---
+
+### Issue 6: Form-Specific Branch Whitelists & False Positives from Fallback Heuristics
+- **Symptom:** Newly added or tested forms (e.g. MGT-14) skipped branch detection entirely because they were not explicitly whitelisted in `BRANCH_ENABLED_FORMS` and `STATUTORY_BRANCH_WHITELIST`. Conversely, when whitelists were removed, flat forms (PAS-6, AOC-4, FLA, MGT-7) were falsely flagged as branching.
+- **Root Cause Analysis:** In `router.py`, a flawed "Priority 3" fallback (`if field_type in ["radio", "select"] and len(field_options) >= 3`) treated any general dropdown (e.g., State, Company Type) as a statutory workflow branch. Whitelists were originally introduced as a workaround to mask that false positive.
+- **Resolution:**
+  - Removed `BRANCH_ENABLED_FORMS` from `router.py` and `STATUTORY_BRANCH_WHITELIST` from `IdpProductionApp.jsx`.
+  - Removed the Priority 3 fallback entirely.
+  - Implemented universal semantic branch detection based strictly on DAG divergence:
+    - **Criterion 1:** Root field with $\ge 2$ options that conditionally gates $\ge 2$ child dependents in the DAG.
+    - **Criterion 2:** Parent field matching statutory keyword signals with $\ge 2$ options and at least 1 dependent child field.
+  - Tested across all 14 database templates: 100% precision (branching correctly detected for ADT-1, DIR-12, GNL-1, MGT-14, LLP-8, BEN-2, INC-28; flat forms PAS-6, AOC-4, FLA, MGT-7, INC-20A, MGT-6, GNL-2 have 0 false positives).
+
+---
+
+### Issue 7: Instruction-Kit Table Bleed in Field Types & Options (MGT-14 Fields 6, 6I, 7b, 7c)
+- **Symptom:** In Form MGT-14, Field 6 had `type: "select"` with numbers and instruction text in options (`['1', '2', '3', '4', '5', 'Alteration in memorandum for change in name']`); Field 6I(a)(i) and 6I(b)(i) included column header text (`'Resolution(s)'`); Fields 7(b) and 7(c) (Sub-class of industrial activity) had pseudo-boolean options `['Yes']` and `['Yes', 'Type of Company', 'IFSC Company']`.
+- **Root Cause Analysis:** MCA instruction kits place guidance notes and table headers in cells adjacent to field labels. The 6-stage compiler occasionally parsed these instructional headers as dropdown option items.
+- **Resolution:**
+  - Implemented `FieldNormalizer` in `automation_engine/modules/idp_studio/forms/normalizer.py` as the single source of truth for schema normalization.
+  - Implemented conservative count guards (`Number of ...` &rarr; `number`, stripping bleed options; excluding DIN/PAN/Membership identifiers via `IDENTIFIER_EXCLUSION_PATTERN`).
+  - Added classification code guards (`sub-class`, `nic` &rarr; `text`, rejecting spurious boolean options).
+  - Added instruction header filter (purging `'Resolution(s)'`, `'Type of resolution'`, `'Attachment(s)'`).
+  - Converted degenerate single-option dropdowns (`len(options) < 2`) to `type: "text"` with `options: None`.
+  - Integrated into `FormRegistry._standardize_schema` with provenance tracking (`field["provenance"]`).
+  - Executed idempotent, backed-up database migration via `migrate_universal_schema_normalization.py`.
+
+---
+
+### Issue 8: Identifier Format Cross-Bleed & Statutory Signatory Role Mutual Exclusivity
+- **Symptom:** In signatory rendering and batch extraction, Director DIN format (8 digits) or ICSI membership format (5 digits) bled across distinct statutory signature blocks (e.g., ICSI membership assigned to Director DIN field).
+- **Root Cause Analysis:** Extraction fell back to format matching without evaluating `Designation` metadata. When DIN was not found, the code populated the Director DIN field with the first available membership number.
+- **Resolution:**
+  - Extracted `resolve_field_value` in `router.py` with strict mutual exclusivity: Director slot only accepts DIN/PAN when `Designation` is Director; Manager/CS slot only accepts ICSI membership when `Designation` is Company Secretary/Manager.
+  - In batch extraction (`router.py`), resolved explicit designation; when designation is ambiguous or missing in the source text, the ambiguity is preserved rather than cross-pollinating or guessing based on format alone.
+
+---
+
 ## Test Verification Suite Log
 
 Executed on Python 3.13 (`/opt/miniconda3/bin/python3`):
+
+```text
+============================= test session starts ==============================
+platform darwin -- Python 3.13.2, pytest-9.0.2, pluggy-1.5.0 -- /opt/miniconda3/bin/python3
+rootdir: /Users/apple/Desktop/FLA
+
+automation_engine/tests/test_universal_engine.py::TestFieldNormalizer::test_numeric_count_field_enforcement PASSED [  5%]
+automation_engine/tests/test_universal_engine.py::TestFieldNormalizer::test_identifier_exclusion_from_count_guards PASSED [ 11%]
+automation_engine/tests/test_universal_engine.py::TestFieldNormalizer::test_classification_code_pseudo_boolean_rejection PASSED [ 17%]
+automation_engine/tests/test_universal_engine.py::TestFieldNormalizer::test_instruction_header_row_artifact_rejection PASSED [ 23%]
+automation_engine/tests/test_universal_engine.py::TestFieldNormalizer::test_degenerate_single_option_select_converted_to_text PASSED [ 29%]
+automation_engine/tests/test_universal_engine.py::TestFieldNormalizer::test_full_schema_normalization_and_audit PASSED [ 35%]
+automation_engine/tests/test_universal_engine.py::TestSemanticBranchDetection::test_branching_forms_detected PASSED [ 41%]
+automation_engine/tests/test_universal_engine.py::TestSemanticBranchDetection::test_non_branching_forms_flat PASSED [ 47%]
+automation_engine/tests/test_universal_engine.py::TestSemanticBranchDetection::test_unseen_form_dynamic_branch_detection PASSED [ 52%]
+automation_engine/tests/test_universal_engine.py::TestSemanticBranchDetection::test_unseen_form_flat_with_multi_option_dropdown PASSED [ 58%]
+automation_engine/tests/test_universal_engine.py::TestSignatoryRoleResolution::test_director_role_exclusivity PASSED [ 64%]
+automation_engine/tests/test_universal_engine.py::TestSignatoryRoleResolution::test_company_secretary_role_exclusivity PASSED [ 70%]
+automation_engine/tests/test_universal_engine.py::TestSignatoryRoleResolution::test_ambiguous_signatory_role_no_cross_bleed PASSED [ 76%]
+automation_engine/tests/test_gnl1_branch_and_dag.py::test_gnl1_schema_has_field_7_and_full_compounding_fields PASSED [ 82%]
+automation_engine/tests/test_gnl1_branch_and_dag.py::test_gnl1_branch_detection_compounding PASSED [ 88%]
+automation_engine/tests/test_gnl1_branch_and_dag.py::test_gnl1_branch_detection_agm_extension PASSED [ 94%]
+automation_engine/tests/test_gnl1_branch_and_dag.py::test_gnl1_dag_pruning_under_compounding PASSED [100%]
+
+======================== 17 passed in 0.98s ========================
+```
 
 ```text
 ======================================================================

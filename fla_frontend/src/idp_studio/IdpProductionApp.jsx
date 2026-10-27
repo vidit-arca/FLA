@@ -533,8 +533,100 @@ export default function IdpProductionApp() {
       }
     }
 
+    // Form GNL-1: Field 1(a) Purpose of filing / Statutory Scenario
+    if (shortLower === 'field_1a' || labelLower.includes('purpose of filing')) {
+      for (const alias of ['gnl1.main.field_1a', 'field_1a', 'statutory_scenario', 'statutory_branch', 'purpose_of_filing']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+
+    // Form GNL-1: Field 2 Category of Applicant
+    if (shortLower === 'field_2' && labelLower.includes('category of applicant')) {
+      for (const alias of ['gnl1.main.field_2', 'field_2', 'category_of_applicant', 'applicant_category']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+
+    // Form GNL-1: Field 4 RoC Office
+    if (shortLower === 'field_4' && (labelLower.includes('registrar') || labelLower.includes('roc'))) {
+      for (const alias of ['gnl1.main.field_4', 'field_4', 'roc_office', 'roc_name', 'name_of_office_of_the_registrar']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+
+    // Form GNL-1: Field 7 Details of application
+    if (shortLower === 'field_7' || labelLower.includes('details of application')) {
+      for (const alias of ['gnl1.main.field_7', 'field_7', 'details_of_application', 'application_details', 'brief_particulars']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+
+    // Form GNL-1: Field 8(d) Suo-motu or In pursuance to a notice
+    if (shortLower === 'field_8d' || (labelLower.includes('suo-motu') && labelLower.includes('notice'))) {
+      for (const alias of ['gnl1.main.field_8d', 'field_8d', 'filing_manner', 'suo_motu_or_notice', 'suo_motu']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+
+    // Form GNL-1: Field 8(e) Notice number & 8(f) Notice date
+    if (shortLower === 'field_8e' || labelLower.includes('notice number')) {
+      for (const alias of ['gnl1.main.field_8e', 'field_8e', 'notice_number', 'notice_no']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+    if (shortLower === 'field_8f' || labelLower.includes('date of the notice')) {
+      for (const alias of ['gnl1.main.field_8f', 'field_8f', 'date_of_notice', 'notice_date']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+
+    // Form GNL-1: Field 8(g) Section under which application is filed
+    if (shortLower === 'field_8g' || (labelLower.includes('section') && labelLower.includes('application is being filed'))) {
+      for (const alias of ['gnl1.main.field_8g', 'field_8g', 'section_under_which_application_is_being_filed', 'compounding_section']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+
+    // Form GNL-1: Field 8(i) Description of default
+    if (shortLower === 'field_8i' || labelLower.includes('brief description of the default')) {
+      for (const alias of ['gnl1.main.field_8i', 'field_8i', 'brief_description_of_the_default', 'description_of_default']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+
+    // Form GNL-1: Field 8(j) Default From & 8(k) Default To
+    if (shortLower === 'field_8j' || labelLower.includes('period of default – from') || labelLower.includes('period of default - from')) {
+      for (const alias of ['gnl1.main.field_8j', 'field_8j', 'period_of_default_from', 'default_from']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+    if (shortLower === 'field_8k' || labelLower.includes('period of default – to') || labelLower.includes('period of default - to')) {
+      for (const alias of ['gnl1.main.field_8k', 'field_8k', 'period_of_default_to', 'default_to']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+
+    // Form GNL-1: Field 8(l) Reasons for default
+    if (shortLower === 'field_8l' || labelLower.includes('reasons that led to the default')) {
+      for (const alias of ['gnl1.main.field_8l', 'field_8l', 'reasons_that_led_to_the_default', 'default_reasons']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+
+    // Form GNL-1: Field 8(m) Default made good & 8(n) How made good
+    if (shortLower === 'field_8m' || labelLower.includes('whether the default has been made good')) {
+      for (const alias of ['gnl1.main.field_8m', 'field_8m', 'whether_the_default_has_been_made_good', 'default_made_good']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+    if (shortLower === 'field_8n' || labelLower.includes('how the default was made good')) {
+      for (const alias of ['gnl1.main.field_8n', 'field_8n', 'how_the_default_was_made_good', 'default_rectified_how']) {
+        if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
+      }
+    }
+
     // CIN
-    if ((field.type === 'cin' || shortLower === 'field_1' || shortLower.includes('cin') || labelLower.includes('corporate identity number') || labelLower.includes(' cin')) && !labelLower.includes('document being filed')) {
+    if ((field.type === 'cin' || shortLower === 'field_1' || shortLower === 'field_3' || shortLower.includes('cin') || labelLower.includes('corporate identity number') || labelLower.includes(' cin')) && !labelLower.includes('document being filed')) {
       for (const alias of ['cin', 'cin_number', 'corporate_identity_number', 'corporateidentitynumber', 'cinno']) {
         if (isFieldMapped(payload[alias])) return formatResolved(payload[alias]);
       }
@@ -613,15 +705,12 @@ export default function IdpProductionApp() {
       const rawFiles = uploadedFiles.map(f => f.file).filter(Boolean);
       const branchRes = await idpClient.detectBranch(templateName, rawFiles);
       setDetectedBranchData(branchRes);
-      // Defense-in-depth: only forms that genuinely possess divergent filing pathways (ADT-1, DIR-12) may ever open this modal
-      const STATUTORY_BRANCH_WHITELIST = ['adt-1', 'adt1', 'dir-12', 'dir12'];
-      const isWhitelistedBranchForm = STATUTORY_BRANCH_WHITELIST.some(f =>
-        templateName.toLowerCase().replace(/[\s\-_]/g, '').includes(f)
-      );
-      if (isWhitelistedBranchForm && branchRes?.has_branches) {
+      // Universal Semantic Decision Gate:
+      // If the engine detects divergent statutory pathways with candidate options, prompt HITL decision
+      if (branchRes?.has_branches && branchRes.available_options?.length >= 2) {
         setShowBranchModal(true);
       } else {
-        // No branching required (e.g. GNL-2, GNL-1, FLA, PAS-6, MGT-7, MGT-14, AOC-4, etc.) — proceed directly
+        // Flat forms without divergent statutory pathways proceed directly
         setActiveScenario(null);
         await executeConsolidation(null);
       }

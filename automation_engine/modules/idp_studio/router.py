@@ -227,25 +227,7 @@ async def detect_form_branch(
     if not schema:
         raise HTTPException(status_code=404, detail=f"Form schema for '{form_id}' not found")
 
-    BRANCH_ENABLED_FORMS = {"ADT-1", "ADT1", "FORM NO. ADT-1", "DIR-12", "DIR12", "FORM NO. DIR-12"}
-    clean_fid = form_id.upper().strip()
-    is_branch_enabled = any(
-        clean_fid == b or clean_fid.replace(" ", "").replace("-", "") == b.replace(" ", "").replace("-", "")
-        for b in BRANCH_ENABLED_FORMS
-    )
-    if not is_branch_enabled:
-        return {
-            "status": "success",
-            "form_id": form_id,
-            "form_name": schema.get("form_name"),
-            "has_branches": False,
-            "branch_field_id": None,
-            "branch_field_label": None,
-            "branch_field_canonical": None,
-            "available_options": [],
-            "detected": None
-        }
-
+    # 1. Parse uploaded documents or JSON payload
     content_type = request.headers.get("content-type", "")
     full_text = ""
     filename = ""
@@ -277,7 +259,8 @@ async def detect_form_branch(
         except Exception as e:
             print(f"[!] Error in detect_form_branch: {e}")
 
-    # Dynamically locate the branching field from the schema (the field that drives DAG pruning)
+    # 2. Universal Semantic Branch Detection
+    # Form branches exist ONLY when a root/selector field gates conditional pathways in the DAG.
     parent_counts = {}
     for f in schema.get("fields", []):
         dep = f.get("depends_on")
@@ -292,38 +275,35 @@ async def detect_form_branch(
         "purpose of filing",
         "nature of filing",
         "category of applicant",
-        "type of company",
+        "purpose of application",
+        "type of resolution",
         "statement of account",
     ]
 
     branch_field = None
 
-    # Priority 1: Field with the most DAG dependents that has >= 2 options
+    # Criterion 1: Root field with >= 2 candidate options driving >= 2 DAG dependents
     if parent_counts:
         sorted_parents = sorted(parent_counts.items(), key=lambda x: x[1], reverse=True)
-        for parent_id, _ in sorted_parents:
-            matched_f = next((f for f in schema.get("fields", []) if f.get("id") == parent_id and f.get("options") and len(f.get("options")) >= 2), None)
-            if matched_f:
-                branch_field = matched_f
-                break
+        for parent_id, dep_count in sorted_parents:
+            if dep_count >= 2:
+                matched_f = next(
+                    (f for f in schema.get("fields", []) if f.get("id") == parent_id and f.get("options") and len(f.get("options")) >= 2),
+                    None
+                )
+                if matched_f:
+                    branch_field = matched_f
+                    break
 
-    # Priority 2: Match by branch keyword signals
+    # Criterion 2: Parent field matching statutory branch signals with >= 2 options and >= 1 dependent
     if not branch_field:
         for fld in schema.get("fields", []):
             field_label_lower = fld.get("label", "").lower()
             field_options = fld.get("options") or []
             if len(field_options) >= 2 and any(sig in field_label_lower for sig in BRANCH_FIELD_SIGNALS):
-                branch_field = fld
-                break
-
-    # Priority 3: Multi-option select/radio field (with at least 3 options)
-    if not branch_field:
-        for fld in schema.get("fields", []):
-            field_type = fld.get("type", "")
-            field_options = fld.get("options") or []
-            if field_type in ["radio", "select"] and len(field_options) >= 3:
-                branch_field = fld
-                break
+                if parent_counts.get(fld.get("id"), 0) >= 1:
+                    branch_field = fld
+                    break
 
     if branch_field:
         candidate_options = branch_field.get("options", [])
@@ -665,6 +645,190 @@ async def generate_excel_from_idp(payload: Dict[str, Any] = Body(...)):
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Excel Generation Error: {str(e)}")
 
+def resolve_field_value(
+    field_def: Dict[str, Any],
+    mapped_data: Dict[str, Any],
+    matched_keys: Optional[set] = None
+) -> Optional[str]:
+    """
+    Universal Dynamic Field Value Resolver with Conservative Type Guards,
+    Family Boundary Isolation, and Signatory Role Semantic Exclusivity.
+    """
+    if matched_keys is None:
+        matched_keys = set()
+
+    fid = field_def.get("id", "")
+    flabel = field_def.get("label", "").lower()
+    cno = str(field_def.get("canonical_no", "")).lower().replace("(", "").replace(")", "").strip()
+    f_type = str(field_def.get("type", "text")).lower()
+    options = field_def.get("options") or []
+
+    # Universal Data-Type Sanity Validator & Sanitizer
+    def _validate_and_sanitize(val: Any) -> Optional[str]:
+        if val is None:
+            return None
+        if isinstance(val, (list, dict)):
+            return val
+        val_str = str(val).strip()
+        if val_str in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
+            return None
+
+        # 1. Date Type Guard: Strictly enforce date format and reject comma-separated share numbers
+        is_date_field = (
+            f_type == "date"
+            or "(dd/mm/yyyy)" in flabel
+            or "from (dd/mm/yyyy)" in flabel
+            or "to (dd/mm/yyyy)" in flabel
+            or "period of filing" in flabel
+        )
+        if is_date_field:
+            if "," in val_str:
+                return None  # Reject share numbers like 2,99,025
+            if not re.search(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b', val_str):
+                return None  # Must match date pattern
+
+        # 2. Numeric / Share count Guard: Sanitize non-numeric status strings to clean 0
+        is_numeric_field = (
+            f_type in ["number", "currency"]
+            or "number of shares" in flabel
+            or "held in" in flabel
+            or "total shares" in flabel
+        )
+        if is_numeric_field:
+            upper = val_str.upper()
+            if upper in ["NOT ADMITTED", "N/A", "NIL", "NONE", "UNKNOWN"]:
+                return "0"
+
+        # 3. File Attachment Guard: File fields only accept genuine document/file names
+        if f_type == "file":
+            if not any(val_str.lower().endswith(ext) for ext in [".pdf", ".zip", ".jpg", ".png", ".xlsx", ".docx", ".doc"]):
+                return None
+
+        return val_str
+
+    # Signatory Role Exclusivity Context
+    is_dir_din_field = (
+        "director identification number of the director" in flabel
+        or ("director identification" in flabel and "manager" not in flabel)
+        or ("din" in flabel and "manager" not in flabel and "secretary" not in flabel)
+    )
+    is_kmp_sec_field = (
+        "manager or ceo or cfo" in flabel
+        or "membership number of the company secretary" in flabel
+        or "company secretary" in flabel
+        or "membership number" in flabel
+    ) and "director identification" not in flabel
+
+    active_desig = str(
+        mapped_data.get("designation")
+        or mapped_data.get("field_designation")
+        or mapped_data.get("formnomgt14.main.field_designation")
+        or mapped_data.get("signatory_designation")
+        or ""
+    ).strip().lower()
+
+    if is_dir_din_field and active_desig and not any(d in active_desig for d in ["director", "md", "managing"]):
+        return None
+    if is_kmp_sec_field and (active_desig and any(d in active_desig for d in ["director", "md", "managing"])):
+        return None
+
+    # 1. Exact ID check
+    if fid in mapped_data:
+        sanitized = _validate_and_sanitize(mapped_data[fid])
+        if sanitized is not None:
+            matched_keys.add(fid)
+            return sanitized
+
+    # 2. Canonical number check with Family Isolation
+    if cno:
+        for k, v in mapped_data.items():
+            sanitized = _validate_and_sanitize(v)
+            if sanitized is None:
+                continue
+
+            k_norm = str(k).lower().replace("(", "").replace(")", "").replace("-", "_").replace(" ", "_")
+
+            # Family boundary guard: prevent cross-section suffix bleed (e.g. field_5gi_3 matching cno=3)
+            k_family = re.search(r'field_([0-9]+)', k_norm)
+            fid_family = re.search(r'field_([0-9]+)', fid.lower())
+            if k_family and fid_family and k_family.group(1) != fid_family.group(1):
+                continue
+
+            k_tail = k_norm.split(".")[-1]
+            is_cno_match = (
+                k_tail == cno
+                or k_tail == f"field_{cno}"
+                or k_tail.startswith(f"field_{cno}_")
+                or k_norm == cno
+                or k_norm == f"field_{cno}"
+                or k_norm.startswith(f"{cno}_")
+            )
+            if is_cno_match:
+                matched_keys.add(k)
+                return sanitized
+
+    # 3. Normalized ID fuzzy check
+    norm_fid = re.sub(r"[^a-z0-9]", "", fid.lower())
+    for k, v in mapped_data.items():
+        sanitized = _validate_and_sanitize(v)
+        if sanitized is None:
+            continue
+
+        k_norm = str(k).lower()
+        # Family boundary check for fuzzy ID
+        k_family = re.search(r'field_([0-9]+)', k_norm)
+        fid_family = re.search(r'field_([0-9]+)', fid.lower())
+        if k_family and fid_family and k_family.group(1) != fid_family.group(1):
+            continue
+
+        norm_k = re.sub(r"[^a-z0-9]", "", k_norm)
+        if norm_k == norm_fid or (len(norm_fid) > 4 and norm_fid in norm_k) or (len(norm_k) > 4 and norm_k in norm_fid):
+            matched_keys.add(k)
+            return sanitized
+
+        # Label token check
+        k_unprefixed = re.sub(r'^[a-z0-9_]+\.(?:main|repeating|sec)\.', '', str(k).lower())
+        clean_k = k_unprefixed.replace("_", " ").replace("field ", "").strip()
+
+        STATUTORY_ACRONYMS = {
+            "din": "director identification number",
+            "cin": "corporate identity number",
+            "pan": "permanent account number",
+            "llpin": "limited liability partnership identification number",
+            "srn": "service request number"
+        }
+        expanded_k = STATUTORY_ACRONYMS.get(clean_k, clean_k)
+
+        if flabel:
+            # Signatory mutual exclusivity token guard: Director DIN must not bleed into Manager/CS field
+            if is_kmp_sec_field and (clean_k in ["din", "director identification number", "director identification", "director din"] or expanded_k == "director identification number"):
+                continue
+            if is_dir_din_field and any(kmp_term in clean_k for kmp_term in ["membership", "manager", "ceo", "cfo", "secretary", "liquidator", "icsi"]):
+                continue
+
+            # Direct substring match (require at least 4 chars to prevent single-character/digit bleed like '1' in '102')
+            if (len(clean_k) >= 4 and (clean_k in flabel or flabel in clean_k)) or (len(expanded_k) >= 4 and (expanded_k in flabel or flabel in expanded_k)):
+                matched_keys.add(k)
+                return sanitized
+            # Whole word match for acronyms (e.g. cin, din, pan, llpin)
+            if len(clean_k) >= 3 and re.search(r'\b' + re.escape(clean_k) + r'\b', flabel):
+                matched_keys.add(k)
+                return sanitized
+            # Multi-word token subset match (e.g. "company_name" in "Name of the Company")
+            tokens_k = set(re.findall(r'[a-z0-9]+', expanded_k)) - {"the", "of", "and", "in", "to", "for", "is", "field"}
+            tokens_lbl = set(re.findall(r'[a-z0-9]+', flabel)) - {"the", "of", "and", "in", "to", "for", "is", "field"}
+            if len(tokens_k) >= 2 and tokens_k.issubset(tokens_lbl):
+                matched_keys.add(k)
+                return sanitized
+
+    # 4. If radio/toggle with [Yes, No] options and not affirmatively mapped, default to "No"
+    if f_type in ["radio", "toggle"] and options and set(str(o).lower().strip() for o in options) == {"yes", "no"}:
+        return "No"
+
+    return None
+
+_find_field_value = resolve_field_value
+
 # ==============================================================================
 def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str, Any], db: Any = None) -> Any:
     """
@@ -707,177 +871,7 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
 
     # Dynamic Field Value Resolver with Type Guards & Family Boundary Isolation
     def _find_field_value(field_def: Dict[str, Any]) -> Optional[str]:
-        fid = field_def.get("id", "")
-        flabel = field_def.get("label", "").lower()
-        cno = str(field_def.get("canonical_no", "")).lower().replace("(", "").replace(")", "").strip()
-        f_type = str(field_def.get("type", "text")).lower()
-        options = field_def.get("options") or []
-
-        # Universal Data-Type Sanity Validator & Sanitizer
-        def _validate_and_sanitize(val: Any) -> Optional[str]:
-            if val is None:
-                return None
-            if isinstance(val, (list, dict)):
-                return val
-            val_str = str(val).strip()
-            if val_str in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
-                return None
-
-            # 1. Date Type Guard: Strictly enforce date format and reject comma-separated share numbers
-            is_date_field = (
-                f_type == "date"
-                or "(dd/mm/yyyy)" in flabel
-                or "from (dd/mm/yyyy)" in flabel
-                or "to (dd/mm/yyyy)" in flabel
-                or "period of filing" in flabel
-            )
-            if is_date_field:
-                if "," in val_str:
-                    return None  # Reject share numbers like 2,99,025
-                if not re.search(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b', val_str):
-                    return None  # Must match date pattern
-
-            # 2. Numeric / Share count Guard: Sanitize non-numeric status strings to clean 0
-            is_numeric_field = (
-                f_type in ["number", "currency"]
-                or "number of shares" in flabel
-                or "held in" in flabel
-                or "total shares" in flabel
-            )
-            if is_numeric_field:
-                upper = val_str.upper()
-                if upper in ["NOT ADMITTED", "N/A", "NIL", "NONE", "UNKNOWN"]:
-                    return "0"
-
-            # 3. Classification / Code Guard: Sanitize boolean toggles ("Yes"/"No") away from code & SRN fields
-            is_code_field = (
-                "sub-class" in flabel
-                or "sub class" in flabel
-                or "industrial activity" in flabel
-                or "nic code" in flabel
-                or "srn" in flabel
-                or "cin" in flabel
-                or "din" in flabel
-                or "pan" in flabel
-            )
-            # 4. File Attachment Guard: File fields only accept genuine document/file names
-            if f_type == "file":
-                if not any(val_str.lower().endswith(ext) for ext in [".pdf", ".zip", ".jpg", ".png", ".xlsx", ".docx", ".doc"]):
-                    return None
-
-            return val_str
-
-        # Signatory Role Exclusivity Context
-        is_dir_din_field = "director identification number of the director" in flabel or ("director identification" in flabel and "manager" not in flabel)
-        is_kmp_sec_field = "manager or ceo or cfo" in flabel or "membership number of the company secretary" in flabel
-
-        active_desig = str(
-            mapped_data.get("designation")
-            or mapped_data.get("field_designation")
-            or mapped_data.get("formnomgt14.main.field_designation")
-            or ""
-        ).strip().lower()
-
-        if is_dir_din_field and active_desig and not any(d in active_desig for d in ["director", "md", "managing"]):
-            return None
-        if is_kmp_sec_field and (active_desig and any(d in active_desig for d in ["director", "md", "managing"])):
-            return None
-
-        # 1. Exact ID check
-        if fid in mapped_data:
-            sanitized = _validate_and_sanitize(mapped_data[fid])
-            if sanitized is not None:
-                matched_keys.add(fid)
-                return sanitized
-
-        # 2. Canonical number check with Family Isolation
-        if cno:
-            for k, v in mapped_data.items():
-                sanitized = _validate_and_sanitize(v)
-                if sanitized is None:
-                    continue
-
-                k_norm = str(k).lower().replace("(", "").replace(")", "").replace("-", "_").replace(" ", "_")
-                
-                # Family boundary guard: prevent cross-section suffix bleed (e.g. field_5gi_3 matching cno=3)
-                k_family = re.search(r'field_([0-9]+)', k_norm)
-                fid_family = re.search(r'field_([0-9]+)', fid.lower())
-                if k_family and fid_family and k_family.group(1) != fid_family.group(1):
-                    continue
-
-                k_tail = k_norm.split(".")[-1]
-                is_cno_match = (
-                    k_tail == cno
-                    or k_tail == f"field_{cno}"
-                    or k_tail.startswith(f"field_{cno}_")
-                    or k_norm == cno
-                    or k_norm == f"field_{cno}"
-                    or k_norm.startswith(f"{cno}_")
-                )
-                if is_cno_match:
-                    matched_keys.add(k)
-                    return sanitized
-
-        # 3. Normalized ID fuzzy check
-        norm_fid = re.sub(r"[^a-z0-9]", "", fid.lower())
-        for k, v in mapped_data.items():
-            sanitized = _validate_and_sanitize(v)
-            if sanitized is None:
-                continue
-
-            k_norm = str(k).lower()
-            # Family boundary check for fuzzy ID
-            k_family = re.search(r'field_([0-9]+)', k_norm)
-            fid_family = re.search(r'field_([0-9]+)', fid.lower())
-            if k_family and fid_family and k_family.group(1) != fid_family.group(1):
-                continue
-
-            norm_k = re.sub(r"[^a-z0-9]", "", k_norm)
-            if norm_k == norm_fid or (len(norm_fid) > 4 and norm_fid in norm_k) or (len(norm_k) > 4 and norm_k in norm_fid):
-                matched_keys.add(k)
-                return sanitized
-
-            # Label token check
-            # Strip schema namespace prefix (e.g. formnomgt14.main...) so clean_k matches cleanly
-            k_unprefixed = re.sub(r'^[a-z0-9_]+\.(?:main|repeating|sec)\.', '', str(k).lower())
-            clean_k = k_unprefixed.replace("_", " ").replace("field ", "").strip()
-
-            STATUTORY_ACRONYMS = {
-                "din": "director identification number",
-                "cin": "corporate identity number",
-                "pan": "permanent account number",
-                "llpin": "limited liability partnership identification number",
-                "srn": "service request number"
-            }
-            expanded_k = STATUTORY_ACRONYMS.get(clean_k, clean_k)
-
-            if flabel:
-                # Signatory mutual exclusivity token guard: Director DIN must not bleed into Manager/CS field
-                if is_kmp_sec_field and (clean_k in ["din", "director identification number", "director identification", "director din"] or expanded_k == "director identification number"):
-                    continue
-                if is_dir_din_field and any(kmp_term in clean_k for kmp_term in ["membership", "manager", "ceo", "cfo", "secretary", "liquidator"]):
-                    continue
-
-                # Direct substring match (require at least 4 chars to prevent single-character/digit bleed like '1' in '102')
-                if (len(clean_k) >= 4 and (clean_k in flabel or flabel in clean_k)) or (len(expanded_k) >= 4 and (expanded_k in flabel or flabel in expanded_k)):
-                    matched_keys.add(k)
-                    return sanitized
-                # Whole word match for acronyms (e.g. cin, din, pan, llpin)
-                if len(clean_k) >= 3 and re.search(r'\b' + re.escape(clean_k) + r'\b', flabel):
-                    matched_keys.add(k)
-                    return sanitized
-                # Multi-word token subset match (e.g. "company_name" in "Name of the Company")
-                tokens_k = set(re.findall(r'[a-z0-9]+', expanded_k)) - {"the", "of", "and", "in", "to", "for", "is", "field"}
-                tokens_lbl = set(re.findall(r'[a-z0-9]+', flabel)) - {"the", "of", "and", "in", "to", "for", "is", "field"}
-                if len(tokens_k) >= 2 and tokens_k.issubset(tokens_lbl):
-                    matched_keys.add(k)
-                    return sanitized
-
-        # 4. If radio/toggle with [Yes, No] options and not affirmatively mapped, default to "No"
-        if f_type in ["radio", "toggle"] and options and set(str(o).lower().strip() for o in options) == {"yes", "no"}:
-            return "No"
-
-        return None
+        return resolve_field_value(field_def, mapped_data, matched_keys)
 
     # Section Header
     y = 115
@@ -3314,22 +3308,36 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
                 if "field_6b" in f_low or "date of declaration" in l_low:
                     extracted[f_id] = p_dec
 
-        # Signatory / DIN / Designation
+        # Signatory / DIN / Designation: Resolve using semantics and metadata, never guessing from format alone
+        has_dir_mention = bool(re.search(r'\b(?:managing\s+)?director\b', full_text, re.IGNORECASE))
+        has_sec_mention = bool(re.search(r'\bcompany\s+secretary\b|\bsecretary\b', full_text, re.IGNORECASE))
+
+        # Resolve explicit designation; preserve ambiguity if both or neither are explicitly indicated
+        detected_desig = None
+        if has_dir_mention and not has_sec_mention:
+            detected_desig = "Director"
+        elif has_sec_mention and not has_dir_mention:
+            detected_desig = "Company Secretary"
+        elif has_dir_mention and has_sec_mention:
+            # Document mentions both roles; keep designation unassigned to avoid false attribution
+            detected_desig = None
+
         for f_id, label in field_label_map.items():
             f_low = (f_id or "").lower()
             l_low = (label or "").lower()
             if "designation" in f_low or "designation" in l_low:
-                if re.search(r'\bdirector\b', full_text, re.IGNORECASE):
-                    extracted[f_id] = "Director"
-                elif re.search(r'\bcompany\s+secretary\b|\bsecretary\b', full_text, re.IGNORECASE):
-                    extracted[f_id] = "Company Secretary"
-            elif "director_identification_number" in f_low or "din/pan" in l_low or "identification number of the director" in l_low:
+                if detected_desig:
+                    extracted[f_id] = detected_desig
+            elif "director_identification_number" in f_low or ("director" in l_low and "identification" in l_low) or ("din" in l_low and "director" in l_low):
+                # Strictly assign DIN (or PAN if DIN unavailable), never ICSI membership to a Director field
                 if stat_entities.get("primary_din"):
                     extracted[f_id] = stat_entities["primary_din"]
-                elif stat_entities.get("icsi_memberships"):
-                    extracted[f_id] = stat_entities["icsi_memberships"][0]
-                elif stat_entities.get("primary_pan"):
+                elif stat_entities.get("primary_pan") and detected_desig == "Director":
                     extracted[f_id] = stat_entities["primary_pan"]
+            elif "membership_number" in f_low or "membership number" in l_low or ("secretary" in l_low and "membership" in l_low):
+                # Strictly assign ICSI membership to CS/Membership fields, never Director DIN
+                if stat_entities.get("icsi_memberships"):
+                    extracted[f_id] = stat_entities["icsi_memberships"][0]
 
     return extracted
 

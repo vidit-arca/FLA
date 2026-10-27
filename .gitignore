@@ -20,6 +20,7 @@ data/
 output/
 *.log
 *.db
+*.bak*
 *.sqlite
 *.sqlite3
 

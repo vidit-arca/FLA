@@ -111,7 +111,63 @@ Located in [`automation_engine/modules/idp_studio/extractors/universal_statutory
 
 ---
 
-## 5. Directory Structure & Key Files
+## 5. Universal Schema Normalization Engine (`FieldNormalizer`)
+
+Located in [`automation_engine/modules/idp_studio/forms/normalizer.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/forms/normalizer.py):
+
+Acts as the **Single Source of Truth** across the entire pipeline. Automatically invoked inside `FormRegistry._standardize_schema` whenever a schema is loaded from SQLite or disk:
+
+1. **Conservative Count Field Guard:**
+   - Any field indicating cardinality (`Number of resolution(s)`, `No. of members`) is converted to `type: "number"`.
+   - Instruction-kit text bleed and guidance notes are removed from options.
+   - Statutory identifiers (DIN, PAN, CIN, Membership/Registration numbers) are explicitly guarded from being treated as counts via `IDENTIFIER_EXCLUSION_PATTERN`.
+
+2. **Classification Code Guard:**
+   - Sub-class and NIC classification fields (`sub-class`, `nic code`, `industry sub-class`) are normalized to `type: "text"`.
+   - Rejects spurious boolean toggles (`['Yes']`, `['Yes', 'Type of Company']`).
+
+3. **Instruction Header Row Sanitizer:**
+   - Strips table header artifacts that bleed into options (e.g. `'Resolution(s)'`, `'Type of resolution'`, `'Attachment(s)'`).
+
+4. **Degenerate Single-Option Select Conversion:**
+   - Any dropdown or radio field with fewer than 2 valid options converts to `type: "text"` with `options: None`.
+
+5. **Source Provenance & Audit Trails:**
+   - Preserves `{original_type, original_options, normalization_applied: True, corrections: [...]}` under `field["provenance"]`.
+
+---
+
+## 6. Universal Semantic Branch Detection Engine
+
+Replaces hardcoded whitelists (`BRANCH_ENABLED_FORMS`, `STATUTORY_BRANCH_WHITELIST`) with dynamic DAG divergence evaluation:
+
+```mermaid
+graph TD
+    A[Form Schema Loaded] --> B[Compute parent_counts from depends_on]
+    B --> C{Criterion 1: Parent with >= 2 options & >= 2 DAG dependents?}
+    C -->|Yes| D[Flag as Branching Form: Root Selector identified]
+    C -->|No| E{Criterion 2: Statutory signal with >= 2 options & >= 1 dependent?}
+    E -->|Yes| D
+    E -->|No| F[Flag as Flat Form: Proceed directly without branch modal]
+```
+
+- **True Positive Branching:** ADT-1 (5 dependents), DIR-12 (3 dependents), GNL-1 (25 dependents), MGT-14 (10 dependents), LLP-8 (50 dependents), BEN-2 (34 dependents), INC-28 (6 dependents).
+- **Zero False Positives on Flat Forms:** Karomi FLA, LLP-11, MGT-7, INC-20A, MGT-6, PAS-6, GNL-2 have 0 dependents gating divergent pathways and proceed directly.
+
+---
+
+## 7. Signatory Role Semantic Exclusivity Resolver
+
+Located in `resolve_field_value` within [`automation_engine/modules/idp_studio/router.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/router.py#L648):
+
+- Resolves statutory roles using **field semantics and explicit `Designation` metadata**, never guessing from identifier format alone.
+- **Director Slot:** Only populated with DIN or designated Director PAN when `Designation` is Director / Managing Director.
+- **Manager / CS Slot:** Only populated with ICSI membership or Manager PAN when `Designation` is Company Secretary / Manager.
+- **Ambiguous Roles:** When source documents reference multiple roles or omit clear attribution, the value is left unassigned for human-in-the-loop review rather than being cross-pollinated.
+
+---
+
+## 8. Directory Structure & Key Files
 
 ```text
 automation_engine/modules/idp_studio/
@@ -124,6 +180,7 @@ automation_engine/modules/idp_studio/
 │   ├── spatial.py                # Scenario lexicon & spatial DOM rule lookup
 │   └── universal_statutory.py    # Standardized statutory extractors & date normalizer
 ├── forms/
+│   ├── normalizer.py             # FieldNormalizer: Single source of truth for schemas & provenance
 │   ├── stages/                   # 6-Stage Deterministic Instruction Kit Parser
 │   │   ├── stage1_pdf_layout.py
 │   │   ├── stage2_structure.py
@@ -133,7 +190,14 @@ automation_engine/modules/idp_studio/
 │   │   └── stage6_generator.py
 │   ├── filler.py                 # Autonomous FormFiller engine with DAG pruning
 │   ├── kit_parser.py             # Public wrapper for 6-stage pipeline
-│   └── registry.py               # FormRegistry catalog
-├── router.py                     # FastAPI REST API endpoints
+│   └── registry.py               # FormRegistry catalog with embedded FieldNormalizer gateway
+├── router.py                     # FastAPI REST API (semantic branch detection & resolve_field_value)
 └── idp_studio.db                 # Persistent SQLite store
+automation_engine/
+├── scripts/
+│   ├── migrate_gnl1_schema.py                        # GNL-1 51-field & compounding migration
+│   └── migrate_universal_schema_normalization.py     # Idempotent, reversible DB normalization
+└── tests/
+    ├── test_universal_engine.py                      # Comprehensive universal engine test suite
+    └── test_gnl1_branch_and_dag.py                   # GNL-1 branch & DAG regression tests
 ```

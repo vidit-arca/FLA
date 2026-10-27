@@ -285,6 +285,10 @@ class FormRegistry:
                 "instructions": f.get("instructions", "")
             }
 
+            # Single Source of Truth: Apply FieldNormalizer with conservative guards and provenance
+            from .normalizer import FieldNormalizer
+            f_std, _ = FieldNormalizer.normalize_field(f_std)
+
             if f_type == "table":
                 f_std["options"] = []
                 f_std["table_archetype"] = f.get("table_archetype", "web_dynamic_grid")
