@@ -65,9 +65,21 @@ export default function IdpProductionApp() {
     return true;
   };
 
+  const [templateRules, setTemplateRules] = useState([]);
+
   useEffect(() => {
     fetchTemplates();
   }, []);
+
+  useEffect(() => {
+    if (!templateName) {
+      setTemplateRules([]);
+      return;
+    }
+    idpClient.getRules(templateName)
+      .then(rules => setTemplateRules(rules || []))
+      .catch(err => console.warn('[IDP] Failed to fetch rules for', templateName, err));
+  }, [templateName]);
 
   const fetchTemplates = async () => {
     try {
@@ -337,6 +349,17 @@ export default function IdpProductionApp() {
       });
     });
 
+    // Incorporate learned / mapped template rules if not already present from uploadedFiles
+    if (templateRules && Array.isArray(templateRules)) {
+      templateRules.forEach(r => {
+        const rField = r.form_field;
+        const rVal = r.extracted_value ?? r.value ?? r.extracted_key;
+        if (isFieldMapped(rVal) && !isFieldMapped(payload[rField])) {
+          payload[rField] = rVal;
+        }
+      });
+    }
+
     // Apply any explicit user overrides
     Object.entries(userOverrides).forEach(([k, v]) => {
       payload[k] = v;
@@ -387,6 +410,64 @@ export default function IdpProductionApp() {
     if (!field) return '';
     const fid = field.id || '';
     if (userOverrides[fid] !== undefined) return userOverrides[fid];
+
+    // Handle table fields: build array of rows from default_rows + indexed cell entries in payload/rules
+    const isTable = field.type === 'table' || (field.columns && field.columns.length > 0);
+    if (isTable) {
+      if (Array.isArray(payload?.[fid]) && payload[fid].length > 0) return payload[fid];
+      const shortId = fid.includes('.') ? fid.split('.').pop() : fid;
+      if (Array.isArray(payload?.[shortId]) && payload[shortId].length > 0) return payload[shortId];
+
+      const baseRows = Array.isArray(field.default_rows) && field.default_rows.length > 0
+        ? field.default_rows.map(r => ({ ...r }))
+        : (field.columns ? [field.columns.reduce((acc, col) => ({ ...acc, [col.key]: '' }), {})] : []);
+
+      let hasCellData = false;
+      const cols = field.columns || [];
+      const combined = { ...(payload || {}), ...(userOverrides || {}) };
+
+      for (const [k, v] of Object.entries(combined)) {
+        if (!isFieldMapped(v)) continue;
+        if (k.includes(`${fid}[`) || (shortId && k.includes(`${shortId}[`))) {
+          const m = k.match(/\[(\d+)\]\.(.+)$/);
+          if (m) {
+            const rIdx = parseInt(m[1], 10);
+            const colKey = m[2];
+            while (baseRows.length <= rIdx) {
+              baseRows.push(cols.reduce((acc, col) => ({ ...acc, [col.key]: '' }), {}));
+            }
+            baseRows[rIdx][colKey] = v;
+            hasCellData = true;
+          }
+        }
+      }
+
+      if (templateRules && Array.isArray(templateRules)) {
+        for (const r of templateRules) {
+          const rKey = r.form_field || '';
+          const rVal = r.extracted_value ?? r.value ?? r.extracted_key;
+          if (!isFieldMapped(rVal)) continue;
+          if (rKey.includes(`${fid}[`) || (shortId && rKey.includes(`${shortId}[`))) {
+            const m = rKey.match(/\[(\d+)\]\.(.+)$/);
+            if (m) {
+              const rIdx = parseInt(m[1], 10);
+              const colKey = m[2];
+              while (baseRows.length <= rIdx) {
+                baseRows.push(cols.reduce((acc, col) => ({ ...acc, [col.key]: '' }), {}));
+              }
+              if (!baseRows[rIdx][colKey] || baseRows[rIdx][colKey] === '') {
+                baseRows[rIdx][colKey] = rVal;
+                hasCellData = true;
+              }
+            }
+          }
+        }
+      }
+
+      if (hasCellData || (baseRows.length > 0 && field.default_rows)) {
+        return baseRows;
+      }
+    }
 
     const formatResolved = (val) => {
       if (!isFieldMapped(val)) return '';
@@ -1341,7 +1422,8 @@ export default function IdpProductionApp() {
                                               {cols.map(c => (
                                                 <td key={c.key} className="py-1.5 px-3">
                                                   <input
-                                                    type={c.type === 'number' ? 'number' : 'text'}
+                                                    type="text"
+                                                    inputMode={c.type === 'number' ? 'decimal' : 'text'}
                                                     value={r[c.key] || ''}
                                                     onChange={(e) => {
                                                       const updatedRows = rows.map((rowItem, i) => 

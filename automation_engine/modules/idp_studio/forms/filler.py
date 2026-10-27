@@ -364,6 +364,54 @@ Output strictly valid JSON with this structure:
         mappings = {}
         for f in fields:
             f_id = f["id"]
+
+            # Handle dynamic and static table fields
+            if f.get("type") == "table" or f.get("columns"):
+                default_rows = [dict(r) for r in f.get("default_rows", [])]
+                cols = f.get("columns", [])
+                has_cell_data = False
+
+                # 1. Direct table match if evidence has a list of rows
+                matched_ev = self._match_field_deterministically(f, evidence_list)
+                if matched_ev and isinstance(matched_ev.get("value"), list) and matched_ev.get("value"):
+                    mappings[f_id] = {
+                        "field_id": f_id,
+                        "status": "populated",
+                        "value": matched_ev.get("value"),
+                        "confidence": 0.95,
+                        "reasoning": f"Deterministic statutory table match from source key '{matched_ev.get('key')}'",
+                        "source_key": matched_ev.get("key")
+                    }
+                    continue
+
+                # 2. Assemble rows from cell-level evidence items
+                short_id = f_id.split(".")[-1]
+                for ev in evidence_list:
+                    ev_target = ev.get("form_field") or ev.get("key") or ""
+                    ev_val = ev.get("value")
+                    if ev_val is None or str(ev_val).strip() in ["", "Unknown", "N/A", "None", "null"]:
+                        continue
+                    if f_id in ev_target or (short_id in ev_target and "[" in ev_target):
+                        m = re.search(r'\[(\d+)\]\.([a-zA-Z0-9_]+)$', ev_target)
+                        if m:
+                            r_idx = int(m.group(1))
+                            c_key = m.group(2)
+                            while len(default_rows) <= r_idx:
+                                default_rows.append({c.get("key"): "" for c in cols})
+                            default_rows[r_idx][c_key] = ev_val
+                            has_cell_data = True
+
+                if has_cell_data or (default_rows and len(default_rows) > 0):
+                    mappings[f_id] = {
+                        "field_id": f_id,
+                        "status": "populated" if has_cell_data else "missing",
+                        "value": default_rows,
+                        "confidence": 0.95 if has_cell_data else 0.5,
+                        "reasoning": f"Table rows assembled ({sum(1 for r in default_rows if any(r.values()))} populated rows)",
+                        "source_key": f_id
+                    }
+                    continue
+
             matched_ev = self._match_field_deterministically(f, evidence_list)
             if matched_ev:
                 val = matched_ev.get("value")
@@ -429,10 +477,11 @@ Output strictly valid JSON with this structure:
 
             validation_info = {"is_valid": True, "error": None}
 
-            if status == "populated" and value is not None:
+            f_type = field_def.get("type", "text")
+            options = field_def.get("options")
+
+            if status == "populated" and value is not None and not isinstance(value, list) and f_type != "table":
                 val_str = str(value).strip()
-                f_type = field_def.get("type", "text")
-                options = field_def.get("options")
 
                 # 1. Canonical Option Normalization (Select / Radio)
                 if options and f_type in ["select", "radio"]:

@@ -100,7 +100,7 @@ export default function DynamicTableGrid({
       return value;
     }
     if (Array.isArray(field.default_rows) && field.default_rows.length > 0) {
-      return field.default_rows;
+      return field.default_rows.map(r => ({ ...r }));
     }
     const initialCount = Math.max(minRows, Number(repeatCount) || 1);
     return Array.from({ length: initialCount }, (_, i) => createDefaultRow(i));
@@ -126,11 +126,13 @@ export default function DynamicTableGrid({
         columns.forEach(col => {
           if (!col.readonly) {
             const rule = getCellRule(rIdx, col.key, r);
-            if (rule && rule.extracted_value !== undefined && rule.extracted_value !== null) {
-              const ruleVal = rule.extracted_value;
-              if (newRow[col.key] !== ruleVal) {
-                newRow[col.key] = ruleVal;
-                rowChanged = true;
+            if (rule) {
+              const ruleVal = rule.extracted_value ?? rule.value ?? rule.extracted_key;
+              if (ruleVal !== undefined && ruleVal !== null && String(ruleVal).trim() !== '') {
+                if (newRow[col.key] !== ruleVal) {
+                  newRow[col.key] = ruleVal;
+                  rowChanged = true;
+                }
               }
             }
           }
@@ -145,6 +147,13 @@ export default function DynamicTableGrid({
       return prev;
     });
   }, [rules]);
+
+  // Sync rows if value prop changes externally (e.g. from parent state / loaded payload)
+  useEffect(() => {
+    if (Array.isArray(value) && value.length > 0) {
+      setRows(value);
+    }
+  }, [value]);
 
   // Sync rows if repeatCount from parent changes externally
   useEffect(() => {
@@ -741,7 +750,8 @@ export default function DynamicTableGrid({
                                 }`}
                               >
                                 <input
-                                  type={col.type === 'number' ? 'number' : 'text'}
+                                  type="text"
+                                  inputMode={col.type === 'number' ? 'decimal' : 'text'}
                                   value={cellVal}
                                   min={col.min}
                                   max={col.max}

@@ -264,54 +264,78 @@ export default function IdpStudio() {
     }
   };
 
-  const handleTestFla = async () => {
+  const buildPayloadFromRules = () => {
     const payload = {};
     if (currentSchema && currentSchema.fields) {
-        currentSchema.fields.forEach(field => {
-            const rule = rules.find(r => r.form_field === field.id);
-            if (rule) {
-                const extractedItem = extractedData.find(e => e.key === rule.extracted_key);
-                payload[field.id] = extractedItem ? extractedItem.value : (rule.extracted_value || rule.extracted_key);
-            } else if (activeSelections[field.id]) {
-                payload[field.id] = activeSelections[field.id];
+      currentSchema.fields.forEach(field => {
+        const isTable = field.type === 'table' || (field.columns && field.columns.length > 0);
+        if (isTable) {
+          const cols = field.columns || [];
+          const baseRows = Array.isArray(field.default_rows) && field.default_rows.length > 0
+            ? field.default_rows.map(r => ({ ...r }))
+            : [cols.reduce((acc, col) => ({ ...acc, [col.key]: '' }), {})];
+          
+          let hasCellData = false;
+          rules.forEach(r => {
+            const rField = r.form_field || '';
+            const rVal = extractedData.find(e => e.key === r.extracted_key)?.value || r.extracted_value || r.extracted_key;
+            if (rField.startsWith(`${field.id}[`)) {
+              payload[rField] = rVal;
+              const m = rField.match(/\[(\d+)\]\.(.+)$/);
+              if (m) {
+                const rIdx = parseInt(m[1], 10);
+                const colKey = m[2];
+                while (baseRows.length <= rIdx) {
+                  baseRows.push(cols.reduce((acc, col) => ({ ...acc, [col.key]: '' }), {}));
+                }
+                baseRows[rIdx][colKey] = rVal;
+                hasCellData = true;
+              }
             }
-        });
+          });
+          if (hasCellData || (baseRows.length > 0 && field.default_rows)) {
+            payload[field.id] = baseRows;
+          }
+        } else {
+          const rule = rules.find(r => r.form_field === field.id);
+          if (rule) {
+            const extractedItem = extractedData.find(e => e.key === rule.extracted_key);
+            payload[field.id] = extractedItem ? extractedItem.value : (rule.extracted_value || rule.extracted_key);
+          } else if (activeSelections[field.id]) {
+            payload[field.id] = activeSelections[field.id];
+          }
+        }
+      });
     }
+    return payload;
+  };
+
+  const handleTestFla = async () => {
+    const payload = buildPayloadFromRules();
 
     if (Object.keys(payload).length === 0) {
-        alert("No mapped fields to test! Please map fields first.");
-        return;
+      alert("No mapped fields to test! Please map fields first.");
+      return;
     }
 
     setIsTestingFla(true);
     try {
-        const result = await idpClient.testFlaEngine(payload);
-        setTestFlaResult(result);
+      const result = await idpClient.testFlaEngine(payload);
+      setTestFlaResult(result);
     } catch (err) {
-        console.error("Failed to test FLA engine", err);
-        alert("Failed to run FLA Logic Engine. Ensure backend is running.");
+      console.error("Failed to test FLA engine", err);
+      alert("Failed to run FLA Logic Engine. Ensure backend is running.");
     } finally {
-        setIsTestingFla(false);
+      setIsTestingFla(false);
     }
   };
 
   const handleGenerateExcel = async () => {
-    const payload = {};
-    if (currentSchema && currentSchema.fields) {
-        currentSchema.fields.forEach(field => {
-            const rule = rules.find(r => r.form_field === field.id);
-            if (rule) {
-                const extractedItem = extractedData.find(e => e.key === rule.extracted_key);
-                payload[field.id] = extractedItem ? extractedItem.value : (rule.extracted_value || rule.extracted_key);
-            } else if (activeSelections[field.id]) {
-                payload[field.id] = activeSelections[field.id];
-            }
-        });
-    }
+    const payload = buildPayloadFromRules();
 
     if (Object.keys(payload).length === 0) {
-        alert("No mapped fields to generate Excel from! Please map fields first.");
-        return;
+      alert("No mapped fields to generate Excel from! Please map fields first.");
+      return;
     }
 
     setIsGeneratingExcel(true);
@@ -563,6 +587,10 @@ export default function IdpStudio() {
                     });
 
                     const resolvedCount = visibleFields.filter(f => {
+                        const isTable = f.type === 'table' || (f.columns && f.columns.length > 0);
+                        if (isTable) {
+                          return rules.some(r => r.form_field?.startsWith(`${f.id}[`));
+                        }
                         const rule = rules.find(r => r.form_field === f.id);
                         const sel = activeSelections[f.id];
                         return rule || String(sel).toLowerCase() === 'no';
@@ -585,6 +613,8 @@ export default function IdpStudio() {
 
                             <div className="flex-1 overflow-y-auto pr-2 space-y-3 mb-6 custom-scrollbar">
                                 {visibleFields.map(field => {
+                                    const isTable = field.type === 'table' || (field.columns && field.columns.length > 0);
+                                    const tableCellRules = isTable ? rules.filter(r => r.form_field?.startsWith(`${field.id}[`)) : [];
                                     const mapping = rules.find(r => r.form_field === field.id);
                                     const activeChoice = activeSelections[field.id];
                                     const isNoSelected = (activeChoice && String(activeChoice).toLowerCase() === 'no') || 
@@ -604,6 +634,43 @@ export default function IdpStudio() {
                                                         No (Not Required)
                                                     </span>
                                                 </div>
+                                            </div>
+                                        );
+                                    }
+
+                                    if (isTable) {
+                                        const hasData = tableCellRules.length > 0;
+                                        return (
+                                            <div key={field.id} className="p-4 rounded-xl transition-colors hover:bg-slate-50 dark:hover:bg-white/5 border border-slate-100 dark:border-white/5 bg-slate-50/[0.4] dark:bg-white/[0.02]">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className={`w-2 h-2 rounded-full ${hasData ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-slate-300 dark:bg-slate-600'}`}></div>
+                                                        <span className="text-sm font-semibold text-slate-700 dark:text-slate-200">
+                                                            {field.canonical_no ? `${field.canonical_no} ${field.label}` : field.label}
+                                                        </span>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        {hasData ? (
+                                                            <span className="inline-block text-emerald-700 dark:text-emerald-300 font-mono bg-emerald-50 dark:bg-emerald-900/20 px-3 py-1 rounded-lg border border-emerald-200 dark:border-emerald-500/20 text-xs font-bold">
+                                                                {tableCellRules.length} Figures Mapped
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-slate-500 dark:text-slate-400 italic text-sm px-4 py-2 bg-slate-100 dark:bg-white/5 rounded-lg border border-dashed border-slate-200 dark:border-white/10">
+                                                                Unmapped
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                {hasData && (
+                                                    <div className="max-h-36 overflow-y-auto rounded-lg border border-slate-200 dark:border-white/10 bg-white dark:bg-black/30 p-2 space-y-1 custom-scrollbar text-xs">
+                                                        {tableCellRules.map(cr => (
+                                                            <div key={cr.rule_id || cr.form_field} className="flex justify-between items-center py-1 px-2 font-mono hover:bg-slate-50 dark:hover:bg-white/5 rounded">
+                                                                <span className="text-slate-600 dark:text-slate-400 truncate max-w-sm">{cr.form_field.replace(field.id, '').replace(/^\./, '')}</span>
+                                                                <span className="font-bold text-slate-800 dark:text-slate-100">{cr.extracted_value || cr.extracted_key}</span>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     }

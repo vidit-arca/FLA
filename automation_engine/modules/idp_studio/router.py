@@ -509,6 +509,7 @@ async def autofill_mca_form(
             evidence_items.append({
                 "key": a.extracted_key,
                 "value": a.extracted_key,
+                "form_field": a.form_field,
                 "source_doc": f"Rule Memory ({a.scope_type})"
             })
 
@@ -1955,10 +1956,22 @@ def get_rules_for_template(
     document_type: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
+    from sqlalchemy import or_
+    tmpl = db.query(models.IdpTemplate).filter(
+        or_(
+            models.IdpTemplate.template_id == template_name,
+            models.IdpTemplate.template_name == template_name
+        )
+    ).first()
+    canonical_name = tmpl.template_name if tmpl else template_name
+    all_names = list({template_name, canonical_name} | ({tmpl.template_id} if tmpl else set()))
+
     if company_id or scenario or document_type:
-        effective = get_effective_rules(template_name, company_id=company_id, scenario=scenario, document_type=document_type)
+        effective = get_effective_rules(canonical_name, company_id=company_id, scenario=scenario, document_type=document_type)
+        if not effective and canonical_name != template_name:
+            effective = get_effective_rules(template_name, company_id=company_id, scenario=scenario, document_type=document_type)
         return list(effective.values())
-    rules = db.query(models.SchemaAliasRule).filter(models.SchemaAliasRule.template_name == template_name).all()
+    rules = db.query(models.SchemaAliasRule).filter(models.SchemaAliasRule.template_name.in_(all_names)).all()
     return rules
 
 @router.post("/rules", response_model=SchemaAliasResponse)
@@ -2249,8 +2262,8 @@ def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_nam
             print(f"[DOM] ❌ Rejected '{variable_name}' — grabbed large paragraph ({len(str(value))} chars). Passing to LLM.")
             return None, None
 
-        # Guard 2: Reject self-referential extractions (e.g. value == "Corporate Office" when searching for "Corporate Office")
-        if str(value).strip().lower() == str(variable_name).strip().lower():
+        # Guard 2: Reject self-referential extractions for text labels (e.g. value == "Corporate Office" when searching for "Corporate Office")
+        if not re.search(r'\d', str(variable_name)) and str(value).strip().lower() == str(variable_name).strip().lower():
             print(f"[DOM] ❌ Rejected '{variable_name}' — value is same as the label (self-referential). Passing to LLM.")
             return None, None
 
