@@ -2841,30 +2841,42 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
 
     # 1. Universal Statutory Extraction (CIN, PAN, DIN, Dates, Resolutions, SRNs)
     stat_entities = UniversalStatutoryExtractor.extract_entities(full_text)
+    assigned_entities = set()
 
     for f_id, label in field_label_map.items():
         l_lower = (label or "").lower()
         f_lower = (f_id or "").lower()
 
-        # CIN mapping
-        if stat_entities.get("primary_cin"):
-            if f_lower.endswith(".field_1") or f_lower == "field_1" or "corporate identity number" in l_lower or (re.search(r'\bcin\b', l_lower) and "pan" not in l_lower):
+        # CIN mapping: Primary company CIN only (never transferor/transferee/foreign/amalgamated)
+        if stat_entities.get("primary_cin") and "primary_cin" not in assigned_entities:
+            is_secondary = any(w in l_lower or w in f_lower for w in ["transferor", "transferee", "foreign", "amalgamat", "other", "subsidiar"])
+            is_primary_cin = (
+                f_lower.endswith(".field_1") or f_lower.endswith(".field_1a") or f_lower.endswith(".field_3") or
+                f_lower in ["field_1", "field_1a", "field_3"] or
+                ("corporate identity number" in l_lower and not is_secondary) or
+                (re.search(r'\bcin\b', l_lower) and "pan" not in l_lower and not is_secondary)
+            )
+            if is_primary_cin:
                 extracted[f_id] = stat_entities["primary_cin"]
+                assigned_entities.add("primary_cin")
 
-        # PAN mapping
-        if stat_entities.get("primary_pan"):
+        # PAN mapping: Assign once to primary PAN field
+        if stat_entities.get("primary_pan") and "primary_pan" not in assigned_entities:
             if "permanent account number" in l_lower or re.search(r'\bpan\b', l_lower):
                 extracted[f_id] = stat_entities["primary_pan"]
+                assigned_entities.add("primary_pan")
 
-        # DIN mapping
-        if stat_entities.get("primary_din"):
+        # DIN mapping: Assign once to primary DIN field
+        if stat_entities.get("primary_din") and "primary_din" not in assigned_entities:
             if "director identification number" in l_lower or re.search(r'\bdin\b', l_lower):
                 extracted[f_id] = stat_entities["primary_din"]
+                assigned_entities.add("primary_din")
 
-        # Resolution Number
-        if stat_entities.get("primary_resolution"):
+        # Resolution Number: Assign once
+        if stat_entities.get("primary_resolution") and "primary_resolution" not in assigned_entities:
             if "resolution" in l_lower and ("number" in l_lower or "no" in l_lower):
                 extracted[f_id] = stat_entities["primary_resolution"]
+                assigned_entities.add("primary_resolution")
 
     # 2. Company Name
     comp_name = None
@@ -2899,11 +2911,16 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
 
     if comp_name:
         comp_name_clean = comp_name.strip('*').strip()
+        comp_assigned = False
         for f_id, label in field_label_map.items():
+            if comp_assigned:
+                break
             l_lower = (label or "").lower()
             f_lower = (f_id or "").lower()
-            if "name of the company" in l_lower or "company name" in l_lower or (f_lower.endswith(".field_2a") and "company" in l_lower):
+            is_secondary = any(w in l_lower or w in f_lower for w in ["transferor", "transferee", "foreign", "amalgamat", "auditor", "practicing", "rta", "other"])
+            if not is_secondary and ("name of the company" in l_lower or "company name" in l_lower or (f_lower.endswith(".field_2a") and "company" in l_lower)):
                 extracted[f_id] = comp_name_clean
+                comp_assigned = True
 
     # 3. Form No. PAS-6 specific deterministic extraction
     if "pas" in tmpl_lower or "pas6" in tmpl_lower or "pas-6" in tmpl_lower:
@@ -3037,68 +3054,98 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
                 if f_id.endswith(".field_5a") or "type of security" in (label or "").lower():
                     extracted[f_id] = "Equity"
 
-    # 4. Registered Address and Email for any MCA form
+    # 4. Registered Address and Email for any MCA form (assign at most once to primary company field)
     addr_match = re.search(r'(?:Address of the registered office|Registered Office Address|Registered Address)\s*[:\|]\s*([^\n\|]+)', full_text, re.IGNORECASE)
     if addr_match:
         addr_val = addr_match.group(1).strip()
+        addr_assigned = False
         for f_id, label in field_label_map.items():
+            if addr_assigned or f_id in extracted:
+                continue
             l_lower = (label or "").lower()
             if "registered ofice" in l_lower or "registered office" in l_lower or "registered address" in l_lower:
                 extracted[f_id] = addr_val
+                addr_assigned = True
 
     email_match = re.search(r'(?:email ID of the company|Email ID|Email)\s*[:\|]\s*([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)', full_text, re.IGNORECASE)
     if email_match:
         email_val = email_match.group(1).strip()
+        email_assigned = False
         for f_id, label in field_label_map.items():
+            if email_assigned or f_id in extracted:
+                continue
             l_lower = (label or "").lower()
             if "email id" in l_lower or "email" in l_lower:
                 extracted[f_id] = email_val
+                email_assigned = True
 
-    # 5. DIN, PAN, CS Membership, and Board Resolution Date across all statutory forms
+    # 5. DIN, PAN, CS Membership, and Board Resolution Date across all statutory forms (assign at most once)
     din_match = re.search(r'\b(?:DIN|Director Identification Number)\s*[:\-\s]*([0-9]{8})\b', full_text, re.IGNORECASE)
-    if din_match:
+    if din_match and "primary_din" not in assigned_entities:
         din_val = din_match.group(1).strip()
+        din_assigned = False
         for f_id, label in field_label_map.items():
+            if din_assigned or f_id in extracted:
+                continue
             l_lower = (label or "").lower()
             # Director DIN must only map to Director DIN fields, not to Manager/CEO/CFO/CS fields
             if ("director identification" in l_lower or "din of director" in l_lower or "din" in l_lower) and "manager" not in l_lower and "secretary" not in l_lower and "liquidator" not in l_lower:
                 extracted[f_id] = din_val
+                din_assigned = True
+                assigned_entities.add("primary_din")
 
     cs_match = re.search(r'\b(?:ACS|FCS|Membership\s*(?:No\.?|Number))\s*[:\-\s]*([A-Z0-9]{4,8})\b', full_text, re.IGNORECASE)
     if cs_match:
         cs_val = cs_match.group(1).strip()
+        cs_assigned = False
         for f_id, label in field_label_map.items():
+            if cs_assigned or f_id in extracted:
+                continue
             l_lower = (label or "").lower()
             if "membership number of the company secretary" in l_lower or "membership number of company secretary" in l_lower:
                 extracted[f_id] = cs_val
+                cs_assigned = True
 
     kmp_match = re.search(r'(?:Manager|CEO|CFO|Liquidator)\s*(?:DIN|PAN)?\s*[:\-\s]*([A-Z0-9]{8,10})\b', full_text, re.IGNORECASE)
     if kmp_match:
         kmp_val = kmp_match.group(1).strip()
+        kmp_assigned = False
         for f_id, label in field_label_map.items():
+            if kmp_assigned or f_id in extracted:
+                continue
             l_lower = (label or "").lower()
             if ("manager" in l_lower or "ceo" in l_lower or "cfo" in l_lower) and ("din or pan" in l_lower or "din" in l_lower):
                 extracted[f_id] = kmp_val
+                kmp_assigned = True
 
     pan_match = re.search(r'\b(?:PAN|Permanent Account Number)\s*[:\-\s]*([A-Z]{5}[0-9]{4}[A-Z])\b', full_text, re.IGNORECASE)
-    if pan_match:
+    if pan_match and "primary_pan" not in assigned_entities:
         pan_val = pan_match.group(1).strip()
+        pan_assigned = False
         for f_id, label in field_label_map.items():
+            if pan_assigned or f_id in extracted:
+                continue
             l_lower = (label or "").lower()
             if ("permanent account number" in l_lower or re.search(r'\bpan\b', l_lower)) and "company" not in l_lower:
                 extracted[f_id] = pan_val
+                pan_assigned = True
+                assigned_entities.add("primary_pan")
 
     br_match = re.search(r'resolution\s*(?:no\.?|number)?\s*[:\-\s]*([0-9A-Za-z/]+)?\s*dated\s*[:\-\s]*(\d{1,2}[/-]\d{1,2}[/-]\d{2,4})', full_text, re.IGNORECASE)
     if br_match:
         br_num = br_match.group(1).strip() if br_match.group(1) else ""
         br_date = br_match.group(2).strip() if br_match.group(2) else ""
+        br_assigned = False
         for f_id, label in field_label_map.items():
+            if br_assigned or f_id in extracted:
+                continue
             l_lower = (label or "").lower()
             if "board of directors" in l_lower or "vide resolution" in l_lower:
                 extracted[f_id] = f"Resolution No: {br_num} Dated: {br_date}".strip()
+                br_assigned = True
 
     # 6. Form No. GNL-2 specific deterministic extraction
-    if "gnl" in tmpl_lower or "gnl-2" in tmpl_lower or "gnl2" in tmpl_lower:
+    if "gnl-2" in tmpl_lower or "gnl2" in tmpl_lower or "gnl 2" in tmpl_lower:
         GNL2_DOC_MAP = [
             (r'affidavit\s+under\s+section\s+59\s+of\s+the\s+insolvency\s+and\s+bankruptcy\s+code',
              'Affidavit under Section 59 of the Insolvency and Bankruptcy Code, 2016'),
@@ -3387,9 +3434,16 @@ async def extract_batch_documents(
             print(f"[Batch] Document '{filename}' classified as: '{doc_type}'")
 
             # --- TIER 0.5: Fast-Path Deterministic MCA Extraction ---
+            mapped_form_fields = {r.form_field for r in schema_rules} if schema_rules else None
+            tmpl_clean = (template_name or "").lower().replace(" ", "").replace("-", "")
+            is_dedicated_pipeline = "gnl2" in tmpl_clean or "pas6" in tmpl_clean or "pas" in tmpl_clean
+
             fast_path_data = _fast_path_extract_mca_fields(full_text, template_name, field_label_map)
             for f_id, f_val in fast_path_data.items():
                 if f_val and f_val not in [None, "", "Unknown", "N/A"]:
+                    if mapped_form_fields and not is_dedicated_pipeline and f_id not in mapped_form_fields:
+                        # Exclude unmapped fields for generic studio templates
+                        continue
                     extracted_lookup[f_id] = f_val
                     extracted_fields.append({
                         "key": f_id,
@@ -3600,6 +3654,7 @@ Document Text:
                         llm_raw_map = {f["key"]: f["value"] for f in llm_fields if f.get("key") and f.get("value")}
                         llm_alpha_map = {_clean_alpha(f["key"]): f["value"] for f in llm_fields if f.get("key") and f.get("value")}
 
+                        used_llm_fuzzy_values = set()
                         for field in extracted_fields:
                             if field.get("_source") == "pending_llm":
                                 field_key = field["key"]
@@ -3620,20 +3675,25 @@ Document Text:
                                 # 3. Clean Alphanumeric match (ignores field_, underscores, spaces, punctuation)
                                 if not matched_val:
                                     target_alpha = _clean_alpha(field_key)
-                                    if target_alpha in llm_alpha_map:
+                                    if target_alpha in llm_alpha_map and llm_alpha_map[target_alpha] not in used_llm_fuzzy_values:
                                         matched_val = llm_alpha_map[target_alpha]
+                                        used_llm_fuzzy_values.add(matched_val)
 
-                                # 4. Alphanumeric Substring & Hint match
+                                # 4. Alphanumeric Substring & Hint match (guarded against duplicates)
                                 if not matched_val:
                                     target_alpha = _clean_alpha(field_key)
                                     hint_alpha = _clean_alpha(hint)
                                     for k, v in llm_raw_map.items():
+                                        if v in used_llm_fuzzy_values:
+                                            continue
                                         k_alpha = _clean_alpha(k)
-                                        if target_alpha and (target_alpha in k_alpha or k_alpha in target_alpha):
+                                        if target_alpha and len(target_alpha) > 4 and (target_alpha in k_alpha or k_alpha in target_alpha):
                                             matched_val = v
+                                            used_llm_fuzzy_values.add(v)
                                             break
-                                        if hint_alpha and len(hint_alpha) > 3 and (hint_alpha in k_alpha or k_alpha in hint_alpha):
+                                        if hint_alpha and len(hint_alpha) > 4 and (hint_alpha in k_alpha or k_alpha in hint_alpha):
                                             matched_val = v
+                                            used_llm_fuzzy_values.add(v)
                                             break
 
                                 # Date normalization for any date fields extracted via LLM
@@ -3691,6 +3751,9 @@ Document Text:
                 field.pop("_hint", None)
                 val = field.get("value")
                 k = field.get("key")
+                # When template has schema mapping rules and is not a dedicated pipeline, STRICTLY discard any field that was not mapped by the user
+                if mapped_form_fields and not is_dedicated_pipeline and k not in mapped_form_fields:
+                    continue
                 if str(val).strip() not in BAD_VALUES and val is not None and k not in seen_clean_keys:
                     seen_clean_keys.add(k)
                     cleaned_fields.append(field)

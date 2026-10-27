@@ -74,14 +74,40 @@ export default function FormTemplateViewer({
   // hasConditionalFields: true if ANY field has a depends_on, controls UI toggle
   const hasConditionalFields = useMemo(() => fields.some(f => !!f.depends_on), [fields]);
 
-  // Evaluate whether a field is conditionally visible (memoized and robust)
+  // Evaluate whether a field is conditionally visible (memoized, recursive, and robust)
   const isFieldVisible = useMemo(() => {
-    return (field) => {
+    const fieldMap = new Map();
+    (fields || []).forEach(f => {
+      if (f.id) fieldMap.set(f.id, f);
+      if (f.name) fieldMap.set(f.name, f);
+      if (f.key) fieldMap.set(f.key, f);
+    });
+
+    const checkVisibility = (field, visited = new Set()) => {
       if (showAllFields) return true;
       if (!field || !field.depends_on) return true;
 
       const { field: parentId, operator, value } = field.depends_on;
       if (!parentId) return true;
+
+      // Prevent circular loops
+      const fKey = field.id || field.name || field.key;
+      if (visited.has(fKey)) return true;
+      visited.add(fKey);
+
+      // Check if parent itself is visible
+      let parentField = fieldMap.get(parentId);
+      if (!parentField) {
+        for (const [k, v] of fieldMap.entries()) {
+          if (k === parentId || parentId.includes(k) || k.includes(parentId)) {
+            parentField = v;
+            break;
+          }
+        }
+      }
+      if (parentField && !checkVisibility(parentField, visited)) {
+        return false;
+      }
 
       // Check active selections for parent
       let parentVal = activeSelections[parentId];
@@ -100,8 +126,8 @@ export default function FormTemplateViewer({
         const parentRule = (rules || []).find(r => 
           r.form_field === parentId || r.form_field?.includes(parentId) || parentId.includes(r.form_field)
         );
-        if (parentRule && parentRule.extracted_key) {
-          parentVal = parentRule.extracted_key;
+        if (parentRule) {
+          parentVal = parentRule.extracted_value ?? parentRule.value ?? parentRule.extracted_key;
         }
       }
 
@@ -116,17 +142,34 @@ export default function FormTemplateViewer({
       if (operator === 'equals') {
         return currentStr === targetStr || currentStr.includes(targetStr) || targetStr.includes(currentStr);
       }
-      if (operator === 'in' && Array.isArray(value)) {
-        return value.map(v => String(v).toLowerCase()).includes(currentStr);
+      if (operator === 'not_equals') {
+        return !(currentStr === targetStr || currentStr.includes(targetStr) || targetStr.includes(currentStr));
+      }
+      if (operator === 'in') {
+        if (Array.isArray(value)) {
+          return value.some(v => {
+            const vStr = String(v).trim().toLowerCase();
+            return vStr === currentStr || vStr.includes(currentStr) || currentStr.includes(vStr);
+          });
+        }
+        return currentStr === targetStr || currentStr.includes(targetStr) || targetStr.includes(currentStr);
+      }
+      if (operator === 'not_in' && Array.isArray(value)) {
+        return !value.some(v => {
+          const vStr = String(v).trim().toLowerCase();
+          return vStr === currentStr || vStr.includes(currentStr) || currentStr.includes(vStr);
+        });
       }
       if (operator === 'exists') {
         return !!parentVal;
       }
       return true;
     };
-  }, [activeSelections, showAllFields, rules]);
 
-  // Group fields hierarchically: dependent child fields appear IMMEDIATELY below their parent!
+    return (field) => checkVisibility(field);
+  }, [activeSelections, showAllFields, rules, fields]);
+
+  // Keep fields in natural canonical template order, computing hierarchical depth for visual indent
   const hierarchicalFields = useMemo(() => {
     if (!fields || !Array.isArray(fields)) return [];
 
@@ -137,54 +180,34 @@ export default function FormTemplateViewer({
       if (f.key) fieldMap.set(f.key, f);
     });
 
-    const parentMap = new Map();
-    const roots = [];
-
-    fields.forEach(f => {
-      const parentId = f.depends_on?.field;
-      if (parentId) {
-        let realParentId = parentId;
-        if (!fieldMap.has(parentId)) {
+    const getDepth = (field) => {
+      let depth = 0;
+      let curr = field;
+      const visited = new Set();
+      while (curr?.depends_on?.field && depth < 3) {
+        const pId = curr.depends_on.field;
+        if (visited.has(pId)) break;
+        visited.add(pId);
+        depth += 1;
+        curr = fieldMap.get(pId);
+        if (!curr) {
           for (const [k, v] of fieldMap.entries()) {
-            if (k === parentId || k.includes(parentId) || parentId.includes(k)) {
-              realParentId = v.id || v.name || v.key;
+            if (k === pId || k.includes(pId) || pId.includes(k)) {
+              curr = v;
               break;
             }
           }
         }
-        if (!parentMap.has(realParentId)) {
-          parentMap.set(realParentId, []);
-        }
-        parentMap.get(realParentId).push(f);
-      } else {
-        roots.push(f);
       }
-    });
-
-    const result = [];
-    const addNode = (node, depth = 0) => {
-      result.push({ ...node, _depth: depth });
-      const nodeKeys = [node.id, node.name, node.key].filter(Boolean);
-      let children = [];
-      for (const nk of nodeKeys) {
-        if (parentMap.has(nk)) {
-          children = parentMap.get(nk);
-          break;
-        }
-      }
-      children.forEach(child => {
-        if (isFieldVisible(child)) {
-          addNode(child, depth + 1);
-        }
-      });
+      return depth;
     };
 
-    // Root fields (no depends_on) always shown
-    roots.forEach(root => {
-      addNode(root, 0);
-    });
-
-    return result;
+    return fields
+      .filter(f => isFieldVisible(f))
+      .map(f => ({
+        ...f,
+        _depth: getDepth(f)
+      }));
   }, [fields, isFieldVisible]);
 
   const getTypeBadge = (type) => {
