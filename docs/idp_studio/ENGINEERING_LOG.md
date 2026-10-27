@@ -230,3 +230,55 @@ dist/assets/index-CEKylj4T.css    129.70 kB │ gzip:  18.07 kB
 dist/assets/index-vVWZLSX-.js   1,707.04 kB │ gzip: 499.40 kB
 ✓ built in 595ms
 ```
+
+---
+
+## Issue 9: Universal Subfield Boundary Isolation, Structural Header Shielding & Multi-Date Disambiguation Across All Forms
+
+### Root Cause Analysis:
+1. **Subfield Greedy Prefix Bleed**:
+   In `resolve_field_value`, normalized ID comparisons evaluated `norm_fid in norm_k`. For forms like MGT-6, `norm_fid = "formmgt6mainfield3"` matched `norm_k = "formmgt6mainfield3a"` because `"field3"` is a substring of `"field3a"`. Similarly, `field_4` matched `field_4p` and `field_4q`.
+2. **Instruction Kit Structural Header Absorption**:
+   MCA instruction kits frequently generate row items for structural section headings (e.g. `Particulars of shares in respect of which declaration under section 89...`, `Particulars of resolution passed under section 179...`). Because these rows were classified as `text`, fuzzy matching absorbed scalar numeric values (e.g., share counts or resolution counts) instead of delegating them to leaf child fields (like `3(a)` or `6_count`).
+3. **Multi-Date Statutory Prefix Collisions**:
+   Under Section 89 (MGT-6, BEN-2), forms contain 3 distinct dates: (a) Date of entry of name in register of members (Field 4(p)), (b) Date of declaration (Field 4(q)), and (c) Date of receipt of declaration by company (Field 4(r)). Because `"date of declaration"` is a strict substring of `"date of receipt of declaration"`, previous greedy substring checks matched both to the declaration date or caused date swapping. Furthermore, statutory date/share extractors were previously nested under form-specific conditionals instead of executing universally.
+
+### Universal Architectural Fix:
+1. **Subfield Token Boundary Guard**:
+   In `resolve_field_value`, extract regex tail tokens `fid_tail_tok = re.search(r'field_([0-9]+[a-z0-9]*)', fid)` and `k_tail_tok = re.search(r'field_([0-9]+[a-z0-9]*)', k)`. If `fid_tail_tok.group(1) != k_tail_tok.group(1)` (e.g. `"3" != "3a"`, `"4" != "4p"`, `"4p" != "4q"`), match is strictly rejected. Replaced fuzzy substring check with exact normalized ID equality (`norm_k == norm_fid`).
+2. **Structural Header Shielding**:
+   Added `is_structural_header` in `resolve_field_value`. Any field whose label starts with `"particulars of"` or `"details of"`, exceeds 10 words, and is of type `text`/`textarea` strictly rejects scalar numeric inputs (preventing section headers from stealing leaf numeric values).
+3. **Universal Statutory Fast-Path Extractor**:
+   De-indented Section 7 in `_fast_path_extract_mca_fields` so that `m_shares` (Universal Number of Shares), `m_entry_date` (Entry in Register), `m_receipt_date` (Receipt of declaration), `m_dec_date` (Date of declaration with receipt exclusion guard), and statutory Signatory/DIN/Designation resolution execute universally across ALL forms without template whitelisting.
+
+### Verification:
+```text
+============================= test session starts ==============================
+rootdir: /Users/apple/Desktop/FLA
+collected 21 items
+
+automation_engine/tests/test_universal_engine.py::TestFieldNormalizer::test_numeric_count_field_enforcement PASSED [  4%]
+automation_engine/tests/test_universal_engine.py::TestFieldNormalizer::test_identifier_exclusion_from_count_guards PASSED [  9%]
+automation_engine/tests/test_universal_engine.py::TestFieldNormalizer::test_classification_code_pseudo_boolean_rejection PASSED [ 14%]
+automation_engine/tests/test_universal_engine.py::TestFieldNormalizer::test_instruction_header_row_artifact_rejection PASSED [ 19%]
+automation_engine/tests/test_universal_engine.py::TestFieldNormalizer::test_degenerate_single_option_select_converted_to_text PASSED [ 23%]
+automation_engine/tests/test_universal_engine.py::TestFieldNormalizer::test_full_schema_normalization_and_audit PASSED [ 28%]
+automation_engine/tests/test_universal_engine.py::TestSemanticBranchDetection::test_branching_forms_detected PASSED [ 33%]
+automation_engine/tests/test_universal_engine.py::TestSemanticBranchDetection::test_non_branching_forms_flat PASSED [ 38%]
+automation_engine/tests/test_universal_engine.py::TestSemanticBranchDetection::test_unseen_form_dynamic_branch_detection PASSED [ 42%]
+automation_engine/tests/test_universal_engine.py::TestSemanticBranchDetection::test_unseen_form_flat_with_multi_option_dropdown PASSED [ 47%]
+automation_engine/tests/test_universal_engine.py::TestSignatoryRoleResolution::test_director_role_exclusivity PASSED [ 52%]
+automation_engine/tests/test_universal_engine.py::TestSignatoryRoleResolution::test_company_secretary_role_exclusivity PASSED [ 57%]
+automation_engine/tests/test_universal_engine.py::TestSignatoryRoleResolution::test_ambiguous_signatory_role_no_cross_bleed PASSED [ 61%]
+automation_engine/tests/test_universal_engine.py::TestSubfieldBoundaryIsolationAndStructuralHeaders::test_parent_subfield_token_isolation PASSED [ 66%]
+automation_engine/tests/test_universal_engine.py::TestSubfieldBoundaryIsolationAndStructuralHeaders::test_structural_header_shields_scalar_numbers PASSED [ 71%]
+automation_engine/tests/test_universal_engine.py::TestSubfieldBoundaryIsolationAndStructuralHeaders::test_subfield_date_collisions_isolated PASSED [ 76%]
+automation_engine/tests/test_universal_engine.py::TestMultiDateDisambiguation::test_section_89_and_statutory_multi_date_extraction PASSED [ 80%]
+automation_engine/tests/test_gnl1_branch_and_dag.py::test_gnl1_schema_has_field_7_and_full_compounding_fields PASSED [ 85%]
+automation_engine/tests/test_gnl1_branch_and_dag.py::test_gnl1_branch_detection_compounding PASSED [ 90%]
+automation_engine/tests/test_gnl1_branch_and_dag.py::test_gnl1_branch_detection_agm_extension PASSED [ 95%]
+automation_engine/tests/test_gnl1_dag_pruning_under_compounding PASSED [100%]
+
+======================== 21 passed, 7 warnings in 0.89s ========================
+```
+

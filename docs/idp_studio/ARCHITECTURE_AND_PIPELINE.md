@@ -167,7 +167,21 @@ Located in `resolve_field_value` within [`automation_engine/modules/idp_studio/r
 
 ---
 
-## 8. Directory Structure & Key Files
+## 8. Subfield Boundary Isolation, Structural Header Shielding & Multi-Date Disambiguation
+
+Located in `resolve_field_value` and `_fast_path_extract_mca_fields` within [`automation_engine/modules/idp_studio/router.py`](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/router.py):
+
+- **Subfield Token Boundary Isolation:** Resolves field IDs by strict tail token isolation (`field_([0-9]+[a-z0-9]*)`). Parent fields (e.g. `field_3`) are strictly blocked from absorbing child subfield values (e.g. `field_3a`). Similarly, `field_4` cannot match `field_4p` or `field_4q`. Fuzzy ID matching is constrained to exact normalized string equality (`norm_k == norm_fid`).
+- **Structural Header Shielding:** Identifies MCA instruction-kit section headings (`Particulars of...` / `Details of...` exceeding 10 words) and shields them from absorbing scalar numeric inputs (e.g., share counts or resolution counts), ensuring scalar inputs flow cleanly to leaf child fields.
+- **Universal Multi-Date Disambiguation:** Under Section 89 and multi-date statutory forms (MGT-6, BEN-2, GNL-2), disambiguates:
+  - *Date of Entry in Register of Members / Charges* (`m_entry_date` -> `field_4p`)
+  - *Date of Receipt of Declaration by Company* (`m_receipt_date` -> `field_4r`)
+  - *Date of Declaration* (`m_dec_date` -> `field_4q`, `field_6b`), strictly guarded against matching receipt declaration strings.
+- **Universal Extraction Fast Path:** Executes across all MCA forms without template-specific conditional gating.
+
+---
+
+## 9. Directory Structure & Key Files
 
 ```text
 automation_engine/modules/idp_studio/

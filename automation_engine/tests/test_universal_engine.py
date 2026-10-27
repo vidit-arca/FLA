@@ -346,3 +346,121 @@ class TestSignatoryRoleResolution:
         val_kmp = _find_field_value(field_def_kmp, mapped_data, matched_keys=matched_keys)
         # DIN must NOT bleed into Manager or CS field
         assert val_kmp is None
+
+
+# ==============================================================================
+# 4. SUBFIELD BOUNDARY ISOLATION & STRUCTURAL HEADER SHIELDING TESTS
+# ==============================================================================
+
+class TestSubfieldBoundaryIsolationAndStructuralHeaders:
+    def test_parent_subfield_token_isolation(self):
+        """field_3 must NOT match field_3a data, and field_4 must NOT match field_4p/4q across ANY form."""
+        from automation_engine.modules.idp_studio.router import resolve_field_value
+
+        field_def_3 = {
+            "id": "formmgt6.main.field_3",
+            "label": "Particulars of shares in respect of which declaration under section 89 is filed",
+            "canonical_no": "3",
+            "type": "text"
+        }
+        field_def_3a = {
+            "id": "formmgt6.main.field_3a",
+            "label": "Number of shares",
+            "canonical_no": "3a",
+            "type": "number"
+        }
+
+        # Data contains only 3a
+        mapped_data = {
+            "formmgt6.main.field_3a": "25000"
+        }
+
+        matched_keys_3 = set()
+        val_3 = resolve_field_value(field_def_3, mapped_data, matched_keys=matched_keys_3)
+        # field_3 must NOT steal field_3a's value!
+        assert val_3 is None
+
+        matched_keys_3a = set()
+        val_3a = resolve_field_value(field_def_3a, mapped_data, matched_keys=matched_keys_3a)
+        assert val_3a == "25000"
+
+    def test_structural_header_shields_scalar_numbers(self):
+        """Section header rows starting with 'Particulars of...' or 'Details of...' must never absorb scalar numeric inputs."""
+        from automation_engine.modules.idp_studio.router import resolve_field_value
+
+        header_field_def = {
+            "id": "formnomgt14.main.field_6",
+            "label": "Particulars of resolution passed under section 179 and details of resolution passed under section 180 of the Act",
+            "canonical_no": "6",
+            "type": "text"
+        }
+        leaf_count_field = {
+            "id": "formnomgt14.main.field_6_count",
+            "label": "Number of resolution(s)",
+            "canonical_no": "6_count",
+            "type": "number"
+        }
+
+        mapped_data = {
+            "field_6": "5"
+        }
+
+        matched_keys = set()
+        val_header = resolve_field_value(header_field_def, mapped_data, matched_keys=matched_keys)
+        # Structural header row must reject the scalar number "5"
+        assert val_header is None
+
+    def test_subfield_date_collisions_isolated(self):
+        """field_4p (Date of Entry), field_4q (Date of Declaration), and field_4r (Date of Receipt) must never swap or bleed."""
+        from automation_engine.modules.idp_studio.router import resolve_field_value
+
+        f4p = {"id": "formmgt6.main.field_4p", "label": "Date of entry of name in register of members", "canonical_no": "4p", "type": "date"}
+        f4q = {"id": "formmgt6.main.field_4q", "label": "Date of declaration by registered owner", "canonical_no": "4q", "type": "date"}
+        f4r = {"id": "formmgt6.main.field_4r", "label": "Date of receipt of declaration by the company", "canonical_no": "4r", "type": "date"}
+
+        mapped_data = {
+            "formmgt6.main.field_4p": "10/01/2023",
+            "formmgt6.main.field_4q": "15/04/2024",
+            "formmgt6.main.field_4r": "20/04/2024"
+        }
+
+        m_keys = set()
+        assert resolve_field_value(f4p, mapped_data, matched_keys=m_keys) == "10/01/2023"
+        assert resolve_field_value(f4q, mapped_data, matched_keys=m_keys) == "15/04/2024"
+        assert resolve_field_value(f4r, mapped_data, matched_keys=m_keys) == "20/04/2024"
+
+
+# ==============================================================================
+# 5. MULTI-DATE STATUTORY EXTRACTION DISAMBIGUATION TESTS
+# ==============================================================================
+
+class TestMultiDateDisambiguation:
+    def test_section_89_and_statutory_multi_date_extraction(self):
+        """Disambiguate Date of Entry, Date of Declaration, and Date of Receipt without string prefix collision."""
+        from automation_engine.modules.idp_studio.router import _fast_path_extract_mca_fields
+
+        synthetic_ocr_text = """
+        FORM MGT-6
+        DECLARATION OF BENEFICIAL INTEREST IN SHARES
+        [Pursuant to section 89 of Companies Act, 2013]
+
+        The name of the holder was entered in the register of members on 05/01/2022.
+        Declaration dated 12/03/2024 was solemnly affirmed and declared by the registered owner.
+        The date of receipt of declaration by the company was 18/03/2024.
+        Total number of shares: 15,000 Equity Shares.
+        """
+
+        field_label_map = {
+            "formmgt6.main.field_3a": "Number of shares",
+            "formmgt6.main.field_4p": "Date of entry of name in register of members",
+            "formmgt6.main.field_4q": "Date of declaration",
+            "formmgt6.main.field_4r": "Date of receipt of declaration by the company",
+        }
+
+        extracted = _fast_path_extract_mca_fields(synthetic_ocr_text, "Form MGT-6", field_label_map)
+
+        assert extracted.get("formmgt6.main.field_3a") == "15000"
+        assert extracted.get("formmgt6.main.field_4p") == "05/01/2022"
+        assert extracted.get("formmgt6.main.field_4q") == "12/03/2024"
+        assert extracted.get("formmgt6.main.field_4r") == "18/03/2024"
+

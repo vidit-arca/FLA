@@ -732,18 +732,33 @@ def resolve_field_value(
     if is_kmp_sec_field and (active_desig and any(d in active_desig for d in ["director", "md", "managing"])):
         return None
 
+    # Section Header Shield: Structural table headers (e.g. "Particulars of shares in respect of which...")
+    # must never steal scalar numeric leaf inputs (e.g. share counts) meant for child fields like 3(a).
+    is_structural_header = (
+        (flabel.startswith("particulars of") or flabel.startswith("details of"))
+        and len(flabel.split()) >= 10
+        and f_type in ["text", "textarea"]
+    )
+
     # 1. Exact ID check
     if fid in mapped_data:
         sanitized = _validate_and_sanitize(mapped_data[fid])
         if sanitized is not None:
-            matched_keys.add(fid)
-            return sanitized
+            if not (is_structural_header and isinstance(sanitized, str) and sanitized.replace(",", "").isdigit()):
+                matched_keys.add(fid)
+                return sanitized
 
-    # 2. Canonical number check with Family Isolation
+    # Extract field index token (e.g. "3", "3a", "4p", "4q") for subfield boundary isolation
+    fid_tail_tok = re.search(r'field_([0-9]+[a-z0-9]*)', fid.lower())
+
+    # 2. Canonical number check with Family & Subfield Isolation
     if cno:
+        cno_clean = re.sub(r'[^a-z0-9]', '', str(cno).lower())
         for k, v in mapped_data.items():
             sanitized = _validate_and_sanitize(v)
             if sanitized is None:
+                continue
+            if is_structural_header and isinstance(sanitized, str) and sanitized.replace(",", "").isdigit():
                 continue
 
             k_norm = str(k).lower().replace("(", "").replace(")", "").replace("-", "_").replace(" ", "_")
@@ -754,24 +769,31 @@ def resolve_field_value(
             if k_family and fid_family and k_family.group(1) != fid_family.group(1):
                 continue
 
+            # Subfield boundary guard: prevent field_3 from matching field_3a, or field_4 matching field_4p
+            k_tail_tok = re.search(r'field_([0-9]+[a-z0-9]*)', k_norm)
+            if fid_tail_tok and k_tail_tok and fid_tail_tok.group(1) != k_tail_tok.group(1):
+                continue
+
             k_tail = k_norm.split(".")[-1]
+            k_cno = re.sub(r'[^a-z0-9]', '', re.sub(r'^field_', '', k_tail))
             is_cno_match = (
                 k_tail == cno
                 or k_tail == f"field_{cno}"
-                or k_tail.startswith(f"field_{cno}_")
                 or k_norm == cno
                 or k_norm == f"field_{cno}"
-                or k_norm.startswith(f"{cno}_")
+                or (k_cno == cno_clean and cno_clean)
             )
             if is_cno_match:
                 matched_keys.add(k)
                 return sanitized
 
-    # 3. Normalized ID fuzzy check
+    # 3. Normalized ID check with Subfield Isolation
     norm_fid = re.sub(r"[^a-z0-9]", "", fid.lower())
     for k, v in mapped_data.items():
         sanitized = _validate_and_sanitize(v)
         if sanitized is None:
+            continue
+        if is_structural_header and isinstance(sanitized, str) and sanitized.replace(",", "").isdigit():
             continue
 
         k_norm = str(k).lower()
@@ -781,8 +803,13 @@ def resolve_field_value(
         if k_family and fid_family and k_family.group(1) != fid_family.group(1):
             continue
 
+        # Subfield boundary guard: field_3 must NOT match field_3a, field_4 must NOT match field_4p/4q
+        k_tail_tok = re.search(r'field_([0-9]+[a-z0-9]*)', k_norm)
+        if fid_tail_tok and k_tail_tok and fid_tail_tok.group(1) != k_tail_tok.group(1):
+            continue
+
         norm_k = re.sub(r"[^a-z0-9]", "", k_norm)
-        if norm_k == norm_fid or (len(norm_fid) > 4 and norm_fid in norm_k) or (len(norm_k) > 4 and norm_k in norm_fid):
+        if norm_k == norm_fid:
             matched_keys.add(k)
             return sanitized
 
@@ -2845,6 +2872,7 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
     import re
     extracted = {}
     tmpl_lower = (template_name or "").lower()
+    other_specify = None
 
     # 1. Universal Statutory Extraction (CIN, PAN, DIN, Dates, Resolutions, SRNs)
     stat_entities = UniversalStatutoryExtractor.extract_entities(full_text)
@@ -3268,76 +3296,124 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
                 if "field_5a" in f_low or "service request number" in l_low:
                     extracted[f_id] = srn_val
 
-        # Date capture pattern supporting DD/MM/YYYY, DD.MM.YYYY, DD-MM-YYYY, and textual dates
-        _DATE_PAT = r'([0-9]{1,2}[/\-\.][0-9]{1,2}[/\-\.][0-9]{2,4}|[0-9]{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+\s+[0-9]{4}|[A-Za-z]+\s+[0-9]{1,2}(?:st|nd|rd|th)?,?\s+[0-9]{4}|[^\n\|\r;]+)'
+    # 7. Universal MCA Statutory Dates, Share Counts, and Signatory Role Extraction
+    # Date capture pattern supporting DD/MM/YYYY, DD.MM.YYYY, DD-MM-YYYY, and textual dates
+    _DATE_PAT = r'([0-9]{1,2}[/\-\.][0-9]{1,2}[/\-\.][0-9]{2,4}|[0-9]{1,2}(?:st|nd|rd|th)?\s+[A-Za-z]+\s+[0-9]{4}|[A-Za-z]+\s+[0-9]{1,2}(?:st|nd|rd|th)?,?\s+[0-9]{4}|[^\n\|\r;]+)'
 
-        # Field 5(b) - Date of passing special (SR) or ordinary resolution (OR)
-        m_res_date = re.search(r'(?:date\s+of\s+passing\s+(?:the\s+)?(?:board\s+)?resolution|resolution\s+dated|vide\s+resolution\s+dated)\s*[:\|\-\s]*' + _DATE_PAT, full_text, re.IGNORECASE)
-        if m_res_date:
-            p_res = parse_and_normalize_date(m_res_date.group(1).strip())
-            if p_res:
-                for f_id, label in field_label_map.items():
-                    f_low = (f_id or "").lower()
-                    l_low = (label or "").lower()
-                    if "field_5b" in f_low or "date of passing special" in l_low:
-                        extracted[f_id] = p_res
-                    elif "field_r" in f_low or "authorised by board of directors" in l_low:
-                        extracted[f_id] = p_res
-
-        # Field 6(a) - Date of event
-        m_event_date = re.search(r'(?:date\s+of\s+event|event\s+date|effective\s+date|execution\s+date|order\s+pronounced\s+on|order\s+dated|dated)\s*[:\|\-\s]*' + _DATE_PAT, full_text, re.IGNORECASE)
-        if m_event_date:
-            parsed_event_date = parse_and_normalize_date(m_event_date.group(1).strip())
-            if parsed_event_date:
-                for f_id, label in field_label_map.items():
-                    f_low = (f_id or "").lower()
-                    l_low = (label or "").lower()
-                    if "field_6a" in f_low or "date of event" in l_low:
-                        extracted[f_id] = parsed_event_date
-
-        # Field 6(b) - Date of declaration by majority of directors
-        m_dec_date = re.search(r'(?:date\s+of\s+declaration|declaration\s+dated|solemnly\s+affirmed.*?on)\s*[:\|\-\s]*' + _DATE_PAT, full_text, re.IGNORECASE)
-        p_dec = parse_and_normalize_date(m_dec_date.group(1).strip()) if m_dec_date else None
-        if not p_dec and ("declaration of solvency" in (other_specify or "").lower() or re.search(r'caa[-.\s]*10', full_text, re.IGNORECASE)):
-            p_dec = extracted.get("gnl2.main.field_6a") or extracted.get("gnl2.main.field_5b") or stat_entities.get("primary_date")
-
-        if p_dec:
+    # Date of passing special (SR) or ordinary resolution (OR)
+    m_res_date = re.search(r'(?:date\s+of\s+passing\s+(?:the\s+)?(?:board\s+)?resolution|resolution\s+dated|vide\s+resolution\s+dated)\s*[:\|\-\s]*' + _DATE_PAT, full_text, re.IGNORECASE)
+    if m_res_date:
+        p_res = parse_and_normalize_date(m_res_date.group(1).strip())
+        if p_res:
             for f_id, label in field_label_map.items():
                 f_low = (f_id or "").lower()
                 l_low = (label or "").lower()
-                if "field_6b" in f_low or "date of declaration" in l_low:
-                    extracted[f_id] = p_dec
+                if "field_5b" in f_low or "date of passing special" in l_low:
+                    extracted[f_id] = p_res
+                elif "field_r" in f_low or "authorised by board of directors" in l_low:
+                    extracted[f_id] = p_res
 
-        # Signatory / DIN / Designation: Resolve using semantics and metadata, never guessing from format alone
-        has_dir_mention = bool(re.search(r'\b(?:managing\s+)?director\b', full_text, re.IGNORECASE))
-        has_sec_mention = bool(re.search(r'\bcompany\s+secretary\b|\bsecretary\b', full_text, re.IGNORECASE))
+    # Date of event (e.g. order date, effective date)
+    m_event_date = re.search(r'(?:date\s+of\s+event|event\s+date|effective\s+date|execution\s+date|order\s+pronounced\s+on|order\s+dated|dated)\s*[:\|\-\s]*' + _DATE_PAT, full_text, re.IGNORECASE)
+    if m_event_date:
+        parsed_event_date = parse_and_normalize_date(m_event_date.group(1).strip())
+        if parsed_event_date:
+            for f_id, label in field_label_map.items():
+                f_low = (f_id or "").lower()
+                l_low = (label or "").lower()
+                if "field_6a" in f_low or "date of event" in l_low:
+                    extracted[f_id] = parsed_event_date
 
-        # Resolve explicit designation; preserve ambiguity if both or neither are explicitly indicated
-        detected_desig = None
-        if has_dir_mention and not has_sec_mention:
-            detected_desig = "Director"
-        elif has_sec_mention and not has_dir_mention:
-            detected_desig = "Company Secretary"
-        elif has_dir_mention and has_sec_mention:
-            # Document mentions both roles; keep designation unassigned to avoid false attribution
-            detected_desig = None
+    # Universal Number of Shares (e.g. "10,000 Equity Shares", "Number of shares: 50,000")
+    m_shares = re.search(r'(?:number\s+of\s+shares|no\.\s*of\s+shares|total\s+shares)\s*[:\|\-\s]*([0-9,]+)', full_text, re.IGNORECASE)
+    if not m_shares:
+        m_shares = re.search(r'\b([0-9,]+)\s+(?:equity|preference)?\s*shares\b', full_text, re.IGNORECASE)
+    if m_shares:
+        raw_sh = m_shares.group(1).replace(",", "").strip()
+        if raw_sh.isdigit() and int(raw_sh) > 0:
+            for f_id, label in field_label_map.items():
+                f_low = (f_id or "").lower()
+                l_low = (label or "").lower()
+                # Target specific leaf count fields, NOT parent section headers!
+                if ("number of shares" in l_low or "no. of shares" in l_low or "num_shares" in f_low) and "particulars" not in l_low:
+                    extracted[f_id] = raw_sh
 
+    # Date of Entry of name in register of members / charges (e.g. MGT-6 4(p), BEN-2)
+    m_entry_date = re.search(
+        r'(?:date\s+of\s+entry(?:\s+of\s+name)?(?:\s+in\s+(?:the\s+)?register)?|'
+        r'entered\s+(?:in\s+)?(?:the\s+)?register(?:\s+of\s+members)?\s+(?:on|dated)|'
+        r'entry\s+in\s+register\s+dated?)\s*(?:was|is)?[:\|\-\s]*' + _DATE_PAT,
+        full_text, re.IGNORECASE
+    )
+    if m_entry_date:
+        p_entry = parse_and_normalize_date(m_entry_date.group(1).strip())
+        if p_entry:
+            for f_id, label in field_label_map.items():
+                f_low = (f_id or "").lower()
+                l_low = (label or "").lower()
+                if "field_4p" in f_low or "entry of name in register" in l_low or "date of entry" in l_low:
+                    extracted[f_id] = p_entry
+
+    # Date of Receipt of declaration by company (e.g. MGT-6 4(r), 5(r))
+    m_receipt_date = re.search(
+        r'(?:date\s+of\s+receipt(?:\s+of\s+declaration)?(?:\s+by\s+(?:the\s+)?company)?|'
+        r'received\s+(?:the\s+declaration\s+on|by\s+(?:the\s+)?company\s+on)|'
+        r'receipt\s+dated?)\s*(?:was|is)?[:\|\-\s]*' + _DATE_PAT,
+        full_text, re.IGNORECASE
+    )
+    if m_receipt_date:
+        p_rec = parse_and_normalize_date(m_receipt_date.group(1).strip())
+        if p_rec:
+            for f_id, label in field_label_map.items():
+                f_low = (f_id or "").lower()
+                l_low = (label or "").lower()
+                if "field_4r" in f_low or "field_5r" in f_low or "receipt of declaration" in l_low or "received by the company" in l_low:
+                    extracted[f_id] = p_rec
+
+    # Date of declaration by majority of directors / registered owners (e.g. MGT-6 4(q), 5(q), GNL-2 6(b))
+    m_dec_date = re.search(r'(?:date\s+of\s+declaration|declaration\s+.*?dated|declared\s+on|solemnly\s+affirmed.*?on)\s*[:\|\-\s]*' + _DATE_PAT, full_text, re.IGNORECASE)
+    p_dec = parse_and_normalize_date(m_dec_date.group(1).strip()) if m_dec_date else None
+    if not p_dec and ("declaration of solvency" in (other_specify or "").lower() or re.search(r'caa[-.\s]*10', full_text, re.IGNORECASE)):
+        p_dec = extracted.get("gnl2.main.field_6a") or extracted.get("gnl2.main.field_5b") or stat_entities.get("primary_date")
+
+    if p_dec:
         for f_id, label in field_label_map.items():
             f_low = (f_id or "").lower()
             l_low = (label or "").lower()
-            if "designation" in f_low or "designation" in l_low:
-                if detected_desig:
-                    extracted[f_id] = detected_desig
-            elif "director_identification_number" in f_low or ("director" in l_low and "identification" in l_low) or ("din" in l_low and "director" in l_low):
-                # Strictly assign DIN (or PAN if DIN unavailable), never ICSI membership to a Director field
-                if stat_entities.get("primary_din"):
-                    extracted[f_id] = stat_entities["primary_din"]
-                elif stat_entities.get("primary_pan") and detected_desig == "Director":
-                    extracted[f_id] = stat_entities["primary_pan"]
-            elif "membership_number" in f_low or "membership number" in l_low or ("secretary" in l_low and "membership" in l_low):
-                # Strictly assign ICSI membership to CS/Membership fields, never Director DIN
-                if stat_entities.get("icsi_memberships"):
-                    extracted[f_id] = stat_entities["icsi_memberships"][0]
+            # Strictly exclude receipt fields from declaration date matching
+            if ("field_6b" in f_low or "field_4q" in f_low or "field_5q" in f_low or "date of declaration" in l_low) and "receipt" not in l_low:
+                extracted[f_id] = p_dec
+
+    # Signatory / DIN / Designation: Resolve using semantics and metadata, never guessing from format alone
+    has_dir_mention = bool(re.search(r'\b(?:managing\s+)?director\b', full_text, re.IGNORECASE))
+    has_sec_mention = bool(re.search(r'\bcompany\s+secretary\b|\bsecretary\b', full_text, re.IGNORECASE))
+
+    # Resolve explicit designation; preserve ambiguity if both or neither are explicitly indicated
+    detected_desig = None
+    if has_dir_mention and not has_sec_mention:
+        detected_desig = "Director"
+    elif has_sec_mention and not has_dir_mention:
+        detected_desig = "Company Secretary"
+    elif has_dir_mention and has_sec_mention:
+        # Document mentions both roles; keep designation unassigned to avoid false attribution
+        detected_desig = None
+
+    for f_id, label in field_label_map.items():
+        f_low = (f_id or "").lower()
+        l_low = (label or "").lower()
+        if "designation" in f_low or "designation" in l_low:
+            if detected_desig:
+                extracted[f_id] = detected_desig
+        elif "director_identification_number" in f_low or ("director" in l_low and "identification" in l_low) or ("din" in l_low and "director" in l_low):
+            # Strictly assign DIN (or PAN if DIN unavailable), never ICSI membership to a Director field
+            if stat_entities.get("primary_din"):
+                extracted[f_id] = stat_entities["primary_din"]
+            elif stat_entities.get("primary_pan") and detected_desig == "Director":
+                extracted[f_id] = stat_entities["primary_pan"]
+        elif "membership_number" in f_low or "membership number" in l_low or ("secretary" in l_low and "membership" in l_low):
+            # Strictly assign ICSI membership to CS/Membership fields, never Director DIN
+            if stat_entities.get("icsi_memberships"):
+                extracted[f_id] = stat_entities["icsi_memberships"][0]
 
     return extracted
 
