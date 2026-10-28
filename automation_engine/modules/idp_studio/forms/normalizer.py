@@ -15,10 +15,10 @@ from typing import Dict, Any, List, Optional, Tuple
 
 logger = logging.getLogger("idp_studio.normalizer")
 
-# Patterns identifying numeric count fields (e.g. "Number of resolution(s)")
+# Patterns identifying numeric count fields (e.g. "Number of resolution(s)", "Number of transferor company(s)")
 COUNT_FIELD_PATTERNS = [
-    re.compile(r'\b(?:total\s+)?number\s+of\s+(?:resolutions?|persons?|partners?|directors?|members?|shares?|days?|months?|entities?|attachments?|entries|rows|forms?|clauses?|charges?|offences?)\b', re.IGNORECASE),
-    re.compile(r'\bno\.\s*of\s+(?:resolutions?|persons?|partners?|directors?|members?|shares?|days?|months?|entities?|attachments?|entries|rows|forms?|clauses?|charges?|offences?)\b', re.IGNORECASE),
+    re.compile(r'\b(?:total\s+)?number\s+of\s+(?:resolutions?|persons?|partners?|directors?|members?|shares?|days?|months?|entities?|attachments?|entries|rows|forms?|clauses?|charges?|offences?|(?:significant\s+)?beneficial\s+owners?|sbos?|(?:transferor\s+|transferee\s+)?compan(?:y|ies|y\(s\)|ies\(s\)|ys?))\b', re.IGNORECASE),
+    re.compile(r'\bno\.\s*of\s+(?:resolutions?|persons?|partners?|directors?|members?|shares?|days?|months?|entities?|attachments?|entries|rows|forms?|clauses?|charges?|offences?|(?:significant\s+)?beneficial\s+owners?|sbos?|(?:transferor\s+|transferee\s+)?compan(?:y|ies|y\(s\)|ies\(s\)|ys?))\b', re.IGNORECASE),
     re.compile(r'\bcount\s+of\b', re.IGNORECASE),
 ]
 
@@ -153,6 +153,10 @@ class FieldNormalizer:
                     opt_str = str(opt).strip()
                     # Filter out instruction kit header row bleed
                     if any(hp.search(opt_str) for hp in INSTRUCTION_HEADER_PATTERNS):
+                        # Safeguard legitimate MCA registration/filing use-case options (e.g. "Registration of" -> "Resolution(s)")
+                        if re.search(r'\b(?:registration|filing)\s+of\b', label, re.IGNORECASE) and opt_str.lower().startswith("resolution"):
+                            valid_opts.append(opt)
+                            continue
                         corrections.append({
                             "field_id": fid,
                             "field_label": label,

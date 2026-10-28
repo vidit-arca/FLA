@@ -353,7 +353,7 @@ export default function IdpProductionApp() {
     if (templateRules && Array.isArray(templateRules)) {
       templateRules.forEach(r => {
         const rField = r.form_field;
-        const rVal = r.extracted_value ?? r.value ?? r.extracted_key;
+        const rVal = r.extracted_value ?? r.value;
         if (isFieldMapped(rVal) && !isFieldMapped(payload[rField])) {
           payload[rField] = rVal;
         }
@@ -365,10 +365,79 @@ export default function IdpProductionApp() {
       payload[k] = v;
     });
 
+    // Reconstruct dynamic table arrays for schema table fields
+    if (activeFormSchema?.fields && Array.isArray(activeFormSchema.fields)) {
+      activeFormSchema.fields.forEach(f => {
+        if (f.type === 'table' || (f.columns && f.columns.length > 0)) {
+          const tableVal = resolveValueForField(f, payload);
+          if (Array.isArray(tableVal) && tableVal.length > 0) {
+            payload[f.id] = tableVal;
+            const shortId = f.id.includes('.') ? f.id.split('.').pop() : f.id;
+            payload[shortId] = tableVal;
+          }
+        }
+      });
+    }
+
+    // Universal DAG Pruning: Purge fields and database-mapped values belonging to unselected statutory branches
+    if (activeFormSchema?.fields && Array.isArray(activeFormSchema.fields)) {
+      const fieldMap = new Map();
+      activeFormSchema.fields.forEach(f => {
+        if (f.id) fieldMap.set(f.id, f);
+        if (f.id && f.id.includes('.')) fieldMap.set(f.id.split('.').pop(), f);
+      });
+
+      const isFieldActiveInPayload = (field, visited = new Set()) => {
+        if (!field || !field.depends_on) return true;
+        const { field: parentId, operator, value } = field.depends_on;
+        if (!parentId) return true;
+
+        const fKey = field.id;
+        if (visited.has(fKey)) return true;
+        visited.add(fKey);
+
+        const parentField = fieldMap.get(parentId) || fieldMap.get(parentId.split('.').pop());
+        if (parentField && !isFieldActiveInPayload(parentField, visited)) {
+          return false;
+        }
+
+        let parentVal = payload[parentId] ?? payload[parentId.split('.').pop()];
+        if (parentVal === undefined) return false;
+
+        const pStr = String(parentVal).trim().toLowerCase();
+        const op = (operator || 'equals').toLowerCase();
+
+        if (op === 'equals') {
+          const expected = String(value).trim().toLowerCase();
+          return pStr === expected || pStr.includes(expected) || expected.includes(pStr);
+        } else if (op === 'not_equals') {
+          return pStr !== String(value).trim().toLowerCase();
+        } else if (op === 'in') {
+          const opts = Array.isArray(value) ? value : [value];
+          return opts.some(opt => pStr === String(opt).trim().toLowerCase() || pStr.includes(String(opt).trim().toLowerCase()));
+        } else if (op === 'exists' || op === 'not_empty') {
+          return Boolean(pStr) && !['none', 'null', 'false', '0', 'n/a'].includes(pStr);
+        }
+        return true;
+      };
+
+      activeFormSchema.fields.forEach(f => {
+        if (f.depends_on) {
+          const active = isFieldActiveInPayload(f);
+          if (!active) {
+            delete payload[f.id];
+            if (f.id && f.id.includes('.')) {
+              delete payload[f.id.split('.').pop()];
+            }
+          }
+        }
+      });
+    }
+
     return payload;
   };
 
-  const normalizeDateString = (dateStr) => {
+  function normalizeDateString(dateStr) {
     if (!dateStr || typeof dateStr !== 'string') return dateStr;
     const s = dateStr.trim();
     if (!s) return s;
@@ -404,9 +473,9 @@ export default function IdpProductionApp() {
       if (mon) return `${day}/${mon}/${year}`;
     }
     return s;
-  };
+  }
 
-  const resolveValueForField = (field, payload) => {
+  function resolveValueForField(field, payload) {
     if (!field) return '';
     const fid = field.id || '';
     if (userOverrides[fid] !== undefined) return userOverrides[fid];
@@ -445,7 +514,7 @@ export default function IdpProductionApp() {
       if (templateRules && Array.isArray(templateRules)) {
         for (const r of templateRules) {
           const rKey = r.form_field || '';
-          const rVal = r.extracted_value ?? r.value ?? r.extracted_key;
+          const rVal = r.extracted_value ?? r.value;
           if (!isFieldMapped(rVal)) continue;
           if (rKey.includes(`${fid}[`) || (shortId && rKey.includes(`${shortId}[`))) {
             const m = rKey.match(/\[(\d+)\]\.(.+)$/);
@@ -461,6 +530,23 @@ export default function IdpProductionApp() {
               }
             }
           }
+        }
+      }
+
+      if (!hasCellData && cols.length > 0) {
+        let singleRow = {};
+        let foundAny = false;
+        cols.forEach(col => {
+          const colK = col.key;
+          const matchedVal = combined[colK] || combined[`${fid}.${colK}`] || combined[`${shortId}.${colK}`];
+          if (isFieldMapped(matchedVal)) {
+            singleRow[colK] = matchedVal;
+            foundAny = true;
+          }
+        });
+        if (foundAny) {
+          baseRows[0] = { ...(baseRows[0] || {}), ...singleRow };
+          hasCellData = true;
         }
       }
 

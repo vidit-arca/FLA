@@ -487,8 +487,8 @@ async def autofill_mca_form(
         )
         for a in effective_rules.values():
             evidence_items.append({
-                "key": a.extracted_key,
-                "value": a.extracted_key,
+                "key": a.form_field,
+                "hint": a.extracted_key,
                 "form_field": a.form_field,
                 "source_doc": f"Rule Memory ({a.scope_type})"
             })
@@ -740,6 +740,356 @@ def resolve_field_value(
         and f_type in ["text", "textarea"]
     )
 
+    # Universal Table Field Reconstitution & Aggregation
+    if f_type == "table":
+        COLUMN_SYNONYMS = {
+            "name": "partner_name",
+            "full_name": "partner_name",
+            "name_of_partner": "partner_name",
+            "individual_name": "partner_name",
+            "dpin": "dpin_pan",
+            "pan": "dpin_pan",
+            "passport": "dpin_pan",
+            "din": "dpin_pan",
+            "dpin_number": "dpin_pan",
+            "pan_number": "dpin_pan",
+            "dpin_or_pan": "dpin_pan",
+            "role": "designation",
+            "partner_designation": "designation",
+            "obligation": "obligation_contribution",
+            "obligation_of_contribution": "obligation_contribution",
+            "contribution_obligation": "obligation_contribution",
+            "field_7i": "obligation_contribution",
+            "field_8f": "obligation_contribution",
+            "received": "contribution_received",
+            "contribution_accounted": "contribution_received",
+            "contribution_received_and_accounted_for": "contribution_received",
+            "contribution": "contribution_received",
+            "field_7j": "contribution_received",
+            "field_8g": "contribution_received",
+            "resident": "is_resident",
+            "resident_in_india": "is_resident",
+            "whether_resident_in_india": "is_resident",
+            "field_7k": "is_resident",
+            "field_8q": "is_resident",
+            "no_of_llps": "llp_count",
+            "number_of_llps": "llp_count",
+            "field_7l": "llp_count",
+            "field_8r": "llp_count",
+            "no_of_companies": "company_count",
+            "number_of_companies": "company_count",
+            "field_7m": "company_count",
+            "field_8s": "company_count",
+            "cin": "cin_llpin",
+            "llpin": "cin_llpin",
+            "reg_no": "cin_llpin",
+            "registration_number": "cin_llpin",
+            "company_name": "company_name",
+            "name_of_body_corporate": "company_name",
+            "nominee_name": "nominee_name",
+            "name_of_nominee": "nominee_name",
+            "nominee_dpin": "nominee_dpin",
+            "nominee_pan": "nominee_dpin",
+            "dpin_of_nominee": "nominee_dpin",
+            "body_type": "body_type",
+            "type_of_body_corporate": "body_type",
+        }
+
+        short_id = fid.split(".")[-1] if "." in fid else fid
+        cols = field_def.get("columns") or (field_def.get("table_metadata", {}).get("columns") if isinstance(field_def.get("table_metadata"), dict) else [])
+        col_keys = [c.get("key") for c in cols if isinstance(c, dict) and c.get("key")]
+        default_rows = field_def.get("default_rows") or (field_def.get("table_metadata", {}).get("default_rows") if isinstance(field_def.get("table_metadata"), dict) else [])
+
+        table_aliases = [fid, short_id, cno]
+        if "individual" in flabel and "partner" in flabel:
+            table_aliases.extend(["partners", "partner", "individual_partners", "designated_partners", "field_7", "7"])
+        elif "body corporate" in flabel or "bodies corporate" in flabel:
+            table_aliases.extend(["bodies_corporate", "body_corporate", "body_corporate_partners", "bodies_corporate_partners", "field_8", "8"])
+        elif "summary" in flabel and "partner" in flabel:
+            table_aliases.extend(["summary_partners", "partners_summary", "partner_summary", "field_9", "9"])
+
+        # A. Check direct pre-aggregated list or JSON string in mapped_data
+        direct_val = None
+        for ta in table_aliases:
+            if ta and ta in mapped_data:
+                direct_val = mapped_data[ta]
+                break
+
+        if direct_val is not None:
+            raw_list = None
+            if isinstance(direct_val, list) and direct_val:
+                raw_list = direct_val
+            elif isinstance(direct_val, str) and (direct_val.strip().startswith("[") or direct_val.strip().startswith("{")):
+                try:
+                    parsed = json.loads(direct_val)
+                    if isinstance(parsed, list) and parsed:
+                        raw_list = parsed
+                except Exception:
+                    pass
+
+            if raw_list:
+                normalized_list = []
+                for r in raw_list:
+                    if isinstance(r, dict):
+                        norm_r = {c: "" for c in col_keys}
+                        for rk, rv in r.items():
+                            if rk in norm_r:
+                                norm_r[rk] = rv
+                            else:
+                                canon_col = COLUMN_SYNONYMS.get(str(rk).lower(), rk)
+                                if canon_col in norm_r:
+                                    norm_r[canon_col] = rv
+                                else:
+                                    norm_r[rk] = rv
+                        normalized_list.append(norm_r)
+                    else:
+                        normalized_list.append(r)
+                matched_keys.add(fid)
+                if "." in fid:
+                    matched_keys.add(short_id)
+                return normalized_list
+
+        # B. Dynamic Reconstruction from indexed cell keys in mapped_data
+        alias_esc = "|".join([re.escape(a) for a in set(table_aliases) if a])
+        indexed_rows = {}
+        for k, v in mapped_data.items():
+            if v is None or str(v).strip() in ["", "None", "null", "N/A", "Unknown"]:
+                continue
+            k_str = str(k).strip()
+            # Match {table_prefix}[{idx}].{col} or {table_prefix}_row_{idx}_{col}
+            m = re.search(r'(?:^|\.)(?:' + alias_esc + r')\[(\d+)\](?:\.|\_)?([a-zA-Z0-9_]+)$', k_str, re.IGNORECASE)
+            if not m and short_id.startswith("field_"):
+                base_num = re.search(r'field_(\d+[a-z]*)', short_id)
+                if base_num:
+                    m = re.search(r'(?:^|\.)field_' + re.escape(base_num.group(1)) + r'\[(\d+)\](?:\.|\_)?([a-zA-Z0-9_]+)$', k_str, re.IGNORECASE)
+            if not m:
+                m = re.search(r'(?:^|\.)(?:' + alias_esc + r')_row_(\d+)_([a-zA-Z0-9_]+)$', k_str, re.IGNORECASE)
+
+            if m:
+                r_idx = int(m.group(1))
+                raw_col_k = m.group(2)
+                col_k = raw_col_k if (raw_col_k in col_keys) else COLUMN_SYNONYMS.get(raw_col_k.lower(), raw_col_k)
+                if r_idx not in indexed_rows:
+                    indexed_rows[r_idx] = {}
+                indexed_rows[r_idx][col_k] = v
+                matched_keys.add(k)
+
+        if indexed_rows:
+            if default_rows:
+                merged = [dict(r) for r in default_rows]
+                for r_idx, r_dict in indexed_rows.items():
+                    while len(merged) <= r_idx:
+                        merged.append({c: "" for c in col_keys})
+                    merged[r_idx].update(r_dict)
+                return merged
+            else:
+                max_idx = max(indexed_rows.keys())
+                res_rows = []
+                for i in range(max_idx + 1):
+                    row_data = {c: "" for c in col_keys}
+                    row_data.update(indexed_rows.get(i, {}))
+                    res_rows.append(row_data)
+                return res_rows
+
+        # C. Match loose unindexed column keys in mapped_data
+        if col_keys:
+            single_row = {}
+            for c_def in cols:
+                ck = c_def.get("key", "")
+                if not ck:
+                    continue
+                for k, v in mapped_data.items():
+                    if v is None or str(v).strip() in ["", "None", "null", "N/A", "Unknown"]:
+                        continue
+                    # Skip indexed table keys (they belong to Section B)
+                    if re.search(r'\[\d+\]|_row_\d+', str(k)):
+                        continue
+                    # Cross-table family boundary guard: prevent keys prefixed with other field IDs (e.g. field_7, field_8) from bleeding into field_9
+                    k_str = str(k).lower()
+                    if short_id.startswith("field_"):
+                        k_prefix_match = re.search(r'field_(\d+)', k_str)
+                        this_prefix_match = re.search(r'field_(\d+)', short_id)
+                        if k_prefix_match and this_prefix_match and k_prefix_match.group(1) != this_prefix_match.group(1):
+                            continue
+                    k_tail = str(k).split(".")[-1]
+                    canon_k = COLUMN_SYNONYMS.get(k_tail.lower(), k_tail.lower())
+                    if canon_k == ck.lower() or k.lower() == f"{short_id}.{ck}".lower() or k.lower() == f"{fid}.{ck}".lower():
+                        single_row[ck] = v
+                        matched_keys.add(k)
+                        break
+                    c_lbl = c_def.get("label", "").lower()
+                    c_subno = re.search(r'([0-9]+[a-z])', c_lbl)
+                    if c_subno and (k_tail.lower() == f"field_{c_subno.group(1)}" or k_tail.lower() == c_subno.group(1)):
+                        single_row[ck] = v
+                        matched_keys.add(k)
+                        break
+
+            if single_row:
+                if default_rows:
+                    merged = [dict(r) for r in default_rows]
+                    merged[0].update(single_row)
+                    return merged
+                else:
+                    return [single_row]
+
+        # D. Universal Auto-Aggregation for Summary Tables (e.g. Field 9 in LLP-11)
+        if ("summary of designated partner" in flabel or fid == "llpformno11.main.field_9" or cno == "9"):
+            indiv_data = mapped_data.get("llpformno11.main.field_7") or mapped_data.get("field_7") or mapped_data.get("partners") or mapped_data.get("individual_partners")
+            bc_data = mapped_data.get("llpformno11.main.field_8") or mapped_data.get("field_8") or mapped_data.get("bodies_corporate") or mapped_data.get("body_corporate_partners")
+
+            if indiv_data or bc_data:
+                indiv_rows = indiv_data if isinstance(indiv_data, list) else []
+                bc_rows = bc_data if isinstance(bc_data, list) else []
+
+                indiv_dp_cnt = sum(1 for r in indiv_rows if isinstance(r, dict) and "designated" in str(r.get("designation", "")).lower())
+                indiv_p_cnt = len(indiv_rows) - indiv_dp_cnt
+                if indiv_dp_cnt == 0 and indiv_rows:
+                    indiv_dp_cnt = len(indiv_rows)
+                    indiv_p_cnt = 0
+
+                def _safe_float(val):
+                    try:
+                        return float(str(val).replace(",", "").strip())
+                    except Exception:
+                        return 0.0
+
+                indiv_ob = sum(_safe_float(r.get("obligation_contribution", r.get("obligation", 0))) for r in indiv_rows if isinstance(r, dict))
+                indiv_rec = sum(_safe_float(r.get("contribution_received", r.get("received", 0))) for r in indiv_rows if isinstance(r, dict))
+
+                bc_dp_cnt = sum(1 for r in bc_rows if isinstance(r, dict) and "designated" in str(r.get("designation", "")).lower())
+                bc_p_cnt = len(bc_rows) - bc_dp_cnt
+                bc_ob = sum(_safe_float(r.get("obligation_contribution", r.get("obligation", 0))) for r in bc_rows if isinstance(r, dict))
+                bc_rec = sum(_safe_float(r.get("contribution_received", r.get("received", 0))) for r in bc_rows if isinstance(r, dict))
+
+                tot_dp = indiv_dp_cnt + bc_dp_cnt
+                tot_p = indiv_p_cnt + bc_p_cnt
+                tot_all = len(indiv_rows) + len(bc_rows)
+                tot_ob = indiv_ob + bc_ob
+                tot_rec = indiv_rec + bc_rec
+
+                summary_rows = [
+                    {
+                        "category": "(a) Individuals",
+                        "num_designated_partners": str(indiv_dp_cnt),
+                        "num_partners": str(indiv_p_cnt),
+                        "total_partners": str(len(indiv_rows)),
+                        "obligation_contribution": str(int(indiv_ob)) if indiv_ob else "0",
+                        "contribution_received": str(int(indiv_rec)) if indiv_rec else "0"
+                    },
+                    {
+                        "category": "(b) Bodies Corporate",
+                        "num_designated_partners": str(bc_dp_cnt),
+                        "num_partners": str(bc_p_cnt),
+                        "total_partners": str(len(bc_rows)),
+                        "obligation_contribution": str(int(bc_ob)) if bc_ob else "0",
+                        "contribution_received": str(int(bc_rec)) if bc_rec else "0"
+                    },
+                    {
+                        "category": "Total",
+                        "num_designated_partners": str(tot_dp),
+                        "num_partners": str(tot_p),
+                        "total_partners": str(tot_all),
+                        "obligation_contribution": str(int(tot_ob)) if tot_ob else "0",
+                        "contribution_received": str(int(tot_rec)) if tot_rec else "0"
+                    }
+                ]
+                matched_keys.add(fid)
+                return summary_rows
+
+        if default_rows:
+            return default_rows
+
+        return None
+
+    # BEN-2 Universal Statutory Prefill:
+    # 6B(a-e) when CIN/LLPIN is available
+    if (cno in ["6b(a)", "6b(b)", "6b(c)", "6b(d)", "6b(e)", "6ba", "6bb", "6bc", "6bd", "6be"] or any(k in fid.lower() for k in ["field_6ba", "field_6bb", "field_6bc", "field_6bd", "field_6be"])):
+        cin_llpin_val = (
+            mapped_data.get("field_6bb")
+            or mapped_data.get("formnoben2.for_change_of_existing.field_6bb")
+            or mapped_data.get("member_cin")
+            or mapped_data.get("member_llpin")
+            or mapped_data.get("cin_llpin")
+            or mapped_data.get("cin")
+            or mapped_data.get("llpin")
+        )
+        if cin_llpin_val and str(cin_llpin_val).strip() not in ["", "None", "null", "N/A"]:
+            cin_str = str(cin_llpin_val).strip()
+            cin_upper = cin_str.upper()
+            if cno in ["6b(a)", "6ba"] or fid.endswith("field_6ba") or "type of member" in flabel:
+                matched_keys.add(fid)
+                return "LLP" if (cin_upper.startswith("AAA") or "LLP" in cin_upper) else "Company"
+            if cno in ["6b(b)", "6bb"] or fid.endswith("field_6bb") or "registration number" in flabel or "cin" in flabel:
+                matched_keys.add(fid)
+                return cin_upper
+            if cno in ["6b(c)", "6bc"] or fid.endswith("field_6bc") or "name of the member" in flabel:
+                val = mapped_data.get("field_6bc") or mapped_data.get("member_name") or mapped_data.get("company_name")
+                if val:
+                    matched_keys.add(fid)
+                    return str(val).strip()
+            if cno in ["6b(d)", "6bd"] or fid.endswith("field_6bd") or "address of the member" in flabel:
+                val = mapped_data.get("field_6bd") or mapped_data.get("member_address") or mapped_data.get("registered_office_address") or mapped_data.get("address")
+                if val:
+                    matched_keys.add(fid)
+                    return str(val).strip()
+            if cno in ["6b(e)", "6be"] or fid.endswith("field_6be") or "email id of the member" in flabel:
+                val = mapped_data.get("field_6be") or mapped_data.get("member_email") or mapped_data.get("email_id") or mapped_data.get("email")
+                if val:
+                    matched_keys.add(fid)
+                    return str(val).strip()
+
+    # 6D(a-g) when SBO ID is available
+    if (cno in ["6d(a)", "6d(a)(i)", "6d(a)(ii)", "6d(b)", "6d(c)", "6d(d)", "6d(e)", "6d(f)", "6d(g)", "6da", "6dai", "6dai_2", "6db", "6dc", "6dd", "6de", "6df", "6dg"] or any(k in fid.lower() for k in ["field_6da", "field_6dai", "field_6dai_2", "field_6db", "field_6dc", "field_6dd", "field_6de", "field_6df", "field_6dg"])):
+        sbo_id_val = (
+            mapped_data.get("field_6da")
+            or mapped_data.get("formnoben2.for_change_of_existing.field_6da")
+            or mapped_data.get("sbo_id")
+            or mapped_data.get("sboid")
+        )
+        if sbo_id_val and str(sbo_id_val).strip() not in ["", "None", "null", "N/A"]:
+            sbo_str = str(sbo_id_val).strip()
+            if cno in ["6d(a)", "6da"] or (fid.endswith("field_6da") and not fid.endswith("field_6dai")) or "id of the significant beneficial owner" in flabel:
+                matched_keys.add(fid)
+                return sbo_str
+            if cno in ["6d(a)(i)", "6dai"] or (fid.endswith("field_6dai") and not fid.endswith("field_6dai_2")) or "income tax pan" in flabel or "pan verify" in flabel:
+                val = mapped_data.get("field_6dai") or mapped_data.get("sbo_pan") or mapped_data.get("pan_number") or mapped_data.get("pan")
+                if val:
+                    matched_keys.add(fid)
+                    return str(val).strip().upper()
+            if cno in ["6d(a)(ii)", "6dai_2"] or fid.endswith("field_6dai_2") or "passport number" in flabel:
+                val = mapped_data.get("field_6dai_2") or mapped_data.get("sbo_passport") or mapped_data.get("passport_number") or mapped_data.get("passport")
+                if val:
+                    matched_keys.add(fid)
+                    return str(val).strip()
+            if cno in ["6d(b)", "6db"] or fid.endswith("field_6db") or "name of the significant beneficial owner" in flabel:
+                val = mapped_data.get("field_6db") or mapped_data.get("sbo_name") or mapped_data.get("beneficial_owner_name") or mapped_data.get("partner_name")
+                if val:
+                    matched_keys.add(fid)
+                    return str(val).strip()
+            if cno in ["6d(c)", "6dc"] or fid.endswith("field_6dc") or "father" in flabel:
+                val = mapped_data.get("field_6dc") or mapped_data.get("sbo_father_name") or mapped_data.get("father_name")
+                if val:
+                    matched_keys.add(fid)
+                    return str(val).strip()
+            if cno in ["6d(d)", "6dd"] or fid.endswith("field_6dd") or "date of birth" in flabel:
+                val = mapped_data.get("field_6dd") or mapped_data.get("sbo_dob") or mapped_data.get("date_of_birth") or mapped_data.get("dob")
+                if val:
+                    matched_keys.add(fid)
+                    return str(val).strip()
+            if cno in ["6d(e)", "6de"] or fid.endswith("field_6de") or "nationality" in flabel:
+                val = mapped_data.get("field_6de") or mapped_data.get("sbo_nationality") or mapped_data.get("nationality") or "Indian"
+                matched_keys.add(fid)
+                return str(val).strip()
+            if cno in ["6d(f)", "6df"] or fid.endswith("field_6df") or "citizen of india" in flabel:
+                val = mapped_data.get("field_6df") or mapped_data.get("sbo_citizen") or "Yes"
+                matched_keys.add(fid)
+                return str(val).strip()
+            if cno in ["6d(g)", "6dg"] or fid.endswith("field_6dg") or "address of significant beneficial owner" in flabel:
+                val = mapped_data.get("field_6dg") or mapped_data.get("sbo_address") or mapped_data.get("address")
+                if val:
+                    matched_keys.add(fid)
+                    return str(val).strip()
+
     # 1. Exact ID check
     if fid in mapped_data:
         sanitized = _validate_and_sanitize(mapped_data[fid])
@@ -908,6 +1258,7 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
 
     # Build display items dynamically from schema with DAG Pruning
     display_items = []
+    pruned_keys = set()
     if fields:
         # Build context map for DAG dependency evaluation
         extracted_context = {}
@@ -919,6 +1270,7 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
         for f in fields:
             # Dynamic DAG Pruning Check
             dep = f.get("depends_on")
+            is_pruned = False
             if dep and isinstance(dep, dict):
                 parent_field = dep.get("field")
                 target_value = dep.get("value")
@@ -938,11 +1290,30 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
                     t_str = str(target_value).strip().lower() if target_value else ""
                     if operator == "equals":
                         if p_str != t_str and t_str not in p_str and p_str not in t_str:
-                            continue
+                            is_pruned = True
+                    elif operator == "not_equals":
+                        if p_str == t_str or t_str in p_str:
+                            is_pruned = True
                     elif operator == "in" and isinstance(target_value, list):
                         if not any(p_str == str(opt).strip().lower() or str(opt).strip().lower() in p_str for opt in target_value):
-                            continue
-                # If parent value not available, keep field visible so form is complete
+                            is_pruned = True
+                    elif operator in ["exists", "not_empty"]:
+                        if not p_str or p_str in ["none", "null", "false", "0", "n/a"]:
+                            is_pruned = True
+                elif operator in ["exists", "not_empty"]:
+                    is_pruned = True
+
+            if is_pruned:
+                fid_clean = f.get("id", "").lower()
+                pruned_keys.add(fid_clean)
+                pruned_keys.add(fid_clean.split(".")[-1])
+                c_no_clean = str(f.get("canonical_no", "")).strip().lower()
+                if c_no_clean:
+                    pruned_keys.add(c_no_clean)
+                    pruned_keys.add(re.sub(r'[^a-z0-9]', '', c_no_clean))
+                matched_keys.add(f.get("id"))
+                matched_keys.add(fid_clean.split(".")[-1])
+                continue
 
             val = _find_field_value(f)
             c_no = str(f.get("canonical_no", "")).strip()
@@ -969,35 +1340,47 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
         "raw_text", "ocr_status", "fast_path_matched"
     }
 
-    # Append any extra mapped fields that were not covered by schema
-    for k, v in mapped_data.items():
-        if k in matched_keys:
-            continue
-        if not v or str(v).strip() in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
-            continue
+    # Append any extra mapped fields only if form has no defined statutory schema
+    if not fields:
+        for k, v in mapped_data.items():
+            if k in matched_keys:
+                continue
+            if not v or str(v).strip() in ["", "None", "null", "Unknown", "N/A", "Empty / N/A"]:
+                continue
 
-        k_lower = str(k).lower().strip()
-        # 1. Skip known internal engine metadata
-        if k_lower in INTERNAL_METADATA_KEYS or any(m in k_lower for m in ["statutory_scenario", "statutory_branch", "scenario_key"]):
-            continue
-        # 2. Skip raw form-prefixed dot notation keys (e.g. formnomgt14.main..., formnopas6.main...)
-        if re.match(r'^form[a-z0-9_]+\.(?:main|repeating|sec)\.', k_lower):
-            continue
-        # 3. Skip keys that match or end with any schema field id suffix
-        k_tail = k_lower.split(".")[-1]
-        if any(f.get("id", "").lower().endswith(k_tail) or k_tail == f.get("id", "").lower() for f in fields):
-            continue
+            k_lower = str(k).lower().strip()
+            k_tail = k_lower.split(".")[-1]
 
-        clean_lbl = k.replace("_", " ").replace("field ", "").title()
-        display_items.append({
-            "label": f"*{clean_lbl}",
-            "value": str(v).strip(),
-            "type": "text",
-            "options": None,
-            "columns": [],
-            "archetype": None,
-            "raw_field": None
-        })
+            # 0. Skip anything matching pruned keys from inactive DAG branches
+            if k_lower in pruned_keys or k_tail in pruned_keys:
+                continue
+            if any(pk in k_lower for pk in pruned_keys if len(pk) > 3):
+                continue
+
+            # 1. Skip known internal engine metadata
+            if k_lower in INTERNAL_METADATA_KEYS or any(m in k_lower for m in ["statutory_scenario", "statutory_branch", "scenario_key"]):
+                continue
+            # 2. Skip raw form-prefixed dot notation keys (e.g. formnomgt14.main..., gnl1.main..., llpformno11.main...)
+            if re.match(r'^(?:form|gnl|llp)[a-z0-9_]*\.(?:main|repeating|sec)\.', k_lower):
+                continue
+            # 3. Skip keys that match or end with any schema field id suffix
+            if any(f.get("id", "").lower().endswith(k_tail) or k_tail == f.get("id", "").lower() for f in fields):
+                continue
+
+            # 4. Skip indexed table cell keys (e.g. [0], _row_0)
+            if re.search(r'\[\d+\]|_row_\d+', k_lower):
+                continue
+
+            clean_lbl = k.replace("_", " ").replace("field ", "").title()
+            display_items.append({
+                "label": f"*{clean_lbl}",
+                "value": str(v).strip(),
+                "type": "text",
+                "options": None,
+                "columns": [],
+                "archetype": None,
+                "raw_field": None
+            })
 
     # Render each statutory item dynamically
     for idx, item in enumerate(display_items):
@@ -1032,9 +1415,15 @@ def _create_dynamic_statutory_form_pdf(template_name: str, mapped_data: Dict[str
             elif isinstance(val_str, dict):
                 table_rows = [val_str]
 
-            # If no rows or empty rows, render at least 2 default statutory rows so grid is clearly visible
+            # If no rows or empty rows, render default statutory rows or at least 2 empty rows
             if not table_rows:
-                table_rows = [{c.get("key", ""): "" for c in table_cols}, {c.get("key", ""): "" for c in table_cols}]
+                raw_default = None
+                if isinstance(item.get("raw_field"), dict):
+                    raw_default = item["raw_field"].get("default_rows") or (item["raw_field"].get("table_metadata", {}).get("default_rows") if isinstance(item["raw_field"].get("table_metadata"), dict) else None)
+                if raw_default and isinstance(raw_default, list) and raw_default:
+                    table_rows = raw_default
+                else:
+                    table_rows = [{c.get("key", ""): "" for c in table_cols}, {c.get("key", ""): "" for c in table_cols}]
 
             header_h = 22.0
             col_header_h = 20.0
@@ -3414,6 +3803,91 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
             # Strictly assign ICSI membership to CS/Membership fields, never Director DIN
             if stat_entities.get("icsi_memberships"):
                 extracted[f_id] = stat_entities["icsi_memberships"][0]
+
+    # 8. Form No. INC-20A Table 4 & Shareholder count
+    if "inc-20a" in tmpl_lower or "inc20a" in tmpl_lower or "20a" in tmpl_lower:
+        m_sh_count = re.search(r'(?:number\s+of\s+shareholders?|shareholders?\s+count)\s*[:\|\-\s]*([0-9]+)', full_text, re.IGNORECASE)
+        if m_sh_count:
+            for f_id, label in field_label_map.items():
+                if f_id.endswith(".field_4a") or "number of shareholders" in (label or "").lower():
+                    extracted[f_id] = m_sh_count.group(1).strip()
+
+        sh_rows = []
+        for line in full_text.splitlines():
+            parts = [p.strip() for p in line.split("|") if p.strip()]
+            if len(parts) >= 4:
+                d_cand = next((p for p in parts if re.search(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b', p)), None)
+                amt_cand = next((p for p in parts if re.search(r'^[0-9,]+(?:\.[0-9]+)?$', p.replace("₹", "").replace("INR", "").replace(",", "").strip())), None)
+                if d_cand and amt_cand:
+                    name_cand = parts[0]
+                    bank_cand = parts[1] if len(parts) > 1 else ""
+                    acc_cand = parts[2] if len(parts) > 2 else ""
+                    sh_rows.append({
+                        "shareholder_name": name_cand,
+                        "bank_name": bank_cand,
+                        "account_number": acc_cand,
+                        "date_of_receipt": d_cand,
+                        "amount_of_receipt": amt_cand
+                    })
+        if sh_rows:
+            extracted["formnoinc20a.main.field_4table"] = sh_rows
+            if not m_sh_count:
+                for f_id, label in field_label_map.items():
+                    if f_id.endswith(".field_4a") or "number of shareholders" in (label or "").lower():
+                        extracted[f_id] = str(len(sh_rows))
+
+    # 9. Form LLP-8 Part B Statement of Account extraction
+    if "llp" in tmpl_lower and "8" in tmpl_lower:
+        FINANCIAL_HEAD_MAP = [
+            ("I. Contribution received by all partners", r'(?:contribution\s+received|partners?\s+contribution)'),
+            ("II. Reserves and Surplus", r'(?:reserves\s+and\s+surplus)'),
+            ("III. Secured Loans", r'(?:secured\s+loans?)'),
+            ("IV. Unsecured Loans", r'(?:unsecured\s+loans?)'),
+            ("V. Short Term Borrowings", r'(?:short\s+term\s+borrowings?)'),
+            ("VI. Trade Payables", r'(?:trade\s+payables?)'),
+            ("VII. Other Liabilities", r'(?:other\s+liabilities)'),
+            ("VIII. Provisions", r'(?:provisions\b)'),
+            ("I. Gross Fixed Assets", r'(?:gross\s+fixed\s+assets?)'),
+            ("III. Investments", r'(?:investments\b)'),
+            ("V. Inventories", r'(?:inventories|stock\s+in\s+trade)'),
+            ("VI. Trade Receivables", r'(?:trade\s+receivables?|debtors)'),
+            ("VII. Cash and Cash Equivalents", r'(?:cash\s+and\s+cash\s+equivalents?|cash\s+and\s+bank\s+balances?)'),
+            ("VIII. Loans and Advances", r'(?:loans\s+and\s+advances)'),
+            ("I. Gross Turnover", r'(?:gross\s+turnover|turnover|revenue\s+from\s+operations)'),
+            ("II. Other Income", r'(?:other\s+income)'),
+            ("V. Administrative Expenses", r'(?:administrative\s+expenses?)'),
+            ("VI. Personnel Expenses", r'(?:personnel\s+expenses?|employee\s+benefit\s+expenses?)'),
+            ("VIII. Total Expenses", r'(?:total\s+expenses?)'),
+            ("IX. Profit / Loss Before Tax", r'(?:profit\s+/\s+loss\s+before\s+tax|profit\s+before\s+tax|pbt\b)'),
+        ]
+        parsed_heads = {}
+        for head_name, pat in FINANCIAL_HEAD_MAP:
+            m_fin = re.search(pat + r'[^\n0-9]*?[:\|\-\s]+([0-9,]+(?:\.[0-9]+)?)(?:[\s\|]+([0-9,]+(?:\.[0-9]+)?))?', full_text, re.IGNORECASE)
+            if m_fin:
+                cur_val = m_fin.group(1).strip()
+                prev_val = m_fin.group(2).strip() if m_fin.group(2) else ""
+                parsed_heads[head_name] = {"current_year": cur_val, "previous_year": prev_val}
+
+        if parsed_heads:
+            from .forms.registry import FormRegistry
+            llp8_schema = FormRegistry.get_form_schema("LLP Form No. 8")
+            if llp8_schema:
+                for f in llp8_schema.get("fields", []):
+                    if (f.get("id") == "llpformno8.section_1.field_5" or f.get("canonical_no") == "5") and f.get("type") == "table":
+                        def_rows = f.get("table_metadata", {}).get("default_rows") or f.get("default_rows") or []
+                        hydrated = []
+                        for dr in def_rows:
+                            r_copy = dict(dr)
+                            h_label = r_copy.get("financial_head", "")
+                            for matched_h, vals in parsed_heads.items():
+                                if matched_h.lower() in h_label.lower() or h_label.lower() in matched_h.lower():
+                                    r_copy["current_year"] = vals["current_year"]
+                                    if vals["previous_year"]:
+                                        r_copy["previous_year"] = vals["previous_year"]
+                                    break
+                            hydrated.append(r_copy)
+                        extracted["llpformno8.section_1.field_5"] = hydrated
+                        break
 
     return extracted
 

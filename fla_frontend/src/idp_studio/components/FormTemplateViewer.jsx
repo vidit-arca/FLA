@@ -127,7 +127,7 @@ export default function FormTemplateViewer({
           r.form_field === parentId || r.form_field?.includes(parentId) || parentId.includes(r.form_field)
         );
         if (parentRule) {
-          parentVal = parentRule.extracted_value ?? parentRule.value ?? parentRule.extracted_key;
+          parentVal = parentRule.extracted_value ?? parentRule.value;
         }
       }
 
@@ -338,7 +338,7 @@ export default function FormTemplateViewer({
           const rule = (rules || []).find(r => r.form_field === field.id);
           const isMapped = !!rule;
           const activeChoice = activeSelections[field.id];
-          const isNoSelected = (activeChoice && String(activeChoice).toLowerCase() === 'no') || (rule && String(rule.extracted_value || rule.extracted_key).toLowerCase() === 'no');
+          const isNoSelected = (activeChoice && String(activeChoice).toLowerCase() === 'no') || (rule && String(rule.extracted_value ?? rule.value ?? '').toLowerCase() === 'no');
           const isSatisfied = isMapped || isNoSelected;
           const isLinkable = selectedExtractedData && !rule && !isNoSelected;
           const depth = field._depth || 0;

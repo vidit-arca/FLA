@@ -127,7 +127,7 @@ export default function DynamicTableGrid({
           if (!col.readonly) {
             const rule = getCellRule(rIdx, col.key, r);
             if (rule) {
-              const ruleVal = rule.extracted_value ?? rule.value ?? rule.extracted_key;
+              const ruleVal = rule.extracted_value ?? rule.value;
               if (ruleVal !== undefined && ruleVal !== null && String(ruleVal).trim() !== '') {
                 if (newRow[col.key] !== ruleVal) {
                   newRow[col.key] = ruleVal;
