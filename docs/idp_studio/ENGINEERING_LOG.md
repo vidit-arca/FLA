@@ -17,6 +17,7 @@ This document tracks all engineering activities, issues encountered, root cause 
 | **2026-10-22** | GNL-2 Batch Extraction Failure & Lookbehind Crash | 1. OCR succeeded but 0 fields returned (`extracted_fields: []`)<br>2. `re.PatternError` lookbehind crash<br>3. 60s Ollama timeout freeze | • Replaced invalid lookbehind with ordered precedence matching<br>• Expanded deterministic statutory extraction for GNL-2 (CIN, 2a, 2b, 4a, 4bi/4bii, 5a, 5b, 6a, 6b, r, DIN)<br>• Added 3s fast-timeout and localhost fallback for Ollama<br>• Added 12 regression tests in `test_gnl2_batch_extractor.py` | `a7810aa` |
 | **2026-10-27** | GNL-1 Compounding Scope & Schema Completion | 1. Consolidated Return step skipped use cases modal<br>2. Field 7 missing across all use cases<br>3. Field 8(d-l) missing under Compounding | • Expanded GNL-1 schema from 36 to 51 fields with `gnl1.main.field_7` (`textarea`, active in all use cases)<br>• Restored Fields 8(d)–8(l) & 8(p)–8(s) in `idp_studio.db`<br>• Added Sections 441, 96, 230-232 classification rules<br>• Added `exists` / `not_empty` operators to `filler.py`<br>• Verified with 4/4 passing tests in `test_gnl1_branch_and_dag.py` | *(Current)* |
 | **2026-10-27** | Universal Schema Normalization & Semantic Branching Engine | 1. Instruction-kit bleed into field types and options (MGT-14 Fields 6, 6I, 7b, 7c)<br>2. Form-specific whitelists (`BRANCH_ENABLED_FORMS`, `STATUTORY_BRANCH_WHITELIST`)<br>3. False positive branch detection on flat forms (PAS-6, AOC-4, FLA)<br>4. Signatory DIN bleeding into CS Membership slot | • Built single source of truth `FieldNormalizer` with conservative count/code guards & provenance<br>• Replaced whitelists with universal semantic branch detection based on DAG divergence ($\ge 2$ dependents)<br>• Enforced signatory role mutual exclusivity via designation metadata<br>• Ran idempotent database migration on `idp_studio.db`<br>• Added universal test suite `test_universal_engine.py` (13/13 PASS) | *(Current)* |
+| **2026-10-28** | Universal Engine Audit & Future Kit Compatibility | 1. Missing normalizer hook on new kit uploads<br>2. Statutory identifier dropdown bleed & form slug options<br>3. Cross-form parent synthesis bleed (Court/NCLT orders injected into MGT-6)<br>4. Dynamic table grid extraction missing matrix tags | • Integrated FieldNormalizer as Stage 7 in `pipeline.py`<br>• Enforced CIN/DIN/PAN/LLPIN text invariants in Stage 3 and Normalizer<br>• Isolated parent synthesis to trigger-referenced keys<br>• Generalized table matrix regex (`<Column \d+>`, `<Row \d+>`)<br>• Added circuit breaker for local LLM timeouts<br>• Added TestUniversalArbitraryTemplateCompatibility (CHG-4, PAS-6, MGT-6) | `908f3f6` |
 
 ---
 
@@ -281,4 +282,26 @@ automation_engine/tests/test_gnl1_dag_pruning_under_compounding PASSED [100%]
 
 ======================== 21 passed, 7 warnings in 0.89s ========================
 ```
+
+---
+
+### Issue 7: Universal Template Compatibility Audit, Cross-Form Pollution & Future Kit Autonomy
+- **Date:** 2026-10-28
+- **Scope:** Complete universal engine audit across unseen MCA templates (`Instruction Kit_CHG-4.pdf`, `Instruction Kit_PAS-6.pdf`, `Instruction_Kit_MGT-6.pdf`).
+- **Failure Modes Identified & Addressed:**
+  1. **Pipeline Ingestion Gap:** `FieldNormalizer` was only invoked ad-hoc in migrations and was missing from `StatutoryFormPipeline.run()`. As a result, newly ingested kits bypassed normalization.
+     - *Fix:* Injected `FieldNormalizer.normalize_schema(schema)` as **Stage 7** directly in `pipeline.py`.
+  2. **Statutory Identifier Text Bleed & Dropdown Misclassification:** Instructional text such as *"Select CIN from search dropdown"* caused CIN/DIN/PAN/LLPIN fields to be typed as `select`/`radio` with form codes like `'CHG-4'` captured as dropdown options.
+     - *Fix:* Enforced CIN, LLPIN, PAN, DIN, SRN, FCRN as free-text invariants in both `stage3_instruction_ai.py` and `normalizer.py`. Added regex filters discarding form title slugs from dropdown options. Added empty/single-option fallback converting broken dropdowns to open text.
+  3. **Cross-Form Parent Synthesis Bleed:** Checking `if '3c' in existing_c_nos` and `if any('11' in k for k in existing_c_nos)` in `stage3_instruction_ai.py` caused INC-28 Court/NCLT order fields (Petition number, Order date) and penalty fields to be synthesized in completely unrelated forms like MGT-6.
+     - *Fix:* Restricted parent field synthesis strictly to instances where `missing_parents` is populated by actual trigger clauses in that form's instruction kit.
+  4. **Dynamic Table Matrix Tags:** Forms like PAS-6 (Table 5(g)) and generic matrices with `<Column \d+>` / `<Row \d+>` tokens failed table detection and defaulted to flat text inputs.
+     - *Fix:* Universalized `_extract_table_metadata` with regex matching for `<column\s*\d+>` and `<row\s*\d+>`, dynamically extracting columns and schemas for `DynamicTableGrid`.
+  5. **Local LLM Circuit Breaker:** When local LLM endpoints timed out, parsing stalled for 2+ minutes per field.
+     - *Fix:* Added circuit breaker in `_analyze_complex_with_qwen` setting `self._llm_failed = True` on first error, dropping parsing time from 2+ minutes to 14 seconds via high-speed deterministic heuristics.
+- **Verification:**
+  - Added `TestUniversalArbitraryTemplateCompatibility` testing end-to-end ingestion, normalization, data mapping, and PDF rendering for `CHG-4`, `PAS-6`, and `MGT-6`.
+  - `pytest automation_engine/tests/test_universal_engine.py`: **38 / 38 passed**.
+  - `pytest automation_engine/tests/test_instruction_kit_parser.py automation_engine/tests/test_gnl1_branch_and_dag.py`: **8 / 8 passed**.
+  - `npm run build` in `fla_frontend`: **0 errors**.
 

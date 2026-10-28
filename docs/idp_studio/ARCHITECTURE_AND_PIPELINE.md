@@ -82,9 +82,11 @@ Form schemas are **never generated out of thin air by an LLM**. The 6-stage comp
      - Date fields: Matches `(DD/MM/YYYY)` or `"date"`.
      - File attachments: Matches `"Attachment"`, `"Copy of"`, `"Upload"`.
      - Radio options: Matches `"whether"`, `"Yes/No"`, `"Associate/Fellow"`.
-     - Dropdown choices: Harvests single-quoted option strings (`‘...’`).
-   - **Self-Synthesizing Parent Engine:** When MCA omits a self-explanatory parent field from the table (e.g., GNL-2 Field 2(a)), the engine scans child trigger instructions (`"is selected in field number 2(a) i.e. '...'"`), restores the parent field, auto-harvests all choices, and links dependent fields.
-   - **Dynamic Table Coder:** If a table schema does not match existing templates, `qwen2.5-coder:7b` parses the instruction text into structured column definitions.
+     - Dropdown choices: Harvests single-quoted option strings (`‘...’`), excluding form slugs (e.g. `CHG-4`, `MGT-14`).
+   - **Statutory Identifier Guard:** CIN, LLPIN, PAN, DIN, SRN, and FCRN are locked to `type: "text"` to prevent instruction text ("Select CIN...") from converting them into dropdowns.
+   - **Self-Synthesizing Parent Engine (Isolated):** When MCA omits a self-explanatory parent field from the table (e.g., GNL-2 Field 2(a)), the engine scans child trigger instructions, restores the parent field, auto-harvests choices, and wires dependent fields—strictly constrained to parent keys populated by trigger clauses to prevent cross-form pollution.
+   - **Dynamic Matrix & Table Detector:** Parses tabular matrices with column markers (`<Column \d+>`, `Column - A`, `"tabular format"`, `"add row"`) and dynamically extracts keys, labels, and types for `DynamicTableGrid`.
+   - **Local LLM Circuit Breaker:** On first timeout or connection error from local model endpoints, trips `_llm_failed = True` and falls back immediately to high-speed deterministic heuristics (~14s vs 2+ mins).
 
 4. **Stage 4 — DAG Engine (`stage4_dag_engine.py`):**
    - Parses conditional trigger clauses (`"in case X is selected in field number Y"`).
@@ -94,7 +96,12 @@ Form schemas are **never generated out of thin air by an LLM**. The 6-stage comp
    - Verifies DAG connectivity, checks for dangling branches, and eliminates duplicate options.
 
 6. **Stage 6 — Schema Generator (`stage6_generator.py`):**
-   - Serializes the verified schema to production JSON stored in `FormRegistry` and SQLite `IdpTemplate`.
+   - Serializes the verified schema to production JSON.
+
+7. **Stage 7 — Universal Field & Option Normalization (`normalizer.py`):**
+   - Integrated as the final ingestion stage in `StatutoryFormPipeline.run()`.
+   - Audits all fields: locks statutory identifiers to text, sanitizes instruction bleed from count fields, converts empty or single-option dropdowns to open text, and attaches audit provenance.
+   - Saves clean, production-ready schema into `FormRegistry` and SQLite `IdpTemplate`.
 
 ---
 
@@ -215,3 +222,25 @@ automation_engine/
     ├── test_universal_engine.py                      # Comprehensive universal engine test suite
     └── test_gnl1_branch_and_dag.py                   # GNL-1 branch & DAG regression tests
 ```
+
+---
+
+## 10. Future Kit Compatibility & Autonomous Schema Evolution
+
+Whenever MCA publishes an updated version of an existing instruction kit or an instruction kit for a completely new form is uploaded (`POST /api/idp/instruction-kit/ingest`), the system automatically compiles, normalizes, and renders the form **without manual code changes or template hardcoding**.
+
+### Autonomous Adaptation Invariants:
+1. **Dynamic Field Discovery & Physical Sequencing:**
+   - [Stage 1](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/forms/stages/stage1_pdf_layout.py) & [Stage 2](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/forms/stages/stage2_structure.py) extract scanline geometry and canonical numbering (`(i)`, `(a)`, `1, 2, 3...`) directly from the PDF table.
+   - Newly introduced statutory fields or reordered sections are dynamically assigned canonical IDs and placed in exact physical sequence.
+2. **Natural Language Option Harvesting:**
+   - [Stage 3](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/forms/stages/stage3_instruction_ai.py) extracts choices from instruction text clauses. Form title slugs (e.g., `CHG-4`) are automatically filtered out.
+3. **Dynamic Conditional Branch Compilation:**
+   - [Stage 4](file:///Users/apple/Desktop/FLA/automation_engine/modules/idp_studio/forms/stages/stage4_dag_compiler.py) compiles natural language triggers (`"in case X is selected in field Y"`) into an executable Directed Acyclic Graph (DAG). The reactive frontend shows/hides dependent fields dynamically.
+4. **Dynamic Grid & Multi-Row Matrix Parsing:**
+   - Archetype matrix regex parses dynamic `<Column \d+>` / `<Row \d+>` tags and `"tabular format"` directives into structured column arrays rendered by `DynamicTableGrid`.
+5. **Universal Invariant Guards:**
+   - **Statutory Identifiers (CIN, LLPIN, PAN, DIN, SRN, FCRN):** Guaranteed to remain free-text inputs, immune to instruction-text dropdown bleed.
+   - **Degenerate Dropdown Protection:** Any dropdown with fewer than two distinct valid options automatically converts to free text, preventing users from ever encountering broken, empty dropdowns.
+   - **DAG Integrity:** Stage 5 verifies connectivity and prevents cyclic or dangling dependencies before schema persistence.
+   - **Schema-Driven Frontend:** [FormTemplateViewer.jsx](file:///Users/apple/Desktop/FLA/fla_frontend/src/idp_studio/components/FormTemplateViewer.jsx) renders widgets strictly from the generated schema metadata without form-specific switches.
