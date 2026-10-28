@@ -89,10 +89,28 @@ class FieldNormalizer:
         elif orig_type not in ["text", "number", "date", "select", "radio", "textarea", "file", "email", "cin", "pan", "din", "table"]:
             normalized_type = "text"
 
+        # 1.5. Conservative Guard: Statutory Identifiers (CIN, LLPIN, DIN, PAN, SRN, FCRN)
+        is_statutory_id = (
+            bool(IDENTIFIER_EXCLUSION_PATTERN.search(label)) or
+            any(k in fid.lower() for k in ["cin", "llpin", "pan", "din", "srn", "fcrn"])
+        )
+        if is_statutory_id and normalized_type in ["select", "radio"]:
+            corrections.append({
+                "field_id": fid,
+                "field_label": label,
+                "rule": "identifier_field_enforce_text",
+                "before_type": normalized_type,
+                "after_type": "text",
+                "reason": "Statutory identifier fields (CIN/LLPIN/DIN/PAN/SRN/FCRN) must be free-form text input."
+            })
+            normalized_type = "text"
+            f["options"] = None
+            current_options = None
+
         # 2. Conservative Guard A: Numeric Count Fields (e.g. "Number of resolution(s)", "Number of person(s)")
         is_count_field = (
             any(p.search(label) for p in COUNT_FIELD_PATTERNS)
-            and not IDENTIFIER_EXCLUSION_PATTERN.search(label)
+            and not is_statutory_id
             and "director_identification_number" not in fid
         )
         if is_count_field and normalized_type != "table":
@@ -109,20 +127,16 @@ class FieldNormalizer:
 
             # Inspect options: Count fields should not have multi-sentence text options
             if orig_options and isinstance(orig_options, list):
-                has_text_bleed = any(
-                    isinstance(o, str) and not o.strip().isdigit() and len(o.strip()) > 5
-                    for o in orig_options
-                )
-                if has_text_bleed:
-                    rejected = [str(o) for o in orig_options]
-                    corrections.append({
-                        "field_id": fid,
-                        "field_label": label,
-                        "rule": "reject_instruction_bleed_in_count_options",
-                        "rejected_options": rejected,
-                        "reason": "Count fields must not retain instruction-kit text bleed in options."
-                    })
-                    f["options"] = None
+                rejected = [str(o) for o in orig_options]
+                corrections.append({
+                    "field_id": fid,
+                    "field_label": label,
+                    "rule": "reject_instruction_bleed_in_count_options",
+                    "rejected_options": rejected,
+                    "reason": "Count fields must not retain instruction-kit text bleed in options."
+                })
+                f["options"] = None
+                current_options = None
 
         # 3. Conservative Guard B: Code / Sub-Class / SRN Fields (e.g. "Search and select industry sub-class")
         is_code_field = any(p.search(label) for p in CODE_FIELD_PATTERNS)
@@ -142,12 +156,24 @@ class FieldNormalizer:
                     })
                     normalized_type = "text"
                     f["options"] = None
+                    current_options = None
 
         # 4. Conservative Guard C: Option Text Sanity Filter for genuine Select / Radio fields
         sanitized_options: Optional[List[Any]] = None
         current_options = f.get("options")
-        if normalized_type in ["select", "radio"] and current_options:
-            if isinstance(current_options, list):
+        if normalized_type in ["select", "radio"]:
+            if not current_options or not isinstance(current_options, list) or len(current_options) == 0:
+                corrections.append({
+                    "field_id": fid,
+                    "field_label": label,
+                    "rule": "empty_options_convert_to_text",
+                    "before_type": normalized_type,
+                    "after_type": "text",
+                    "reason": "Select/radio field has no selectable options."
+                })
+                normalized_type = "text"
+                sanitized_options = None
+            else:
                 valid_opts = []
                 for opt in current_options:
                     opt_str = str(opt).strip()
@@ -203,8 +229,6 @@ class FieldNormalizer:
                     sanitized_options = None
                 else:
                     sanitized_options = valid_opts
-            else:
-                sanitized_options = [str(current_options)]
 
         f["type"] = normalized_type
         if normalized_type in ["select", "radio"]:

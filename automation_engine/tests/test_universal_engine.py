@@ -997,4 +997,116 @@ class TestGNL1UniversalUseCaseIsolation:
         assert "Extension up to 30/12/2026" not in pdf_text
 
 
+class TestUniversalArbitraryTemplateCompatibility:
+    """
+    Validates end-to-end universal compatibility on previously unseen MCA instruction kits:
+    - CHG-4 (Satisfaction of Charge)
+    - PAS-6 (Reconciliation of Share Capital Audit)
+    - MGT-6 (Declaration of Beneficial Interest)
+    Proves zero-hardcoding ingestion, schema normalization, table detection, and output fidelity.
+    """
+
+    def test_unseen_chg4_ingestion_and_pdf_generation(self):
+        from automation_engine.modules.idp_studio.forms.kit_parser import InstructionKitParser
+        from automation_engine.modules.idp_studio.forms.registry import FormRegistry
+        from automation_engine.modules.idp_studio.router import _create_dynamic_statutory_form_pdf
+
+        parser = InstructionKitParser()
+        chg4_schema = parser.parse("docs/mca_instruction_kits/Instruction Kit_CHG-4.pdf")
+        assert chg4_schema["validation_report"]["ok"] is True
+        assert len(chg4_schema["fields"]) > 20
+
+        # Identifier guard: Field 1 (CIN) must be normalized as free-form text, NOT select
+        f1 = next(f for f in chg4_schema["fields"] if f.get("canonical_no") == "1")
+        assert f1["type"] == "text"
+        assert f1.get("options") is None
+
+        FormRegistry.save_form_schema(chg4_schema)
+
+        chg4_data = {
+            "chg4.main.field_1": "U72900MH2020PTC345678",
+            "chg4.main.field_2a": "Global Tech Solutions Private Limited",
+            "chg4.main.field_2b": "101, Tech Park, Andheri East, Mumbai, Maharashtra 400069",
+            "chg4.main.field_2c": "compliance@globaltech.com",
+            "chg4.main.field_3": "15/05/2026",
+            "unmapped_junk": "THIS MUST NOT APPEAR IN PDF"
+        }
+        doc = _create_dynamic_statutory_form_pdf(chg4_schema["form_name"], chg4_data)
+        text = "".join(p.get_text() for p in doc)
+
+        assert "Global Tech Solutions Private Limited" in text
+        assert "15/05/2026" in text
+        assert "U72900MH2020PTC345678" in text
+        assert "THIS MUST NOT APPEAR IN PDF" not in text
+
+    def test_unseen_pas6_ingestion_and_table_reconstruction(self):
+        from automation_engine.modules.idp_studio.forms.kit_parser import InstructionKitParser
+        from automation_engine.modules.idp_studio.forms.registry import FormRegistry
+        from automation_engine.modules.idp_studio.router import _create_dynamic_statutory_form_pdf
+
+        parser = InstructionKitParser()
+        pas6_schema = parser.parse("docs/mca_instruction_kits/Instruction Kit_PAS-6.pdf")
+        assert pas6_schema["validation_report"]["ok"] is True
+        assert len(pas6_schema["fields"]) > 25
+
+        # Table identification: Table 5(g) must be recognized as structured dynamic table
+        table_f = next((f for f in pas6_schema["fields"] if "5g" in f.get("id", "").lower() or f.get("type") == "table"), None)
+        assert table_f is not None, "Field 5(g) must be detected as a structured table in PAS-6"
+
+        FormRegistry.save_form_schema(pas6_schema)
+
+        pas6_data = {
+            "formnopas6.main.field_1": "U12345DL2018PTC111222",
+            "formnopas6.main.field_2a": "National Finserve Limited",
+            "formnopas6.main.field_2b": "Plot 42, Connaught Place, New Delhi 110001",
+            "formnopas6.main.field_2c": "secretarial@nationalfinserve.com",
+            "formnopas6.main.field_3": "01/04/2025",
+            "formnopas6.main.field_5g": [
+                {"demat": "500000", "physical": "100000"},
+                {"demat": "250000", "physical": "50000"}
+            ],
+            "unmapped_bleed": "SUPPRESSED LEAK"
+        }
+        doc = _create_dynamic_statutory_form_pdf(pas6_schema["form_name"], pas6_data)
+        text = "".join(p.get_text() for p in doc)
+
+        assert "National Finserve Limited" in text
+        assert "U12345DL2018PTC111222" in text
+        assert "500000" in text
+        assert "SUPPRESSED LEAK" not in text
+
+    def test_unseen_mgt6_ingestion_and_spurious_branch_suppression(self):
+        from automation_engine.modules.idp_studio.forms.kit_parser import InstructionKitParser
+        from automation_engine.modules.idp_studio.forms.registry import FormRegistry
+        from automation_engine.modules.idp_studio.router import _create_dynamic_statutory_form_pdf
+
+        parser = InstructionKitParser()
+        mgt6_schema = parser.parse("docs/mca_instruction_kits/Instruction_Kit_MGT-6.pdf")
+        assert mgt6_schema["validation_report"]["ok"] is True
+        assert len(mgt6_schema["fields"]) >= 30
+
+        # Spurious branch suppression: MGT-6 must NOT synthesize Court/NCLT authority fields
+        court_f = next((f for f in mgt6_schema["fields"] if "order passed by" in f.get("label", "").lower()), None)
+        assert court_f is None, "MGT-6 must not contain synthesized Court/NCLT order fields from other forms"
+
+        FormRegistry.save_form_schema(mgt6_schema)
+
+        mgt6_data = {
+            "formmgt6.main.field_1": "U99999KA2015PTC999999",
+            "formmgt6.main.field_1a": "Zenith Software Private Limited",
+            "formmgt6.main.field_1b": "Infotech City, Electronic City, Bangalore 560100",
+            "formmgt6.main.field_1c": "legal@zenithsoft.in",
+            "formmgt6.main.field_2": "2",
+            "spurious_data": "DO NOT PRINT"
+        }
+        doc = _create_dynamic_statutory_form_pdf(mgt6_schema["form_name"], mgt6_data)
+        text = "".join(p.get_text() for p in doc)
+
+        assert "Zenith Software Private Limited" in text
+        assert "U99999KA2015PTC999999" in text
+        assert "DO NOT PRINT" not in text
+        assert "Order passed by" not in text
+
+
+
 

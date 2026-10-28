@@ -95,4 +95,8 @@ class StatutoryFormPipeline:
         # Stage 6: Dynamic Form Generator
         schema = self.stage6.generate(form_name, governing_law, connected_nodes, validation_report)
 
+        # Stage 7: Universal Field & Option Normalization
+        from .normalizer import FieldNormalizer
+        schema, norm_audit = FieldNormalizer.normalize_schema(schema)
+
         return schema

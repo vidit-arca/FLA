@@ -55,7 +55,7 @@ class Stage3InstructionAI:
         Invokes local Qwen 2.5 14B model on 192.168.112.2 to extract deep validation rules,
         date comparisons, conditional triggers, or prefill constraints.
         """
-        if not self.use_llm_fallback or not inst or len(inst.strip()) < 15:
+        if not self.use_llm_fallback or getattr(self, "_llm_failed", False) or not inst or len(inst.strip()) < 15:
             return None
 
         # Fast keyword filter: only invoke LLM when actual date comparisons or statutory validation constraints exist
@@ -87,6 +87,7 @@ class Stage3InstructionAI:
             return call_llm_json("legal_reasoning", prompt, timeout=3)
         except Exception as e:
             # Fall back gracefully to heuristics if offline or timed out
+            self._llm_failed = True
             print(f"[Stage 3 Qwen 14B] Fallback to heuristics for '{field_name[:30]}': {e}")
             return None
 
@@ -299,17 +300,11 @@ class Stage3InstructionAI:
                     if len(q_clean) > 2 and not q_clean.lower().startswith("field number"):
                         missing_parents[clean_key]['options'].add(q_clean)
 
-        # 3. Composite Section 3 siblings if 3(a) or 3(c) exists
-        if '3c' in existing_c_nos or '3a' in missing_parents:
-            missing_parents['3a'] = {
-                'canonical_no': '3(a)',
-                'label': 'Order passed by',
-                'options': {'Court', 'NCLT', 'NCLAT', 'Central Government', 'Regional Director', 'Others'},
-                'section_slug': 'main',
-                'page': 1,
-                'physical_idx': 20
-            }
-            if '3b' not in existing_c_nos:
+        # 3. Composite Section 3 siblings if 3(a) is an order authority field
+        if '3a' in missing_parents and any(k in missing_parents['3a'].get('label', '').lower() for k in ['order passed by', 'court', 'tribunal', 'authority']):
+            if not missing_parents['3a']['options']:
+                missing_parents['3a']['options'] = {'Court', 'NCLT', 'NCLAT', 'Central Government', 'Regional Director', 'Others'}
+            if '3b' not in existing_c_nos and '3b' not in missing_parents:
                 missing_parents['3b'] = {
                     'canonical_no': '3(b)',
                     'label': 'Name of the court or tribunal or authority',
@@ -318,7 +313,7 @@ class Stage3InstructionAI:
                     'page': 1,
                     'physical_idx': 21
                 }
-            if '3d' not in existing_c_nos:
+            if '3d' not in existing_c_nos and '3d' not in missing_parents:
                 missing_parents['3d'] = {
                     'canonical_no': '3(d)',
                     'label': 'Petition or application or appeal number',
@@ -327,7 +322,7 @@ class Stage3InstructionAI:
                     'page': 1,
                     'physical_idx': 23
                 }
-            if '3e' not in existing_c_nos:
+            if '3e' not in existing_c_nos and '3e' not in missing_parents:
                 missing_parents['3e'] = {
                     'canonical_no': '3(e)',
                     'label': 'Order number',
@@ -337,9 +332,9 @@ class Stage3InstructionAI:
                     'physical_idx': 24
                 }
 
-        # 4. Synthesize 11(a) and 11(b) if 11 is referenced
-        if any('11' in k for k in missing_parents) or any('11' in k for k in existing_c_nos):
-            if '11a' not in existing_c_nos:
+        # 4. Synthesize 11(a) and 11(b) only if penalty / 11 is explicitly referenced in missing parents
+        if ('11a' in missing_parents or '11b' in missing_parents) and any('penalty' in missing_parents[k].get('label', '').lower() for k in ['11a', '11b'] if k in missing_parents):
+            if '11a' not in existing_c_nos and '11a' not in missing_parents:
                 missing_parents['11a'] = {
                     'canonical_no': '11(a)',
                     'label': 'Whether penalty involved or not',
@@ -348,7 +343,7 @@ class Stage3InstructionAI:
                     'page': 2,
                     'physical_idx': 80
                 }
-            if '11b' not in existing_c_nos:
+            if '11b' not in existing_c_nos and '11b' not in missing_parents:
                 missing_parents['11b'] = {
                     'canonical_no': '11(b)',
                     'label': 'Amount of penalty (in ₹)',
@@ -360,17 +355,11 @@ class Stage3InstructionAI:
                     'trigger_values': ['Yes']
                 }
 
-        # 5. Synthesize 12(c) if 13A/13B exists or 12(c) is referenced
-        if '12c' in missing_parents or any(x in existing_c_nos for x in ['13a', '13b']):
-            if '12c' not in existing_c_nos:
-                missing_parents['12c'] = {
-                    'canonical_no': '12(c)',
-                    'label': 'Whether the order provides for increase in authorised share capital of the transferee company',
-                    'options': {'Yes', 'No'},
-                    'section_slug': 'main',
-                    'page': 2,
-                    'physical_idx': 90
-                }
+        # 5. Synthesize 12(c) only if 12(c) is referenced in missing parents
+        if '12c' in missing_parents:
+            if '12c' not in existing_c_nos and not missing_parents['12c'].get('label'):
+                missing_parents['12c']['label'] = 'Whether the order provides for increase in authorised share capital of the transferee company'
+                missing_parents['12c']['options'] = {'Yes', 'No'}
 
         if not missing_parents:
             return results
@@ -483,7 +472,10 @@ class Stage3InstructionAI:
             ("details of authorized share" in name_l) or
             ("authorized share capital" in name_l) or
             (c_clean in {"13A", "13B"}) or
-            ("tabular format" in inst_l and "add row" in inst_l)
+            ("tabular format" in inst_l and ("add row" in inst_l or "enter" in inst_l)) or
+            ("number of row" in inst_l and ("required" in inst_l or "entered" in inst_l)) or
+            ("in the table of field" in inst_l) or
+            bool(re.search(r"<column\s*\d+>", name_l))
         )
 
         # Archetype 2: Excel Utility Bridge (e.g. LLP-8 Field 7 Download Excel, LLP-11 Field 7 & 8 Partners)
@@ -503,7 +495,8 @@ class Stage3InstructionAI:
             ('statement of assets and liabilities' in name_l) or
             ('statement of account' in inst_l and 'rupees only' in inst_l and 'as at' not in name_l) or
             ('summary of designated partner' in name_l) or
-            (c_no == '9' and 'tabular format' in inst_l)
+            (c_no == '9' and 'tabular format' in inst_l) or
+            bool(re.search(r"<column\s*\d+>", name_l) and re.search(r"<row\s*\d+>", name_l))
         )
 
         if not is_archetype_1 and not is_archetype_2 and not is_archetype_3:
@@ -517,7 +510,7 @@ class Stage3InstructionAI:
         default_rows = []
 
         if is_archetype_1:
-            # 1. Parse columns from "Column-..." tokens
+            # 1. Parse columns from "Column-..." tokens or "<Column \d+>" markers
             raw_cols = re.split(r"Column\s*-\s*", name, flags=re.I)[1:]
             for c in raw_cols:
                 c_clean_col = re.sub(r"\s+", " ", c).strip()
@@ -539,6 +532,17 @@ class Stage3InstructionAI:
                     col_def["min"] = 1
                     col_def["max"] = 10
                 columns.append(col_def)
+
+            if not columns:
+                col_matches = re.findall(r"<column\s*\d+>\s*['\"]?([^'\"\>]+)['\"]?", name, re.I)
+                for cm in col_matches:
+                    c_clean_col = cm.strip()
+                    columns.append({
+                        "key": re.sub(r"[^a-z0-9]+", "_", c_clean_col.lower())[:30].strip("_"),
+                        "label": c_clean_col,
+                        "type": "number",
+                        "required": True
+                    })
 
             # Special case for MCA Form INC-28 Field 13A and 13B (Details of Authorized Share Capital)
             if not columns and (
@@ -826,6 +830,14 @@ class Stage3InstructionAI:
         f_type = "text"
         options: List[str] = []
 
+        # 0. Statutory Identifiers (CIN, LLPIN, PAN, DIN, SRN, FCRN)
+        is_statutory_id = (
+            re.search(r"\b(?:cin|llpin|pan|din|srn|fcrn)\b", name_l) or
+            re.search(r"\b(?:corporate identity number|director identification number|permanent account number|limited liability partnership)\b", name_l)
+        ) and not any(k in name_l for k in ["number of", "count", "no. of"])
+        if is_statutory_id:
+            return "text", [], bool(re.search(r"\bmandatory\b|\brequired\b|\bcompulsory\b", inst_l)) or c_no in {"1", "2"}
+
         # 1. Dates (check before file attachments so 'Certified copy of order (DD/MM/YYYY)' is treated as date)
         if re.search(r"\bdd[/\-]mm[/\-]yyyy\b|^date\b|\bdate of\b", name_l) and not ("copy of order" in name_l and "court" in name_l):
             f_type = "date"
@@ -913,6 +925,9 @@ class Stage3InstructionAI:
             if any(ex in opt_lower for ex in EXCLUDED_OPTION_PHRASES):
                 continue
             if opt_lower == field_name.lower():
+                continue
+            # Filter out form codes e.g. "CHG-4", "INC-28", "MGT-14", "PAS-6"
+            if re.match(r'^(?:form\s*(?:no\.?\s*)?)?[a-z]{2,5}[\s\-]*[0-9]{1,3}[a-z]?$', opt_lower):
                 continue
             if opt_str not in clean_opts:
                 clean_opts.append(opt_str)

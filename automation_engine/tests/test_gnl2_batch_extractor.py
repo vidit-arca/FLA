@@ -329,8 +329,8 @@ class TestGnl2BatchExtractor(unittest.TestCase):
             self.assertEqual(fields_extracted.get("formnopas6.main.field_1"), "U72200TN2004PTC052429")
             self.assertEqual(fields_extracted.get("formnopas6.main.field_5d"), "1,500,000")
             self.assertEqual(fields_extracted.get("formnopas6.main.field_5a"), "Equity")
-        except requests.exceptions.ConnectionError:
-            self.skipTest("Local uvicorn server not reachable at http://localhost:8000")
+        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
+            self.skipTest("Local uvicorn server not reachable or timed out at http://localhost:8000")
 
 
 if __name__ == "__main__":

@@ -136,7 +136,8 @@ class TestInstructionKitParser(unittest.TestCase):
 
         f_6 = next((f for f in fields if f["canonical_no"] == "6"), None)
         self.assertIsNotNone(f_6, "Field 6 ('Number of resolution(s)') must exist in MGT-14!")
-        self.assertIn("1", f_6["options"], "Field 6 must offer selectable resolution counts!")
+        self.assertEqual(f_6["type"], "number", "Field 6 must be normalized to numeric count field!")
+        self.assertIsNone(f_6.get("options"), "Field 6 must allow manual numeric input!")
         self.assertIsNotNone(f_6["depends_on"], "Field 6 must have dependency on Field 3!")
         self.assertIn("field_3", f_6["depends_on"]["field"], "Field 6 must depend on Field 3!")
 
