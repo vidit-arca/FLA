@@ -41,6 +41,7 @@ docs/
 ### 2. System Architecture (`docs/architecture/`)
 - **[System Architecture](architecture/system_architecture.md):** Global platform topology, microservices, and Triton OCR inference servers.
 - **[Backend Architecture Guide](architecture/backend_architecture_guide.md):** FastAPI services, database connection pooling, and endpoint contracts.
+- **[Cloud Hosting & Cost Optimization Strategy](architecture/cloud_hosting_and_cost_optimization_strategy.md):** Detailed financial & technical evaluation: Pure GCP (GPU VM / Serverless) vs. Hybrid Stack (Hostinger + Vercel + GCP Vision OCR).
 - **[Magic Pen Evolution](architecture/magic_pen_evolution.md):** Evolution of the interactive field resolver and smart autofill platform.
 
 ### 3. FLA Return Platform (`docs/fla/`)
