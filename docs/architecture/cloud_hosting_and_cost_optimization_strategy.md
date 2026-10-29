@@ -18,6 +18,7 @@ This document presents a comprehensive infrastructure and cost comparison for de
 | **OCR Engine** | Marker OCR / PyTorch / Surya on GPU | **GCP Cloud Vision API** (Serverless) | **GCP Cloud Vision API** (Serverless) |
 | **AI / LLM Layer** | Ollama on GPU (NVIDIA L4 24GB VRAM) | Google Gemini 1.5 Flash API | **Ollama on CPU** (AMD EPYC, 16–32GB RAM) |
 | **24/7 Always-On Cost** | **~₹63,000 / month** (~$760) | **~₹1,200 – ₹2,500 / month** (~$15–$30) | **~₹1,100 – ₹1,600 / month** (~$13–$19) |
+| **Office Hours (10 hrs/day, 22 days/mo)** | **~₹20,900 / month** (~$251) | **~₹800 – ₹1,200 / month** (~$10–$15) | **~₹1,100 – ₹1,600 / month** (Flat 24/7 rate) |
 | **On-Demand Cost (~50 hrs/mo)** | **~₹6,000 / month** (~$73) | **~₹400 / month** (~$5) | **~₹1,100 – ₹1,600 / month** (Flat 24/7 rate) |
 | **Data Privacy & AI Sovereignty** | **100% Private** (On-box GPU) | ⚠️ **Third-Party API** (Prompt snippets sent to Google) | **100% Private** (Ollama runs strictly on your private VPS) |
 | **Billing Predictability** | Variable & High (Compute + Disk + Egress) | Variable (Billed per request, egress, token) | **100% Fixed & Capped** (Flat VPS fee; no overage surprises) |
@@ -28,12 +29,28 @@ This document presents a comprehensive infrastructure and cost comparison for de
 ## 3. Deep-Dive Cost Analysis
 
 ### Option 1: Pure GCP GPU VM Stack (`g2-standard-8` + NVIDIA L4)
-- **Hourly Compute Cost**: ~$1.05 / hour (~₹88 / hr).
-- **Persistent Storage**: 200 GB SSD (~$20 / month = ~₹1,650).
-- **Monthly Cost Breakdown**:
-  - Running 24/7: `($1.05 × 730 hrs) + $20` = **~$760 – $785 / month (~₹63,000 – ₹65,000)**.
-  - On-Demand (50 hrs/month with auto-shutdown): `($1.05 × 50 hrs) + $20` = **~$73 / month (~₹6,000)**.
-- **Pain Points**: Heavy financial waste when idle, complex CUDA/PyTorch driver maintenance, and significant operational friction toggling the VM on and off.
+- **Hourly Compute Cost**: ~$1.05 / hour (~₹88 / hr) when active.
+- **Persistent Storage**: 200 GB SSD (~$20 / month = ~₹1,650, charged continuously).
+- **Monthly Cost Scenarios**:
+  1. **Continuous 24/7 Running**:
+     - `(730 hrs × $1.05) + $20 SSD` = **~$785 / month (~₹65,000 / month)**.
+  2. **10 Working Hours / Day (Monday – Friday, ~22 days = 220 active hrs/mo)**:
+     - Compute: `220 hrs × $1.05` = **$231.00**
+     - Storage (200 GB SSD): **$20.00**
+     - **Total Monthly Bill**: **~$251 / month (~₹20,900 / month)**.
+  3. **10 Working Hours / Day (Every day, 30 days = 300 active hrs/mo)**:
+     - Compute: `300 hrs × $1.05` = **$315.00**
+     - Storage (200 GB SSD): **$20.00**
+     - **Total Monthly Bill**: **~$335 / month (~₹27,900 / month)**.
+  4. **Budget GPU Option (`g2-standard-4`, 16 GB RAM + L4 GPU at $0.82/hr)**:
+     - 10 hrs/day (22 days): `(220 hrs × $0.82) + $20` = **~$200 / month (~₹16,700 / month)**.
+  5. **GCP CPU-Only VM (`e2-standard-8`, 8 vCPU, 32 GB RAM at $0.267/hr + Vision OCR)**:
+     - 10 hrs/day (22 days): `(220 hrs × $0.267) + $15 (disk + OCR)` = **~$74 / month (~₹6,150 / month)**.
+- **Operational Overhead of Scheduled Office Hours**:
+  - Requires automated **Cloud Scheduler** + Cloud Function triggers to start at 9:00 AM and stop at 7:00 PM IST daily.
+  - Risk of interrupting long-running extraction jobs if users are active near shutdown time.
+  - 1–2 minute daily boot and VRAM model re-loading latency for the first morning request.
+  - Even with a strict 10-hr limit, **~₹20,900/mo is still ~13x more expensive than the 24/7 Hybrid Stack (~₹1,600/mo)**.
 
 ### Option 2: Pure GCP Serverless Stack (Cloud Run + Vision OCR + Gemini Flash)
 - **Cloud Run (Backend)**: Scales to zero when idle. Free tier includes 2 million requests and 180,000 vCPU-seconds per month. (Estimated cost: **$0 – $5 / month**).
