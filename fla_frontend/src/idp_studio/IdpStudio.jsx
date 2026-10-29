@@ -278,7 +278,9 @@ export default function IdpStudio() {
           let hasCellData = false;
           rules.forEach(r => {
             const rField = r.form_field || '';
-            const rVal = extractedData.find(e => e.key === r.extracted_key)?.value || r.extracted_value || r.extracted_key;
+            const foundItem = extractedData.find(e => e.key === r.extracted_key);
+            const rVal = foundItem ? foundItem.value : (r.scope_type === 'DIRECT_SELECTION' ? (r.extracted_value || r.extracted_key) : null);
+            if (!rVal) return;
             if (rField.startsWith(`${field.id}[`)) {
               payload[rField] = rVal;
               const m = rField.match(/\[(\d+)\]\.(.+)$/);
@@ -300,7 +302,11 @@ export default function IdpStudio() {
           const rule = rules.find(r => r.form_field === field.id);
           if (rule) {
             const extractedItem = extractedData.find(e => e.key === rule.extracted_key);
-            payload[field.id] = extractedItem ? extractedItem.value : (rule.extracted_value || rule.extracted_key);
+            if (extractedItem) {
+              payload[field.id] = extractedItem.value;
+            } else if (rule.scope_type === 'DIRECT_SELECTION' || ['yes', 'no'].includes(String(rule.extracted_key || '').trim().toLowerCase())) {
+              payload[field.id] = rule.extracted_value || rule.extracted_key;
+            }
           } else if (activeSelections[field.id]) {
             payload[field.id] = activeSelections[field.id];
           }

@@ -3889,7 +3889,128 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
                         extracted["llpformno8.section_1.field_5"] = hydrated
                         break
 
+    # 10. Form GNL-1 Deterministic Fast-Path Extraction
+    if "gnl" in tmpl_lower and "1" in tmpl_lower:
+        f_text_l = full_text.lower()
+        if "compounding" in f_text_l:
+            extracted["gnl1.main.field_1a"] = "Compounding of offences"
+        elif "annual general meeting" in f_text_l and "extension" in f_text_l:
+            extracted["gnl1.main.field_1a"] = "Extension of period of annual general meeting by three months"
+        elif "scheme" in f_text_l and ("amalgamation" in f_text_l or "arrangement" in f_text_l):
+            extracted["gnl1.main.field_1a"] = "Scheme of arrangement, amalgamation"
+
+        if stat_entities.get("primary_cin"):
+            extracted["gnl1.main.field_2"] = "Company"
+            extracted["gnl1.main.field_3"] = stat_entities["primary_cin"]
+
+        m_roc = re.search(r'(?:registrar\s+of\s+companies|roc)\s*[,:\-\s]+\s*([A-Za-z\s]+?)(?:\s*\n|\s*,|\s*\.)', full_text, re.IGNORECASE)
+        if m_roc:
+            roc_loc = m_roc.group(1).strip()
+            if len(roc_loc) < 30 and not any(w in roc_loc.lower() for w in ["section", "act", "form", "the"]):
+                extracted["gnl1.main.field_4"] = roc_loc
+
+        extracted["gnl1.main.field_8a"] = "Company"
+
+        m_notice = re.search(r'(?:notice\s+(?:no|number)|f\.?\s*no\.?|ref(?:\s+no)?)\s*[:\-]?\s*([A-Za-z0-9/\-._()]+)', full_text, re.IGNORECASE)
+        if m_notice and len(m_notice.group(1)) > 3:
+            extracted["gnl1.main.field_8d"] = "In pursuance to a notice"
+            extracted["gnl1.main.field_8e"] = m_notice.group(1).strip()
+        else:
+            extracted["gnl1.main.field_8d"] = "Suo-motu"
+
+        m_not_date = re.search(r'(?:dated|date\s+of\s+notice)\s*[:\-]?\s*(\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4})', full_text, re.IGNORECASE)
+        if m_not_date:
+            norm_d = parse_and_normalize_date(m_not_date.group(1))
+            if norm_d:
+                extracted["gnl1.main.field_8f"] = norm_d
+
+        m_sec = re.search(r'\bsection\s+(\d+[A-Za-z]?)\b', full_text, re.IGNORECASE)
+        if m_sec:
+            extracted["gnl1.main.field_8g"] = m_sec.group(1).strip()
+
+        extracted["gnl1.main.field_8q"] = "No"
+
+    # 11. Form INC-28 Deterministic Fast-Path Extraction (Act & Sections 5bi / 5bii)
+    if "inc" in tmpl_lower and "28" in tmpl_lower:
+        f_text_l = full_text.lower()
+        if "companies act, 1956" in f_text_l or "companies act 1956" in f_text_l:
+            extracted["formnoinc28.main.field_5a"] = "The Companies Act, 1956"
+        else:
+            extracted["formnoinc28.main.field_5a"] = "The Companies Act, 2013"
+
+        sec_matches = re.findall(r'\b(?:section|u/s|under\s+section)\s*(\d+[A-Za-z]?(?:\(\d+\))?)\b', full_text, re.IGNORECASE)
+        for sm in sec_matches:
+            clean_s = sm.strip().lower()
+            if "232" in clean_s:
+                extracted["formnoinc28.main.field_5bi"] = "232 - Amalgamation"
+                break
+            elif "230" in clean_s:
+                extracted["formnoinc28.main.field_5bi"] = "230(8) - Compromise and arrangement"
+                break
+            elif "66" in clean_s:
+                extracted["formnoinc28.main.field_5bi"] = "66(5) - Reduction of Share capital"
+                break
+            elif "441" in clean_s:
+                extracted["formnoinc28.main.field_5bi"] = "441 - Compounding order passed by NCLT"
+                break
+            elif "252" in clean_s:
+                extracted["formnoinc28.main.field_5bi"] = "252(2) - Appeal against order of ROC"
+                break
+            elif "12" in clean_s:
+                extracted["formnoinc28.main.field_5bi"] = "12(6) - Change in Registered Office from one RoC to another within the same State"
+                break
+            elif "13" in clean_s:
+                extracted["formnoinc28.main.field_5bi"] = "13(7) - Change in Registered Office from one State to another"
+                break
+            elif "394" in clean_s:
+                extracted["formnoinc28.main.field_5bii"] = "394(1) - Amalgamation"
+                extracted["formnoinc28.main.field_5a"] = "The Companies Act, 1956"
+                break
+            elif "391" in clean_s:
+                extracted["formnoinc28.main.field_5bii"] = "391 - Compromise and arrangement"
+                extracted["formnoinc28.main.field_5a"] = "The Companies Act, 1956"
+                break
+
     return extracted
+
+
+def is_safe_semantic_hint(hint: Optional[str]) -> bool:
+    """
+    Guards LLM prompt hints from bleeding hardcoded company values (CIN, PAN, personal names, dates, amounts).
+    Returns True only if the hint is an abstract field description / canonical label.
+    """
+    if not hint:
+        return False
+    h = str(hint).strip()
+    if len(h) < 2 or len(h) > 60:
+        return False
+    if h.lower() in ["yes", "no", "true", "false", "n/a", "none", "null"]:
+        return False
+    # Exclude CIN / LLPIN
+    if re.search(r'\b[LUu][0-9]{5}[A-Za-z]{2}[0-9]{4}[A-Za-z]{3}[0-9]{6}\b', h) or re.search(r'\b[A-Za-z]{3}-?[0-9]{4,7}\b', h):
+        return False
+    # Exclude PAN / DIN / SRN
+    if re.search(r'\b[A-Za-z]{5}[0-9]{4}[A-Za-z]\b', h) or re.search(r'\b[0-9]{8}\b', h) or re.search(r'\b[A-Za-z]{1,2}[0-9]{7,8}\b', h):
+        return False
+    # Exclude emails
+    if "@" in h:
+        return False
+    # Exclude dates
+    if re.search(r'\b\d{1,2}[/.\-]\d{1,2}[/.\-]\d{2,4}\b', h):
+        return False
+    # Exclude company entity names
+    if re.search(r'\b(?:private\s+limited|pvt\s+ltd|pvt\.\s*ltd|limited|llp|ifsc)\b', h, re.IGNORECASE):
+        return False
+    # Exclude addresses
+    if re.search(r'\b(?:plot\s+no|sector|flat\s+no|road|street|garden|colony|nagar|pin\s*code|zip)\b', h, re.IGNORECASE) or re.search(r'\b\d{6}\b', h):
+        return False
+    # Exclude monetary figures / share count
+    if re.search(r'(?:inr|rs\.?|₹)\s*[0-9,]+', h, re.IGNORECASE) or re.search(r'^[0-9,]+(?:\.[0-9]+)?$', h):
+        return False
+    # Exclude court order case numbers
+    if re.search(r'\b(?:cp|ca|caa|nclt|slp|wp)[\s/]*\d+', h, re.IGNORECASE):
+        return False
+    return True
 
 
 @router.post("/extract/batch")
@@ -4084,11 +4205,12 @@ async def extract_batch_documents(
                         if rule.form_field not in seen_rule_fields and rule.form_field not in extracted_lookup:
                             seen_rule_fields.add(rule.form_field)
                             any_dom_miss = True
+                            safe_hint = rule.extracted_key if is_safe_semantic_hint(rule.extracted_key) else None
                             extracted_fields.append({
                                 "key": rule.form_field,
                                 "value": None,
                                 "_source": "pending_llm",
-                                "_hint": rule.extracted_key
+                                "_hint": safe_hint
                             })
 
             elif field_label_map:
@@ -4142,12 +4264,13 @@ async def extract_batch_documents(
 
                                 label = field_label_map.get(raw_key, "")
                                 hint = pf.get("_hint", "")
-                                if label and hint and hint.lower() not in label.lower():
-                                    desc = f"{label} (Alias / Hint: {hint})"
+                                safe_hint_val = hint if is_safe_semantic_hint(hint) else None
+                                if label and safe_hint_val and safe_hint_val.lower() not in label.lower():
+                                    desc = f"{label} (Alias / Hint: {safe_hint_val})"
                                 elif label:
                                     desc = label
-                                elif hint:
-                                    desc = hint
+                                elif safe_hint_val:
+                                    desc = safe_hint_val
                                 else:
                                     clean_name = raw_key.replace("field_", "")
                                     clean_name = re.sub(r'^[0-9]+[a-z]?\s*', '', clean_name)

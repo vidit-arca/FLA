@@ -361,12 +361,14 @@ export default function IdpProductionApp() {
       });
     });
 
-    // Incorporate learned / mapped template rules if not already present from uploadedFiles
+    // Only incorporate explicit DIRECT_SELECTION rules (e.g. static "Yes"/"No" statutory choices).
+    // Strict guard: Never bleed arbitrary entity text from previous DB mappings into new unmapped company uploads.
     if (templateRules && Array.isArray(templateRules)) {
       templateRules.forEach(r => {
         const rField = r.form_field;
-        const rVal = r.extracted_value ?? r.value;
-        if (isFieldMapped(rVal) && !isFieldMapped(payload[rField])) {
+        const rVal = r.extracted_value ?? r.value ?? (r.scope_type === 'DIRECT_SELECTION' ? r.extracted_key : null);
+        const isDirectChoice = r.scope_type === 'DIRECT_SELECTION' || ['yes', 'no'].includes(String(rVal || '').trim().toLowerCase());
+        if (isDirectChoice && isFieldMapped(rVal) && !isFieldMapped(payload[rField])) {
           payload[rField] = rVal;
         }
       });
@@ -523,27 +525,7 @@ export default function IdpProductionApp() {
         }
       }
 
-      if (templateRules && Array.isArray(templateRules)) {
-        for (const r of templateRules) {
-          const rKey = r.form_field || '';
-          const rVal = r.extracted_value ?? r.value;
-          if (!isFieldMapped(rVal)) continue;
-          if (rKey.includes(`${fid}[`) || (shortId && rKey.includes(`${shortId}[`))) {
-            const m = rKey.match(/\[(\d+)\]\.(.+)$/);
-            if (m) {
-              const rIdx = parseInt(m[1], 10);
-              const colKey = m[2];
-              while (baseRows.length <= rIdx) {
-                baseRows.push(cols.reduce((acc, col) => ({ ...acc, [col.key]: '' }), {}));
-              }
-              if (!baseRows[rIdx][colKey] || baseRows[rIdx][colKey] === '') {
-                baseRows[rIdx][colKey] = rVal;
-                hasCellData = true;
-              }
-            }
-          }
-        }
-      }
+
 
       if (!hasCellData && cols.length > 0) {
         let singleRow = {};
