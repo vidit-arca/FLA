@@ -21,8 +21,8 @@ function App() {
   const isReviewMode = window.location.pathname.startsWith('/review/') && window.location.pathname !== '/review';
   const { isDarkMode, toggleTheme } = useTheme();
 
-  const isIdpStudio = window.location.pathname === '/idp-studio';
-  const isIdpExtract = window.location.pathname === '/idp-extract';
+  const isIdpStudio = window.location.pathname.startsWith('/idp-studio');
+  const isIdpExtract = window.location.pathname.startsWith('/idp-extract');
 
   if (isReviewMode) {
     return (
@@ -189,6 +189,8 @@ function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/review" element={<ReviewPage />} />
               <Route path="/compare" element={<ComparisonPlatform />} />
+              <Route path="/idp-extract" element={<IdpProductionApp />} />
+              <Route path="/idp-studio" element={<IdpStudio />} />
               <Route path="/m/:moduleId" element={<GenericHub />} />
               <Route path="/m/:moduleId/upload" element={<GenericUpload />} />
               <Route path="/m/:moduleId/task/:taskId" element={<GenericTaskView />} />

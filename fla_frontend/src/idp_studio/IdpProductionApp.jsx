@@ -67,6 +67,18 @@ export default function IdpProductionApp() {
 
   const [templateRules, setTemplateRules] = useState([]);
 
+  // Compute activeFormSchema from current template
+  const currentTmpl = templates.find(t => t.template_name === templateName || t.template_id === templateName);
+  let activeFormSchema = null;
+  if (currentTmpl && currentTmpl.fields_json) {
+    try {
+      const raw = typeof currentTmpl.fields_json === 'string' ? JSON.parse(currentTmpl.fields_json) : currentTmpl.fields_json;
+      activeFormSchema = Array.isArray(raw) ? { fields: raw } : raw;
+    } catch (e) {
+      console.warn("Could not parse activeFormSchema for", templateName, e);
+    }
+  }
+
   useEffect(() => {
     fetchTemplates();
   }, []);
