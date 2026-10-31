@@ -2568,89 +2568,78 @@ def _extract_value_from_dom_node(node, target_col_index: Optional[int] = None) -
     return ""
 
 
-def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_name: str):
+def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_name: str, form_field: Optional[str] = None):
     """
-    Tier 1 extraction: Attempts to extract a value for a variable_name using saved DOM rules.
-    Navigates via saved dom_path JSON and handles both table cells and text sentences.
+    Tier 1 Adaptive DOM extraction:
+    Attempts to extract a value for a variable_name using Adaptive DOM structural scoring.
+    Leverages learned synonyms from scenario lexicon, fuzzy section context, and candidate row scoring.
     Returns (value_str, dom_path_json) or (None, None).
     """
     try:
         clean_var = variable_name.strip().lower()
         import json as python_json
 
-        # Check if we have a DOM rule for this variable
+        # 1. Harvest synonyms from scenario lexicon and alias rules
+        synonyms = []
+        try:
+            from .extractors.spatial import get_scenario_lexicon
+            lexicon = get_scenario_lexicon(template_name)
+            # Check for synonyms under form_field or matching keys
+            for f_key, syn_list in lexicon.items():
+                if form_field and f_key == form_field:
+                    synonyms.extend(syn_list)
+                elif clean_var in f_key.lower() or f_key.lower() in clean_var:
+                    synonyms.extend(syn_list)
+        except Exception:
+            pass
+
+        # 2. Check if we have a saved DOM rule for this variable
         dom_rule = db.query(models.DomExtractionRule).filter(
             models.DomExtractionRule.template_name == template_name,
             models.DomExtractionRule.variable_name.ilike(f"%{clean_var}%")
         ).order_by(models.DomExtractionRule.success_count.desc()).first()
 
-        if not dom_rule:
-            return None, None
+        expected_section = None
+        target_col_index = None
+
+        if dom_rule and dom_rule.dom_path:
+            try:
+                path_list = python_json.loads(dom_rule.dom_path)
+                if isinstance(path_list, list):
+                    for step in path_list:
+                        s_type = (step.get("type") or "").lower()
+                        if s_type == "section" and step.get("text"):
+                            expected_section = step.get("text")
+                        if s_type == "row" and step.get("label"):
+                            if step.get("label") not in synonyms:
+                                synonyms.append(step.get("label"))
+                        if step.get("col_index") is not None:
+                            target_col_index = step.get("col_index")
+            except Exception:
+                pass
 
         q = _get_dom_query_from_markdown(markdown_text)
         if q is None:
             return None, None
 
+        # 3. Adaptive Structural Scoring
+        ranked = q.score_candidate_rows(
+            variable_name=variable_name,
+            synonyms=synonyms,
+            expected_section=expected_section
+        )
+
         matched_node = None
-        target_col_index = None
+        chosen_col_index = target_col_index
 
-        # Tier A: Try navigating via saved dom_path JSON if present
-        if dom_rule.dom_path:
-            try:
-                path_list = python_json.loads(dom_rule.dom_path)
-                if path_list and isinstance(path_list, list) and len(path_list) > 0:
-                    last_path_item = path_list[-1]
-                    target_col_index = last_path_item.get("col_index")
-
-                    if hasattr(q, '_root') and q._root:
-                        current_node = q._root
-                        # True structural traversal: Walk down the tree following the path steps
-                        for step_idx, step in enumerate(path_list):
-                            step_type = (step.get("type") or "").lower()
-                            
-                            # Skip the Document node step if we are already at it
-                            if step_idx == 0 and step_type == "document":
-                                continue
-                                
-                            best_child = None
-                            if hasattr(current_node, 'children') and current_node.children:
-                                for child in current_node.children:
-                                    child_type_str = str(getattr(child, 'node_type', '')).lower()
-                                    if step_type in child_type_str or child_type_str.endswith(step_type):
-                                        step_label = (step.get("label") or "").strip().lower()
-                                        step_text = (step.get("text") or "").strip().lower()
-                                        
-                                        child_label = (child.metadata.get("row_label") or "").strip().lower() if hasattr(child, 'metadata') and child.metadata else ""
-                                        child_text = (getattr(child, 'text', '') or "").strip().lower()
-                                        
-                                        # Prefer exact label/text match
-                                        if step_label and (step_label in child_label or step_label in child_text):
-                                            best_child = child
-                                            break
-                                        if step_text and step_text in child_text:
-                                            best_child = child
-                                            break
-                                            
-                                        # Fallback: if no specific label/text to match, just take the first matching type
-                                        if not best_child and not step_label and not step_text:
-                                            best_child = child
-                            
-                            if best_child:
-                                current_node = best_child
-                            else:
-                                # Path broke, we can't find the next child
-                                current_node = None
-                                break
-                                
-                        if current_node and current_node != q._root:
-                            matched_node = current_node
-            except Exception as path_err:
-                print(f"[DOM] Path navigation error: {path_err}")
-
-
-
-        # Tier B: Fallback if structural path broke or did not match: find row/text directly via DOMQuery
-        if not matched_node and q:
+        if ranked and ranked[0][0] >= 10.0:
+            best_score, best_row, scored_col = ranked[0]
+            matched_node = best_row
+            if scored_col is not None and chosen_col_index is None:
+                chosen_col_index = scored_col
+            print(f"[DOM][Adaptive] Matched candidate row (score={best_score:.1f}) for '{variable_name}': '{getattr(best_row, 'text', '')[:60]}'")
+        else:
+            # Fallback direct lookup
             matches = q.find_row(clean_var) or q.find_by_text(clean_var)
             if matches:
                 matched_node = matches[0]
@@ -2662,40 +2651,42 @@ def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_nam
         if hasattr(matched_node, 'node_type') and str(matched_node.node_type).endswith('CELL'):
             value = (getattr(matched_node, 'text', '') or '').strip()
         else:
-            value = _extract_value_from_dom_node(matched_node, target_col_index=target_col_index)
+            value = _extract_value_from_dom_node(matched_node, target_col_index=chosen_col_index)
 
         if not value:
             return None, None
 
-        # Guard 1: Reject large paragraph blocks — pass to LLM instead
-        if len(str(value)) > len(str(variable_name)) + 20 and len(str(value).split()) > 5:
-            print(f"[DOM] ❌ Rejected '{variable_name}' — grabbed large paragraph ({len(str(value))} chars). Passing to LLM.")
+        # Value Guards
+        val_clean = str(value).strip()
+
+        # Guard 1: Reject large unformatted paragraph blocks (unless variable explicitly expects text block)
+        if len(val_clean) > len(str(variable_name)) + 60 and len(val_clean.split()) > 12:
+            print(f"[DOM] ❌ Rejected '{variable_name}' — grabbed oversized paragraph block ({len(val_clean)} chars).")
             return None, None
 
-        # Guard 2: Reject self-referential extractions for text labels (e.g. value == "Corporate Office" when searching for "Corporate Office")
-        if not re.search(r'\d', str(variable_name)) and str(value).strip().lower() == str(variable_name).strip().lower():
-            print(f"[DOM] ❌ Rejected '{variable_name}' — value is same as the label (self-referential). Passing to LLM.")
+        # Guard 2: Reject self-referential extractions for non-numeric text labels
+        if not re.search(r'\d', str(variable_name)) and val_clean.lower() == str(variable_name).strip().lower():
+            print(f"[DOM] ❌ Rejected '{variable_name}' — value equals label (self-referential).")
             return None, None
 
-        # Guard 3: Reject URLs as values (e.g. www.kritilabs.com returned as Corporate Office address)
-        val_stripped = str(value).strip().lower()
-        if val_stripped.startswith("www.") or val_stripped.startswith("http://") or val_stripped.startswith("https://"):
-            print(f"[DOM] ❌ Rejected '{variable_name}' — value is a URL, not a field value. Passing to LLM.")
+        # Guard 3: Reject URLs as values
+        val_lower = val_clean.lower()
+        if val_lower.startswith("www.") or val_lower.startswith("http://") or val_lower.startswith("https://"):
+            print(f"[DOM] ❌ Rejected '{variable_name}' — value is a URL.")
             return None, None
 
-        # Safely increment success_count on the rule without failing extraction on DB write errors
-        try:
-            dom_rule.success_count = (dom_rule.success_count or 0) + 1
-            db.commit()
-            print(f"[DOM] ✓ Extracted '{variable_name}' = '{value}' via DOM rule (success #{dom_rule.success_count})")
-        except Exception as write_err:
+        # Safely increment or create success count
+        if dom_rule:
             try:
-                db.rollback()
+                dom_rule.success_count = (dom_rule.success_count or 0) + 1
+                db.commit()
+                print(f"[DOM] ✓ Extracted '{variable_name}' = '{val_clean}' via DOM rule (success #{dom_rule.success_count})")
             except Exception:
-                pass
-            print(f"[DOM] ⚠ Extracted '{variable_name}' = '{value}' via DOM rule (counter update skipped: {write_err})")
+                db.rollback()
+        else:
+            print(f"[DOM] ✓ Extracted '{variable_name}' = '{val_clean}' via Adaptive DOM scoring")
 
-        return value, dom_rule.dom_path
+        return val_clean, (dom_rule.dom_path if dom_rule else None)
 
     except Exception as e:
         try:
@@ -2808,6 +2799,127 @@ async def get_structured_document(filename: str):
     if not doc:
         raise HTTPException(status_code=404, detail="Structured document not available.")
     return {"structured_document": doc}
+
+
+class FeedbackFieldItem(BaseModel):
+    form_field: str
+    value: Any
+    label: Optional[str] = None
+    spatial_meta: Optional[Dict[str, Any]] = None
+
+
+class LearnFeedbackPayload(BaseModel):
+    template_name: str
+    filename: Optional[str] = None
+    confirmed_fields: List[FeedbackFieldItem]
+    company_id: Optional[str] = "default"
+    scenario: Optional[str] = "default"
+
+
+@router.post("/learn_from_feedback")
+async def learn_from_feedback(payload: LearnFeedbackPayload, db: Session = Depends(get_db)):
+    """
+    Active Self-Learning Feedback Loop Endpoint:
+    When a user approves or corrects fields in the Review UI, this endpoint maps
+    the confirmed values back to the document's DOM and spatial coordinates, updating
+    the template's learned structural memory so future documents extract automatically.
+    """
+    learned_dom_count = 0
+    learned_spatial_count = 0
+    q = None
+
+    if payload.filename and payload.filename in DOCUMENT_DOM_CACHE:
+        q = DOCUMENT_DOM_CACHE[payload.filename].get("query")
+
+    for item in payload.confirmed_fields:
+        val_str = str(item.value).strip() if item.value is not None else ""
+        if not val_str or val_str in ["Unknown", "N/A", "None"]:
+            continue
+
+        var_label = item.label or item.form_field
+        matched_node = None
+
+        # 1. Update DOM Structural Signature
+        if q:
+            # Look for exact matching cell first
+            cells = q.find_by_text(val_str, exact=True, node_type=models.NodeType.CELL if hasattr(models, 'NodeType') else None)
+            if cells:
+                matched_node = cells[0]
+            else:
+                # Look for matching row or cell with substring
+                candidates = q.find_by_text(val_str)
+                if candidates:
+                    matched_node = candidates[0]
+
+            if matched_node and hasattr(q, 'get_structural_path'):
+                path = q.get_structural_path(matched_node)
+                if path:
+                    dom_path_str = json.dumps(path)
+                    existing_dom = db.query(models.DomExtractionRule).filter(
+                        models.DomExtractionRule.template_name == payload.template_name,
+                        models.DomExtractionRule.variable_name == var_label
+                    ).first()
+
+                    if existing_dom:
+                        existing_dom.dom_path = dom_path_str
+                        existing_dom.success_count = (existing_dom.success_count or 0) + 1
+                    else:
+                        db.add(models.DomExtractionRule(
+                            rule_id=str(uuid.uuid4()),
+                            template_name=payload.template_name,
+                            variable_name=var_label,
+                            dom_path=dom_path_str,
+                            success_count=1
+                        ))
+                    learned_dom_count += 1
+
+        # 2. Update Spatial Memory & Alias Lexicon
+        spatial_json = None
+        if item.spatial_meta:
+            spatial_json = json.dumps(item.spatial_meta) if isinstance(item.spatial_meta, dict) else str(item.spatial_meta)
+
+        scope_type = "COMPANY" if payload.company_id and payload.company_id != "default" else ("SCENARIO" if payload.scenario and payload.scenario != "default" else "GLOBAL")
+        priority = 3 if scope_type == "COMPANY" else (2 if scope_type == "SCENARIO" else 1)
+
+        existing_alias = db.query(models.SchemaAliasRule).filter(
+            models.SchemaAliasRule.template_name == payload.template_name,
+            models.SchemaAliasRule.form_field == item.form_field,
+            models.SchemaAliasRule.scope_type == scope_type,
+            models.SchemaAliasRule.scope_id == (payload.company_id if scope_type == "COMPANY" else (payload.scenario or "default"))
+        ).first()
+
+        if existing_alias:
+            existing_alias.extracted_key = var_label
+            if spatial_json:
+                existing_alias.spatial_meta_json = spatial_json
+            learned_spatial_count += 1
+        else:
+            db.add(models.SchemaAliasRule(
+                rule_id=str(uuid.uuid4()),
+                template_name=payload.template_name,
+                form_field=item.form_field,
+                extracted_key=var_label,
+                spatial_meta_json=spatial_json,
+                scope_type=scope_type,
+                scope_id=(payload.company_id if scope_type == "COMPANY" else (payload.scenario or "default")),
+                priority=priority
+            ))
+            learned_spatial_count += 1
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to persist feedback: {e}")
+
+    return {
+        "status": "success",
+        "template_name": payload.template_name,
+        "learned_dom_rules": learned_dom_count,
+        "learned_spatial_rules": learned_spatial_count
+    }
+
+
 @router.post("/rules_batch_save")
 async def save_rules_batch(
     template_name: str = Form(...),
@@ -3723,8 +3835,8 @@ def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_labe
             for f_id, label in field_label_map.items():
                 f_low = (f_id or "").lower()
                 l_low = (label or "").lower()
-                # Target specific leaf count fields, NOT parent section headers!
-                if ("number of shares" in l_low or "no. of shares" in l_low or "num_shares" in f_low) and "particulars" not in l_low:
+                # Target specific leaf count fields, NOT parent section headers, and do not overwrite prior form-specific matches
+                if f_id not in extracted and ("number of shares" in l_low or "no. of shares" in l_low or "num_shares" in f_low) and "particulars" not in l_low:
                     extracted[f_id] = raw_sh
 
     # Date of Entry of name in register of members / charges (e.g. MGT-6 4(p), BEN-2)
@@ -4058,6 +4170,7 @@ async def extract_batch_documents(
 
     for file in files:
         filename = file.filename
+        opened_pdf_instance = None
         try:
             pdf_bytes = await file.read()
             extracted_fields = []
@@ -4067,8 +4180,14 @@ async def extract_batch_documents(
             q = None
             doc_type = "generic"
 
-            # --- TIER 0: Direct Excel (.xlsx / .xls) and Markdown (.md) Parsing ---
             fname_lower = filename.lower()
+            if fname_lower.endswith('.pdf'):
+                try:
+                    opened_pdf_instance = pdfplumber.open(io.BytesIO(pdf_bytes))
+                except Exception as open_err:
+                    print(f"[Batch] Failed to open pdfplumber instance: {open_err}")
+
+            # --- TIER 0: Direct Excel (.xlsx / .xls) and Markdown (.md) Parsing ---
             if fname_lower.endswith(('.xlsx', '.xls', '.md', '.txt')):
                 is_fla_template = "fla" in (template_name or "").lower()
                 if is_fla_template:
@@ -4189,16 +4308,43 @@ async def extract_batch_documents(
                     variable_name = rule.extracted_key
                     dom_value = None
 
-                    # Try DOM navigation first
+                    # Tier 1: Try Adaptive DOM extraction first
                     if full_text:
-                        dom_value, _ = _try_dom_extraction(full_text, variable_name, db, template_name)
+                        dom_value, _ = _try_dom_extraction(full_text, variable_name, db, template_name, form_field=rule.form_field)
 
-                    if dom_value:
-                        extracted_lookup[rule.form_field] = dom_value
+                    # Tier 1.5: Spatial Bounding-Box / Anchor Extraction
+                    spatial_value = None
+                    if rule.spatial_meta_json and pdf_bytes:
+                        try:
+                            from .extractors.spatial import extract_text_from_spatial_meta
+                            spatial_value = extract_text_from_spatial_meta(
+                                pdf_bytes,
+                                rule.spatial_meta_json,
+                                opened_pdf=opened_pdf_instance
+                            )
+                        except Exception as sp_err:
+                            print(f"[Batch][Spatial] Spatial extraction error for {rule.form_field}: {sp_err}")
+
+                    # Hybrid Disambiguation & Resolution
+                    resolved_val = None
+                    resolved_source = None
+
+                    if dom_value and spatial_value:
+                        resolved_val = dom_value
+                        resolved_source = "dom_spatial_verified"
+                    elif dom_value:
+                        resolved_val = dom_value
+                        resolved_source = "dom"
+                    elif spatial_value:
+                        resolved_val = spatial_value
+                        resolved_source = "spatial"
+
+                    if resolved_val:
+                        extracted_lookup[rule.form_field] = resolved_val
                         extracted_fields.append({
                             "key": rule.form_field,
-                            "value": dom_value,
-                            "_source": "dom"
+                            "value": resolved_val,
+                            "_source": resolved_source
                         })
                     else:
                         # Mark as needing LLM fallback only if not already marked for this field
@@ -4474,6 +4620,12 @@ Document Text:
                 "status": "review",
                 "extracted_fields": []
             })
+        finally:
+            if opened_pdf_instance:
+                try:
+                    opened_pdf_instance.close()
+                except Exception:
+                    pass
 
     # Build unified dossier return across all uploaded files for the session
     dossier_map = {}

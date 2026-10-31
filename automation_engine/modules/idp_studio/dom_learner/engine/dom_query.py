@@ -224,6 +224,139 @@ class DOMQuery:
             if col_lower in c.metadata.get("column_header", "").strip().lower()
         ]
 
+    # ===== Adaptive Structural Scoring =====================================
+
+    def score_candidate_rows(
+        self,
+        variable_name: str,
+        synonyms: list[str] | None = None,
+        expected_section: str | None = None,
+        target_type: str | None = None,
+    ) -> list[tuple[float, DOMNode, int | None]]:
+        """Scores all candidate rows in the document for *variable_name* using
+        multi-factor fuzzy structural matching.
+
+        Factors:
+            • Label match: exact/substring overlap with variable_name & synonyms.
+            • Section context: rewards rows inside sections matching expected_section.
+            • Content quality: rewards rows having structured, non-header values.
+            • OCR garbage penalties: penalizes dates acting as financial numbers.
+
+        Returns:
+            List of ``(score, row_node, best_col_index)`` tuples sorted by score descending.
+        """
+        targets = [variable_name.strip().lower()]
+        if synonyms:
+            for s in synonyms:
+                if s and s.strip():
+                    t = s.strip().lower()
+                    if t not in targets:
+                        targets.append(t)
+
+        candidates: list[DOMNode] = []
+        # Find candidate rows matching any target label/synonym
+        seen_row_ids = set()
+        for t in targets:
+            for r in self.find_row(t):
+                if r.id not in seen_row_ids:
+                    seen_row_ids.add(r.id)
+                    candidates.append(r)
+            # Also check cell text matches whose parent is a row
+            for c in self.find_by_text(t, node_type=NodeType.CELL):
+                if c.parent and c.parent.node_type == NodeType.ROW:
+                    if c.parent.id not in seen_row_ids:
+                        seen_row_ids.add(c.parent.id)
+                        candidates.append(c.parent)
+
+        if not candidates:
+            # Fallback: check all rows
+            candidates = self.find_all(NodeType.ROW)
+
+        scored: list[tuple[float, DOMNode, int | None]] = []
+
+        def _is_numeric(s: str) -> bool:
+            clean = s.replace(",", "").replace(".", "").replace("-", "").replace("₹", "").replace("INR", "").strip()
+            return bool(clean and clean.isdigit())
+
+        for row in candidates:
+            row_text = (row.text or "").strip().lower()
+            row_label = (row.metadata.get("row_label") or "").strip().lower()
+            combined_label = f"{row_label} {row_text}"
+
+            score = 0.0
+
+            # 1. Label / Synonym Match
+            best_label_score = 0.0
+            for t in targets:
+                if t == row_label or (len(t) > 3 and t == row_text):
+                    best_label_score = max(best_label_score, 20.0)
+                elif f"| {t}" in combined_label or f"{t} |" in combined_label:
+                    best_label_score = max(best_label_score, 18.0)
+                elif f"total {t}" in combined_label or f"{t} (net)" in combined_label:
+                    best_label_score = max(best_label_score, 16.0)
+                elif t in combined_label:
+                    # Token overlap ratio
+                    t_tokens = set(re.findall(r"[a-z0-9]{3,}", t))
+                    r_tokens = set(re.findall(r"[a-z0-9]{3,}", combined_label))
+                    overlap = len(t_tokens & r_tokens)
+                    if overlap >= 2:
+                        best_label_score = max(best_label_score, 10.0 + (overlap * 2.0))
+                    elif overlap == 1 and len(t_tokens) == 1:
+                        best_label_score = max(best_label_score, 8.0)
+
+            if best_label_score <= 0.0:
+                continue
+
+            score += best_label_score
+
+            # 2. Section Context Match
+            if expected_section and hasattr(row, 'section') and row.section:
+                sec_text = (row.section.text or "").strip().lower()
+                clean_exp_sec = re.sub(r'[\d\.\-_/]+', ' ', expected_section.lower()).strip()
+                exp_tokens = [w for w in clean_exp_sec.split() if len(w) > 3 and w not in ["schedule", "part", "annexure"]]
+                if exp_tokens and any(tk in sec_text for tk in exp_tokens):
+                    score += 15.0
+
+            # 3. Cell Quality and Value Extraction Target
+            cells = [c for c in row.children if c.node_type == NodeType.CELL]
+            best_col = None
+
+            if cells:
+                # Inspect cells for data values
+                numeric_indices = []
+                for idx, c in enumerate(cells):
+                    ct = c.text.strip()
+                    if _is_numeric(ct):
+                        numeric_indices.append((idx, ct))
+
+                if target_type == "number" or "amount" in variable_name.lower() or "shares" in variable_name.lower():
+                    if numeric_indices:
+                        score += 10.0
+                        # Prefer last numeric column (typically current year / total)
+                        best_col = numeric_indices[-1][0]
+                    else:
+                        score -= 10.0
+                elif numeric_indices:
+                    # Generic row with numeric columns
+                    best_col = numeric_indices[-1][0]
+                    score += 5.0
+                elif len(cells) >= 2:
+                    # Non-numeric key-value cell pair
+                    best_col = len(cells) - 1
+                    score += 5.0
+
+                # Penalize date headers acting as values
+                for idx, c in enumerate(cells):
+                    ct = c.text.strip().lower()
+                    if any(m in ct for m in ["march", "december", "january", "as at", "ended"]):
+                        if best_col == idx:
+                            score -= 30.0
+
+            scored.append((score, row, best_col))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return scored
+
     # ===== Note queries ====================================================
 
     def find_note(self, note_number: str) -> list[DOMNode]:

@@ -167,10 +167,25 @@ export default function IdpProductionApp() {
       const updated = [...prev];
       const doc = { ...updated[docIndex] };
       const fields = [...(doc.data || [])];
-      fields[fieldIndex] = { ...fields[fieldIndex], value: newValue };
+      const editedField = fields[fieldIndex];
+      fields[fieldIndex] = { ...editedField, value: newValue };
       doc.data = fields;
       doc.status = 'success';
       updated[docIndex] = doc;
+
+      // Active Learning Feedback loop
+      if (editedField?.key && newValue) {
+        idpClient.learnFromFeedback({
+          template_name: templateName,
+          filename: doc.file?.name,
+          confirmed_fields: [{
+            form_field: editedField.key,
+            value: newValue,
+            label: editedField.label || editedField.key
+          }]
+        }).catch(err => console.debug("Active learning sync non-fatal error:", err));
+      }
+
       return updated;
     });
   };

@@ -14,7 +14,13 @@ from .forms.kit_parser import InstructionKitParser
 from .forms.registry import FormRegistry
 from .forms.filler import DynamicFormFiller
 from .extractors.classifier import classify_document, detect_operative_statutory_branch
-from .extractors.spatial import apply_spatial_overrides, get_spatial_rules, get_effective_rules, get_scenario_lexicon
+from .extractors.spatial import (
+    apply_spatial_overrides,
+    get_spatial_rules,
+    get_effective_rules,
+    get_scenario_lexicon,
+    extract_text_from_spatial_meta,
+)
 from .extractors.fla_bridge import FLABridgeAdapter
 from .router import router
 
@@ -40,6 +46,7 @@ __all__ = [
     "get_spatial_rules",
     "get_effective_rules",
     "get_scenario_lexicon",
+    "extract_text_from_spatial_meta",
     "FLABridgeAdapter",
     # Router
     "router",

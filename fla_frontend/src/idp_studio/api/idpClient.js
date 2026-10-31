@@ -248,5 +248,15 @@ export const idpClient = {
             console.error('Error autofilling MCA form:', error);
             throw error;
         }
+    },
+
+    learnFromFeedback: async (payload) => {
+        try {
+            const response = await axios.post(`${API_BASE_URL}/learn_from_feedback`, payload);
+            return response.data;
+        } catch (error) {
+            console.error('Error submitting feedback to learning engine:', error);
+            throw error;
+        }
     }
 };
