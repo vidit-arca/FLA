@@ -1082,7 +1082,7 @@ class DocumentParser:
         try:
             from automation_engine.modules.idp_studio.spatial_extractor import apply_spatial_overrides
             # If IDP spatial rules are defined, they will override the extracted values
-            all_extracted = apply_spatial_overrides("FLA", ocr_outputs, all_extracted)
+            all_extracted = apply_spatial_overrides("FLA", ocr_outputs, all_extracted, docs_paths=docs_paths)
         except Exception as e:
             print(f"[!] IDP Studio override failed (non-fatal): {e}")
 

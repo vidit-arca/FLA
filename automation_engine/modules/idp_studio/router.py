@@ -11,6 +11,51 @@ import json as python_json
 import io
 import os
 import sys
+
+# ==============================================================================
+# VALUE CAPTURE REFINEMENT (form-agnostic)
+# ==============================================================================
+import re as _batch_re
+
+_VALUE_LIKE_PATTERNS_BATCH = [
+    _batch_re.compile(r'^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$'),
+    _batch_re.compile(r'^\d{4}[/-]\d{1,2}[/-]\d{1,2}$'),
+    _batch_re.compile(r'^\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}$', _batch_re.I),
+    _batch_re.compile(r'^[A-Za-z]+\s+\d{1,2},\s*\d{4}$'),
+    _batch_re.compile(r'^[\d,]+(\.\d{1,2})?$'),
+    _batch_re.compile(r'^(?:No|Yes|NA|N/A|Nil|None|True|False)$', _batch_re.I),
+]
+
+def _is_value_like_batch(term: str) -> bool:
+    t = term.strip()
+    if len(t) < 3:
+        return True
+    for pat in _VALUE_LIKE_PATTERNS_BATCH:
+        if pat.match(t):
+            return True
+    return False
+
+def _capture_value_after_term_batch(line: str, term: str) -> str:
+    idx = line.lower().find(term.lower())
+    if idx == -1:
+        return ''
+    after = line[idx + len(term):]
+    colon_idx = after.rfind(':')
+    if colon_idx != -1:
+        after = after[colon_idx + 1:]
+    after = after.strip(' :,-|•·\t').strip()
+    candidate = after.split('\n')[0].strip()[:120]
+    return candidate
+
+def _is_capture_clean_batch(candidate: str) -> bool:
+    if not candidate:
+        return False
+    if ':' in candidate and len(candidate.split(':')) > 1:
+        parts = candidate.split(':')
+        if len(parts[-1].strip()) < 2:
+            return False
+    return True
+
 import re
 
 from .core.db import get_db, engine, init_db
@@ -2597,6 +2642,20 @@ async def extract_batch_documents(
         schema_rules = db.query(models.SchemaAliasRule).filter(
             models.SchemaAliasRule.template_name == template_name
         ).all()
+        # Fallback: try all distinct templates in DB if exact name match yields nothing
+        if not schema_rules:
+            try:
+                all_templates = [r[0] for r in db.query(models.SchemaAliasRule.template_name).distinct().all()]
+            except Exception:
+                all_templates = []
+            for tn in all_templates:
+                r = db.query(models.SchemaAliasRule).filter(
+                    models.SchemaAliasRule.template_name == tn
+                ).all()
+                if r:
+                    schema_rules = r
+                    print(f"[Batch] Fallback template used: {tn} ({len(r)} rules)")
+                    break
 
     # Build field_label_map and field_dependency_map from IdpTemplate schema
     field_label_map = {}
@@ -2741,8 +2800,44 @@ async def extract_batch_documents(
 
                     variable_name = rule.extracted_key
                     dom_value = None
+                    direct_value = None
 
-                    # Try DOM navigation first
+                    # TIER 1A: Direct text matching using extracted_key as anchor (deterministic, no LLM needed)
+                    if full_text and variable_name:
+                        lines = full_text.splitlines()
+                        term_l = variable_name.strip().lower()
+                        # Skip terms that look like values (dates, amounts, short words)
+                        if _is_value_like_batch(variable_name):
+                            direct_value = None
+                        else:
+                            direct_value = None
+                            for i, line in enumerate(lines):
+                                if term_l in line.lower():
+                                    # Try same-line capture first (cleaned)
+                                    candidate = _capture_value_after_term_batch(line, variable_name)
+                                    if candidate and _is_capture_clean_batch(candidate):
+                                        direct_value = candidate
+                                        break
+                                    # Same-line not clean or empty: try next non-empty line(s)
+                                    for j in range(i + 1, min(i + 4, len(lines))):
+                                        nxt = lines[j].strip()
+                                        if nxt and not nxt.startswith("#"):
+                                            direct_value = nxt[:120]
+                                            break
+                                    if direct_value:
+                                        break
+
+                    if direct_value:
+                        extracted_lookup[rule.form_field] = direct_value
+                        extracted_fields.append({
+                            "key": rule.form_field,
+                            "value": direct_value,
+                            "_source": "direct_text"
+                        })
+                        print(f"[Batch] ✓ Direct text: {rule.form_field} = {direct_value!r} (key={variable_name!r})")
+                        continue
+
+                    # Try DOM navigation second
                     if full_text:
                         dom_value, _ = _try_dom_extraction(full_text, variable_name, db, template_name)
 
