@@ -297,3 +297,155 @@ class TestExtractionOptimizationSafeguards:
         )
         assert val == "L12345DL2020PLC123456"
 
+
+# =====================================================================
+# 5. P0 BLOCKER REMEDIATION TESTS
+# =====================================================================
+
+class TestP0BlockerRemediations:
+    def test_looks_like_number_currency_and_brackets(self):
+        """Verify _looks_like_number accurately identifies Indian currency, lakhs, and brackets."""
+        from automation_engine.modules.idp_studio.router import _looks_like_number
+        
+        valid_numbers = [
+            "₹ 1,50,000",
+            "₹1,50,000.00",
+            "Rs. 1,50,000",
+            "INR 1,50,000",
+            "(12,500)",
+            "( 12,500.00 )",
+            "(₹ 12,500)",
+            "-12,500",
+            "12,500.50",
+            "1,50,00,000",
+            "12,500 Cr",
+            "12,500 Dr",
+            "0",
+            "0.00"
+        ]
+        for val in valid_numbers:
+            assert _looks_like_number(val) is True, f"Expected {val!r} to be recognized as a number"
+
+        invalid_numbers = [
+            "Total Assets",
+            "Note 1",
+            "Form GNL-2",
+            "U85100TN2022PTC154992",
+            "",
+            None
+        ]
+        for val in invalid_numbers:
+            assert _looks_like_number(val) is False, f"Expected {val!r} to NOT be recognized as a number"
+
+    def test_normalize_accounting_brackets(self):
+        """Verify normalize_accounting_brackets converts (x) -> -x while preserving general text."""
+        from automation_engine.modules.idp_studio.router import normalize_accounting_brackets
+
+        assert normalize_accounting_brackets("(1,50,000)") == "-1,50,000"
+        assert normalize_accounting_brackets("( 12,500.50 )") == "-12,500.50"
+        assert normalize_accounting_brackets("₹ 1,50,000") == "₹ 1,50,000"
+        assert normalize_accounting_brackets("1,50,000") == "1,50,000"
+        assert normalize_accounting_brackets("Total Assets") == "Total Assets"
+        assert normalize_accounting_brackets(None) == ""
+
+    def test_normalize_template_token(self):
+        """Verify normalize_template_token creates canonical short keys for fuzzy template matching."""
+        from automation_engine.modules.idp_studio.router import normalize_template_token
+
+        assert normalize_template_token("Form No. PAS -6") == "pas6"
+        assert normalize_template_token("PAS-6") == "pas6"
+        assert normalize_template_token("Form MGT-6") == "mgt6"
+        assert normalize_template_token("MGT-6") == "mgt6"
+        assert normalize_template_token("Form No. ADT-1") == "adt1"
+        assert normalize_template_token("ADT-1") == "adt1"
+        assert normalize_template_token("GNL-2") == "gnl2"
+        assert normalize_template_token("Form No. GNL-2") == "gnl2"
+        assert normalize_template_token("LLP Form No. 11") == "llp11"
+        assert normalize_template_token("LLP-11") == "llp11"
+
+    def test_resolve_template_and_rules_fuzzy_matching(self):
+        """Verify resolve_template_and_rules connects variations like PAS-6 to Form No. PAS -6 in the DB."""
+        from automation_engine.modules.idp_studio.router import resolve_template_and_rules
+        from automation_engine.modules.idp_studio.core.db import get_db
+
+        db = next(get_db())
+        try:
+            # Test PAS-6 (short form) vs DB 'Form No. PAS -6'
+            tmpl_pas, rules_pas = resolve_template_and_rules(db, "PAS-6")
+            assert tmpl_pas is not None
+            assert tmpl_pas.template_name == "Form No. PAS -6"
+            assert len(rules_pas) >= 7
+
+            # Test MGT-6 (short form) vs DB 'Form MGT-6'
+            tmpl_mgt, rules_mgt = resolve_template_and_rules(db, "MGT-6")
+            assert tmpl_mgt is not None
+            assert tmpl_mgt.template_name == "Form MGT-6"
+            assert len(rules_mgt) >= 2
+
+            # Test ADT-1 (short form) vs DB 'Form No. ADT-1'
+            tmpl_adt, rules_adt = resolve_template_and_rules(db, "ADT-1")
+            assert tmpl_adt is not None
+            assert tmpl_adt.template_name == "Form No. ADT-1"
+            assert len(rules_adt) >= 5
+
+            # Test Form No. GNL-2 (verbose form) vs DB 'GNL-2'
+            tmpl_gnl, rules_gnl = resolve_template_and_rules(db, "Form No. GNL-2")
+            assert tmpl_gnl is not None
+            assert tmpl_gnl.template_name == "GNL-2"
+            assert len(rules_gnl) >= 4
+        finally:
+            db.close()
+
+    def test_normalize_pdf_rotation_bytes_various_angles(self):
+        """Verify normalize_pdf_rotation_bytes normalizes 90°, 180°, and 270° pages to 0°."""
+        import io
+        import pypdf
+        from automation_engine.modules.idp_studio.router import normalize_pdf_rotation_bytes
+
+        writer = pypdf.PdfWriter()
+        p0 = writer.add_blank_page(width=612, height=792)  # 0 deg
+        p90 = writer.add_blank_page(width=612, height=792)
+        p90.rotate(90)
+        p180 = writer.add_blank_page(width=612, height=792)
+        p180.rotate(180)
+        p270 = writer.add_blank_page(width=612, height=792)
+        p270.rotate(270)
+
+        buf = io.BytesIO()
+        writer.write(buf)
+        raw_pdf_bytes = buf.getvalue()
+
+        normalized_pdf_bytes = normalize_pdf_rotation_bytes(raw_pdf_bytes)
+        reader = pypdf.PdfReader(io.BytesIO(normalized_pdf_bytes))
+
+        assert len(reader.pages) == 4
+        assert [p.rotation for p in reader.pages] == [0, 0, 0, 0]
+
+    def test_run_triton_ocr_auto_normalizes_rotation_and_retries(self):
+        """Verify _run_triton_ocr_on_pdf_bytes normalizes rotation and retries on transient errors."""
+        import io
+        import pypdf
+        from unittest.mock import patch, MagicMock
+        from automation_engine.modules.idp_studio.router import _run_triton_ocr_on_pdf_bytes
+
+        # Create a sideways 90 deg PDF
+        writer = pypdf.PdfWriter()
+        p = writer.add_blank_page(width=612, height=792)
+        p.rotate(90)
+        buf = io.BytesIO()
+        writer.write(buf)
+        sideways_pdf = buf.getvalue()
+
+        # Mock Triton client: fail once with transient ConnectionError, succeed on 2nd attempt
+        mock_client = MagicMock()
+        mock_resp = MagicMock()
+        mock_resp.as_numpy.return_value = [b"# OCR Extracted Heading\nTable Content"]
+        mock_client.infer.side_effect = [ConnectionResetError("Connection dropped by peer"), mock_resp]
+
+        with patch("tritonclient.http.InferenceServerClient", return_value=mock_client):
+            res_md = _run_triton_ocr_on_pdf_bytes(sideways_pdf)
+            assert "OCR Extracted Heading" in res_md
+            assert mock_client.infer.call_count == 2
+
+
+

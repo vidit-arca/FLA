@@ -2358,6 +2358,79 @@ async def generate_preview_pdf(payload: Dict[str, Any] = Body(...), db: Session 
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"PDF Generation Error: {str(e)}")
 
+def normalize_template_token(name: str) -> str:
+    """
+    Normalizes template names to a canonical alphanumeric form for fuzzy matching.
+    e.g. 'Form No. PAS -6' -> 'pas6', 'Form MGT-6' -> 'mgt6', 'GNL-2' -> 'gnl2', 'Form No. ADT-1' -> 'adt1'.
+    """
+    if not name:
+        return ""
+    s = name.lower().strip()
+    s = re.sub(r'\b(?:form|no|number)\b\.?', '', s)
+    s = re.sub(r'[^a-z0-9]', '', s)
+    return s
+
+
+def resolve_template_and_rules(db: Session, template_name: Optional[str]):
+    """
+    Resolves an IdpTemplate and associated SchemaAliasRules using exact and normalized fuzzy matching.
+    Handles variations like 'PAS-6' vs 'Form No. PAS -6', 'MGT-6' vs 'Form MGT-6', 'GNL-2' vs 'Form No. GNL-2'.
+    
+    Returns:
+        (matched_template: Optional[IdpTemplate], schema_rules: List[SchemaAliasRule])
+    """
+    if not template_name:
+        return None, []
+    
+    from sqlalchemy import or_
+    # 1. Exact match on IdpTemplate by template_name or template_id
+    tmpl = db.query(models.IdpTemplate).filter(
+        or_(
+            models.IdpTemplate.template_name == template_name,
+            models.IdpTemplate.template_id == template_name
+        )
+    ).first()
+
+    all_templates = None
+    target_norm = normalize_template_token(template_name)
+    if not tmpl and target_norm:
+        all_templates = db.query(models.IdpTemplate).all()
+        # 2. Normalized alphanumeric match
+        for t in all_templates:
+            if normalize_template_token(t.template_name) == target_norm or normalize_template_token(t.template_id) == target_norm:
+                tmpl = t
+                break
+        # 3. Substring match fallback
+        if not tmpl:
+            for t in all_templates:
+                t_norm = normalize_template_token(t.template_name)
+                if t_norm and (target_norm in t_norm or t_norm in target_norm):
+                    tmpl = t
+                    break
+
+    candidate_names = {template_name}
+    if tmpl:
+        if tmpl.template_name:
+            candidate_names.add(tmpl.template_name)
+        if tmpl.template_id:
+            candidate_names.add(tmpl.template_id)
+
+    # Find matching SchemaAliasRule template_name values
+    all_rule_names = [r[0] for r in db.query(models.SchemaAliasRule.template_name).distinct().all()]
+    for rn in all_rule_names:
+        if rn in candidate_names:
+            continue
+        rn_norm = normalize_template_token(rn)
+        if target_norm and (rn_norm == target_norm or (tmpl and normalize_template_token(tmpl.template_name) == rn_norm)):
+            candidate_names.add(rn)
+
+    schema_rules = db.query(models.SchemaAliasRule).filter(
+        models.SchemaAliasRule.template_name.in_(list(candidate_names))
+    ).all()
+
+    return tmpl, schema_rules
+
+
 @router.get("/rules/{template_name}", response_model=List[SchemaAliasResponse])
 def get_rules_for_template(
     template_name: str,
@@ -2366,13 +2439,7 @@ def get_rules_for_template(
     document_type: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    from sqlalchemy import or_
-    tmpl = db.query(models.IdpTemplate).filter(
-        or_(
-            models.IdpTemplate.template_id == template_name,
-            models.IdpTemplate.template_name == template_name
-        )
-    ).first()
+    tmpl, rules = resolve_template_and_rules(db, template_name)
     canonical_name = tmpl.template_name if tmpl else template_name
     all_names = list({template_name, canonical_name} | ({tmpl.template_id} if tmpl else set()))
 
@@ -2381,7 +2448,6 @@ def get_rules_for_template(
         if not effective and canonical_name != template_name:
             effective = get_effective_rules(template_name, company_id=company_id, scenario=scenario, document_type=document_type)
         return list(effective.values())
-    rules = db.query(models.SchemaAliasRule).filter(models.SchemaAliasRule.template_name.in_(all_names)).all()
     return rules
 
 @router.post("/rules", response_model=SchemaAliasResponse)
@@ -2499,15 +2565,51 @@ def _get_dom_query_from_markdown(markdown_text: str):
 
 
 def _looks_like_number(val: str) -> bool:
-    """Checks if extracted text looks like a financial number."""
-    cleaned = val.replace(",", "").replace(".", "").replace("-", "").strip()
+    """
+    Checks if extracted text looks like a financial number, currency amount,
+    or negative accounting value in parentheses.
+    Handles Indian currency (₹, Rs, INR), international currencies ($, €, £),
+    lakhs/crores grouping commas, decimals, and negative brackets like (1,50,000).
+    """
+    if not val or not isinstance(val, str):
+        return False
+    s = val.replace('\xa0', ' ').strip()
+    if not s:
+        return False
+    # Negative accounting brackets: (1,234.50) or ( 1,234.50 )
+    if s.startswith('(') and s.endswith(')'):
+        s = s[1:-1].strip()
+    # Strip currency symbols and common prefixes
+    s = re.sub(r'^(?:₹|rs\.?|inr|\$|€|£)\s*', '', s, flags=re.IGNORECASE).strip()
+    # Strip common suffixes (Dr, Cr, -, *, #)
+    s = re.sub(r'\s*(?:dr|cr|-|\*|#)$', '', s, flags=re.IGNORECASE).strip()
+    # Handle inner currency if preceded by parenthesis e.g. (₹ 1,50,000)
+    s = re.sub(r'^(?:₹|rs\.?|inr|\$|€|£)\s*', '', s, flags=re.IGNORECASE).strip()
+    cleaned = s.replace(",", "").replace(".", "").replace("-", "").replace(" ", "").strip()
     return bool(cleaned and cleaned.isdigit())
+
+
+def normalize_accounting_brackets(val: str) -> str:
+    """
+    Normalizes negative accounting amounts enclosed in parentheses into standard negative numbers.
+    e.g. '(1,50,000)' -> '-1,50,000', '( 12,500.50 )' -> '-12,500.50'.
+    Leaves non-bracketed values or general text unchanged.
+    """
+    if not val or not isinstance(val, str):
+        return val or ""
+    s = val.strip()
+    if s.startswith('(') and s.endswith(')'):
+        inner = s[1:-1].strip()
+        if _looks_like_number(inner):
+            return f"-{inner}"
+    return s
 
 
 def _extract_value_from_dom_node(node, target_col_index: Optional[int] = None) -> str:
     """
     Extracts value from a matched DOM node (supports table rows and text/paragraph lines with colons).
     If target_col_index is specified, extracts the cell at that exact column index.
+    Normalizes accounting bracket negative values.
     """
     if not node:
         return ""
@@ -2521,7 +2623,7 @@ def _extract_value_from_dom_node(node, target_col_index: Optional[int] = None) -
         if len(parts) >= 2:
             val = parts[-1].strip()
             if val:
-                return val
+                return normalize_accounting_brackets(val)
 
     # 2. If it's a table row with cells
     if hasattr(node, 'children') and node.children:
@@ -2529,15 +2631,15 @@ def _extract_value_from_dom_node(node, target_col_index: Optional[int] = None) -
         cells = [c for c in node.children if hasattr(c, 'node_type') and str(c.node_type).endswith('CELL')]
         if cells:
             if target_col_index is not None and 0 <= target_col_index < len(cells):
-                return cells[target_col_index].text.strip()
+                return normalize_accounting_brackets(cells[target_col_index].text.strip())
 
             numeric_cells = [c for c in cells if _looks_like_number(c.text.strip())]
             if len(numeric_cells) >= 2:
-                return numeric_cells[-2].text.strip()
+                return normalize_accounting_brackets(numeric_cells[-2].text.strip())
             elif len(numeric_cells) == 1:
-                return numeric_cells[0].text.strip()
+                return normalize_accounting_brackets(numeric_cells[0].text.strip())
             elif len(cells) >= 2:
-                return cells[-1].text.strip()
+                return normalize_accounting_brackets(cells[-1].text.strip())
 
     # 3. Fallback to text (handles flattened text lines without cell children)
     tokens = text.split()
@@ -2556,12 +2658,12 @@ def _extract_value_from_dom_node(node, target_col_index: Optional[int] = None) -
         simulated_cells = [label] + numeric_tokens if label else numeric_tokens
         
         if target_col_index is not None and 0 <= target_col_index < len(simulated_cells):
-            return simulated_cells[target_col_index]
+            return normalize_accounting_brackets(simulated_cells[target_col_index])
             
         if len(numeric_tokens) >= 2:
-            return numeric_tokens[-2]
+            return normalize_accounting_brackets(numeric_tokens[-2])
         elif len(numeric_tokens) == 1:
-            return numeric_tokens[0]
+            return normalize_accounting_brackets(numeric_tokens[0])
 
     # If it's a raw unstructured paragraph without colons or trailing numbers, 
     # we MUST return empty to let the LLM extract the exact substring.
@@ -2588,21 +2690,30 @@ def _try_dom_extraction(
 
         # 1. Harvest synonyms from scenario lexicon and alias rules
         synonyms = []
+        candidate_tmpl_names = [template_name] if template_name else []
+        target_norm = normalize_template_token(template_name)
+        if target_norm:
+            all_rule_tmpls = [r[0] for r in db.query(models.DomExtractionRule.template_name).distinct().all()]
+            for art in all_rule_tmpls:
+                if normalize_template_token(art) == target_norm and art not in candidate_tmpl_names:
+                    candidate_tmpl_names.append(art)
+
         try:
             from .extractors.spatial import get_scenario_lexicon
-            lexicon = get_scenario_lexicon(template_name)
-            # Check for synonyms under form_field or matching keys
-            for f_key, syn_list in lexicon.items():
-                if form_field and f_key == form_field:
-                    synonyms.extend(syn_list)
-                elif clean_var in f_key.lower() or f_key.lower() in clean_var:
-                    synonyms.extend(syn_list)
+            for c_name in (candidate_tmpl_names or [template_name]):
+                lexicon = get_scenario_lexicon(c_name)
+                # Check for synonyms under form_field or matching keys
+                for f_key, syn_list in lexicon.items():
+                    if form_field and f_key == form_field:
+                        synonyms.extend(syn_list)
+                    elif clean_var in f_key.lower() or f_key.lower() in clean_var:
+                        synonyms.extend(syn_list)
         except Exception:
             pass
 
-        # 2. Check if we have a saved DOM rule for this variable
+        # 2. Check if we have a saved DOM rule for this variable across candidate template names
         dom_rule = db.query(models.DomExtractionRule).filter(
-            models.DomExtractionRule.template_name == template_name,
+            models.DomExtractionRule.template_name.in_(candidate_tmpl_names or [template_name]),
             models.DomExtractionRule.variable_name.ilike(f"%{clean_var}%")
         ).order_by(models.DomExtractionRule.success_count.desc()).first()
 
@@ -2704,9 +2815,36 @@ def _try_dom_extraction(
         return None, None
 
 
+def normalize_pdf_rotation_bytes(pdf_bytes: bytes) -> bytes:
+    """
+    Inspects PDF pages for non-zero rotation metadata (/Rotate != 0) e.g. 90°, 180°, 270°.
+    Bakes the rotation directly into the content stream via transfer_rotation_to_content(),
+    returning normalized PDF bytes with rotation=0° so OCR and spatial extractors see upright coordinates.
+    """
+    if not pdf_bytes or len(pdf_bytes) < 10:
+        return pdf_bytes
+    try:
+        import pypdf
+        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+        if any(p.rotation != 0 for p in reader.pages):
+            print(f"[PDF] Normalizing {len(reader.pages)} pages with non-zero rotation to 0° upright coordinates...")
+            writer = pypdf.PdfWriter()
+            for page in reader.pages:
+                if page.rotation != 0:
+                    page.transfer_rotation_to_content()
+                writer.add_page(page)
+            buf = io.BytesIO()
+            writer.write(buf)
+            return buf.getvalue()
+    except Exception as e:
+        print(f"[PDF] Rotation normalization skipped: {e}")
+    return pdf_bytes
+
+
 def _run_triton_ocr_on_pdf_bytes(pdf_bytes: bytes) -> str:
     """
     Runs PDF through Triton marker_model OCR and returns structured Markdown text.
+    Automatically normalizes rotated pages (90°/180°/270°) to 0° upright orientation.
     For documents exceeding 20 pages, automatically chunks into safe 15-page slices
     to protect GPU VRAM against CUDA out-of-memory errors.
     """
@@ -2714,6 +2852,10 @@ def _run_triton_ocr_on_pdf_bytes(pdf_bytes: bytes) -> str:
         import tritonclient.http as httpclient
         import numpy as np
         import pypdf
+        import time
+
+        # Normalize any sideways or inverted pages to 0° upright before sending to OCR
+        pdf_bytes = normalize_pdf_rotation_bytes(pdf_bytes)
 
         triton_url = os.getenv("TRITON_SERVER_URL", "192.168.112.2:8000")
         client = httpclient.InferenceServerClient(
@@ -2730,15 +2872,28 @@ def _run_triton_ocr_on_pdf_bytes(pdf_bytes: bytes) -> str:
             reader = None
 
         def _infer_bytes(b: bytes) -> str:
-            input_tensor = httpclient.InferInput("PDF_BYTES", [1], "BYTES")
-            input_tensor.set_data_from_numpy(np.array([b], dtype=np.object_))
-            output_tensor = httpclient.InferRequestedOutput("MARKDOWN")
-            resp = client.infer(model_name="marker_model", inputs=[input_tensor], outputs=[output_tensor])
-            md = resp.as_numpy("MARKDOWN")[0].decode("utf-8").strip()
-            if "CUDA out of memory" in md or "Traceback (most recent call last)" in md:
-                print(f"[!] Triton OCR Remote Server Error: {md[:200]}...")
-                raise Exception(f"Remote GPU Out of Memory or Error: {md[:100]}")
-            return md
+            max_retries = 3
+            last_err = None
+            for attempt in range(1, max_retries + 1):
+                try:
+                    input_tensor = httpclient.InferInput("PDF_BYTES", [1], "BYTES")
+                    input_tensor.set_data_from_numpy(np.array([b], dtype=np.object_))
+                    output_tensor = httpclient.InferRequestedOutput("MARKDOWN")
+                    resp = client.infer(model_name="marker_model", inputs=[input_tensor], outputs=[output_tensor])
+                    md = resp.as_numpy("MARKDOWN")[0].decode("utf-8").strip()
+                    if "CUDA out of memory" in md or "Traceback (most recent call last)" in md:
+                        print(f"[!] Triton OCR Remote Server Error: {md[:200]}...")
+                        raise Exception(f"Remote GPU Out of Memory or Error: {md[:100]}")
+                    return md
+                except Exception as infer_err:
+                    last_err = infer_err
+                    if "CUDA out of memory" in str(infer_err):
+                        raise infer_err
+                    if attempt < max_retries:
+                        backoff = 0.5 * (2 ** (attempt - 1))
+                        print(f"[Triton] Inference attempt {attempt} failed ({infer_err}). Retrying in {backoff:.1f}s...")
+                        time.sleep(backoff)
+            raise last_err
 
         if reader is None or page_count <= 20:
             print(f"[Triton] Sending PDF ({len(pdf_bytes)} bytes, {page_count} pages) to marker_model at {triton_url}...")
@@ -4126,35 +4281,33 @@ async def extract_batch_documents(
     import re
     results = []
 
-    # Load saved SchemaAliasRules for this template (maps form_field → extracted_key)
-    schema_rules = []
-    if template_name:
-        schema_rules = db.query(models.SchemaAliasRule).filter(
-            models.SchemaAliasRule.template_name == template_name
-        ).all()
+    # Load saved SchemaAliasRules and IdpTemplate schema using normalized fuzzy resolution
+    tmpl, schema_rules = resolve_template_and_rules(db, template_name)
+    canonical_template_name = tmpl.template_name if tmpl else (template_name or "")
+    effective_template_name = canonical_template_name or template_name or ""
 
     # Build field_label_map and field_dependency_map from IdpTemplate schema
     field_label_map = {}
     field_dependency_map = {}
-    if template_name:
-        tmpl = db.query(models.IdpTemplate).filter(models.IdpTemplate.template_name == template_name).first()
-        if tmpl and tmpl.fields_json:
-            try:
-                parsed_tmpl = python_json.loads(tmpl.fields_json)
-                fields_list = parsed_tmpl.get("fields", parsed_tmpl) if isinstance(parsed_tmpl, dict) else parsed_tmpl
-                if isinstance(fields_list, list):
-                    for f in fields_list:
-                        if isinstance(f, dict) and f.get("id"):
-                            field_label_map[f["id"]] = f.get("label", f["id"])
-                            if f.get("depends_on"):
-                                field_dependency_map[f["id"]] = f["depends_on"]
-            except Exception as tmpl_err:
-                print(f"[Batch] Error loading template fields: {tmpl_err}")
+    if tmpl and tmpl.fields_json:
+        try:
+            parsed_tmpl = python_json.loads(tmpl.fields_json)
+            fields_list = parsed_tmpl.get("fields", parsed_tmpl) if isinstance(parsed_tmpl, dict) else parsed_tmpl
+            if isinstance(fields_list, list):
+                for f in fields_list:
+                    if isinstance(f, dict) and f.get("id"):
+                        field_label_map[f["id"]] = f.get("label", f["id"])
+                        if f.get("depends_on"):
+                            field_dependency_map[f["id"]] = f["depends_on"]
+        except Exception as tmpl_err:
+            print(f"[Batch] Error loading template fields: {tmpl_err}")
 
-    # Pre-read all file bytes and filenames
+    # Pre-read all file bytes and filenames (normalizing sideways/rotated PDF pages to 0°)
     file_payloads = []
     for f in files:
         b = await f.read()
+        if f.filename.lower().endswith('.pdf'):
+            b = normalize_pdf_rotation_bytes(b)
         file_payloads.append((f.filename, b))
 
     # Parallelize Triton OCR across batch PDF documents
@@ -4195,7 +4348,7 @@ async def extract_batch_documents(
 
             # --- TIER 0: Direct Excel (.xlsx / .xls) and Markdown (.md) Parsing ---
             if fname_lower.endswith(('.xlsx', '.xls', '.md', '.txt')):
-                is_fla_template = "fla" in (template_name or "").lower()
+                is_fla_template = "fla" in (effective_template_name or "").lower()
                 if is_fla_template:
                     try:
                         from modules.fla.comparison_platform.modules.legacy_parser import LegacyFLAParser
@@ -4255,10 +4408,10 @@ async def extract_batch_documents(
 
             # --- TIER 0.5: Fast-Path Deterministic MCA Extraction ---
             mapped_form_fields = {r.form_field for r in schema_rules} if schema_rules else None
-            tmpl_clean = (template_name or "").lower().replace(" ", "").replace("-", "")
+            tmpl_clean = (effective_template_name or "").lower().replace(" ", "").replace("-", "")
             is_dedicated_pipeline = "gnl2" in tmpl_clean or "pas6" in tmpl_clean or "pas" in tmpl_clean
 
-            fast_path_data = _fast_path_extract_mca_fields(full_text, template_name, field_label_map)
+            fast_path_data = _fast_path_extract_mca_fields(full_text, effective_template_name, field_label_map)
             for f_id, f_val in fast_path_data.items():
                 if f_val and f_val not in [None, "", "Unknown", "N/A"]:
                     if mapped_form_fields and not is_dedicated_pipeline and f_id not in mapped_form_fields:
@@ -4345,7 +4498,7 @@ async def extract_batch_documents(
                 dom_value = None
                 # Tier 1: Try Adaptive DOM extraction first
                 if full_text:
-                    dom_value, _ = _try_dom_extraction(full_text, var_name, db, template_name, form_field=f_id, dom_query=q)
+                    dom_value, _ = _try_dom_extraction(full_text, var_name, db, effective_template_name, form_field=f_id, dom_query=q)
 
                 # Tier 1.5: Spatial Bounding-Box / Anchor Extraction
                 spatial_value = None
@@ -4846,6 +4999,7 @@ def _extract_markdown_ast_row(cached_markdown: str, anchor_y: float, page_num: i
             val_cells = [c for c in cells[1:] if _looks_like_number(c)]
             currency_vals = [v for v in val_cells if len(re.sub(r'[^\d]', '', v)) >= 2]
             value_text = currency_vals[0] if currency_vals else (val_cells[0] if val_cells else "")
+            value_text = normalize_accounting_brackets(value_text)
             
             if key_label and len(key_label) >= 3:
                 table_id = target_line_idx // 15
