@@ -2568,7 +2568,14 @@ def _extract_value_from_dom_node(node, target_col_index: Optional[int] = None) -
     return ""
 
 
-def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_name: str, form_field: Optional[str] = None):
+def _try_dom_extraction(
+    markdown_text: str,
+    variable_name: str,
+    db,
+    template_name: str,
+    form_field: Optional[str] = None,
+    dom_query: Optional[Any] = None
+):
     """
     Tier 1 Adaptive DOM extraction:
     Attempts to extract a value for a variable_name using Adaptive DOM structural scoring.
@@ -2618,7 +2625,7 @@ def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_nam
             except Exception:
                 pass
 
-        q = _get_dom_query_from_markdown(markdown_text)
+        q = dom_query if dom_query is not None else _get_dom_query_from_markdown(markdown_text)
         if q is None:
             return None, None
 
@@ -2699,33 +2706,68 @@ def _try_dom_extraction(markdown_text: str, variable_name: str, db, template_nam
 
 def _run_triton_ocr_on_pdf_bytes(pdf_bytes: bytes) -> str:
     """
-    Runs the entire PDF at once through Triton marker_model OCR and returns markdown text.
-    Uses 600s network_timeout for large multi-page documents.
+    Runs PDF through Triton marker_model OCR and returns structured Markdown text.
+    For documents exceeding 20 pages, automatically chunks into safe 15-page slices
+    to protect GPU VRAM against CUDA out-of-memory errors.
     """
     try:
         import tritonclient.http as httpclient
         import numpy as np
+        import pypdf
 
-        print(f"[Triton] Sending entire PDF ({len(pdf_bytes)} bytes) to marker_model...")
+        triton_url = os.getenv("TRITON_SERVER_URL", "192.168.112.2:8000")
         client = httpclient.InferenceServerClient(
-            url="192.168.112.2:8000", network_timeout=600.0, connection_timeout=60.0
+            url=triton_url, network_timeout=600.0, connection_timeout=60.0
         )
-        input_tensor = httpclient.InferInput("PDF_BYTES", [1], "BYTES")
-        input_tensor.set_data_from_numpy(np.array([pdf_bytes], dtype=np.object_))
-        output_tensor = httpclient.InferRequestedOutput("MARKDOWN")
-        
-        response = client.infer(model_name="marker_model", inputs=[input_tensor], outputs=[output_tensor])
-        markdown = response.as_numpy("MARKDOWN")[0].decode("utf-8").strip()
-        
-        # Catch errors returned as plain text from the remote server
-        if "CUDA out of memory" in markdown or "Traceback (most recent call last)" in markdown:
-            print(f"[!] Triton OCR Remote Server Error: {markdown[:200]}...")
-            raise Exception(f"Remote GPU Out of Memory or Error: {markdown[:100]}")
-            
-        print(f"[Triton] Entire PDF processed successfully ✓ ({len(markdown)} chars)")
-        return markdown
+
+        # Inspect page count
+        page_count = 1
+        reader = None
+        try:
+            reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+            page_count = len(reader.pages)
+        except Exception:
+            reader = None
+
+        def _infer_bytes(b: bytes) -> str:
+            input_tensor = httpclient.InferInput("PDF_BYTES", [1], "BYTES")
+            input_tensor.set_data_from_numpy(np.array([b], dtype=np.object_))
+            output_tensor = httpclient.InferRequestedOutput("MARKDOWN")
+            resp = client.infer(model_name="marker_model", inputs=[input_tensor], outputs=[output_tensor])
+            md = resp.as_numpy("MARKDOWN")[0].decode("utf-8").strip()
+            if "CUDA out of memory" in md or "Traceback (most recent call last)" in md:
+                print(f"[!] Triton OCR Remote Server Error: {md[:200]}...")
+                raise Exception(f"Remote GPU Out of Memory or Error: {md[:100]}")
+            return md
+
+        if reader is None or page_count <= 20:
+            print(f"[Triton] Sending PDF ({len(pdf_bytes)} bytes, {page_count} pages) to marker_model at {triton_url}...")
+            markdown = _infer_bytes(pdf_bytes)
+            print(f"[Triton] PDF processed successfully ({len(markdown)} chars)")
+            return markdown
+
+        # VRAM Safeguard: Chunk into 15-page segments for large documents
+        print(f"[Triton] Multi-page document detected ({page_count} pages). Applying 15-page VRAM chunking safeguard...")
+        markdown_chunks = []
+        chunk_size = 15
+        for start_idx in range(0, page_count, chunk_size):
+            end_idx = min(start_idx + chunk_size, page_count)
+            writer = pypdf.PdfWriter()
+            for p_idx in range(start_idx, end_idx):
+                writer.add_page(reader.pages[p_idx])
+            buf = io.BytesIO()
+            writer.write(buf)
+            chunk_bytes = buf.getvalue()
+            print(f"[Triton] Processing chunk pages {start_idx + 1}-{end_idx} of {page_count}...")
+            chunk_md = _infer_bytes(chunk_bytes)
+            markdown_chunks.append(chunk_md)
+
+        full_markdown = "\n\n".join(markdown_chunks).strip()
+        print(f"[Triton] All {len(markdown_chunks)} chunks processed successfully ({len(full_markdown)} chars)")
+        return full_markdown
+
     except Exception as e:
-        print(f"[!] Triton OCR failed for full PDF: {e}")
+        print(f"[!] Triton OCR failed for PDF: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -3285,80 +3327,21 @@ def _normalize_llm_fields(raw_json):
 
 
 @router.post("/extract")
-async def extract_document_llm(file: UploadFile = File(...)):
-    if not file.filename.endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF files are supported for extraction")
-        
-    contents = await file.read()
-    
-    # Extract text using pdfplumber
-    text_content = ""
-    try:
-        with pdfplumber.open(io.BytesIO(contents)) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text_content += page_text + "\n"
-    except Exception as e:
-        print(f"[!] pdfplumber text extraction error: {e}")
-
-    # Fallback to Triton OCR if no digital text layer exists (scanned PDF)
-    if not text_content.strip():
-        print(f"[Batch][LLM] No digital text layer, running Triton OCR for Ollama LLM extraction...")
-        text_content = _run_triton_ocr_on_pdf_bytes(contents)
-
-    if not text_content.strip():
-        raise HTTPException(status_code=400, detail="Could not extract any text from the provided PDF")
-
-
-    # Call local Ollama model qwen:coder:7b
-    prompt = f"""
-You are an advanced Intelligent Document Processing (IDP) extractor.
-Extract all relevant financial and tabular key-value pairs from the following document text.
-CRITICAL INSTRUCTION: When you see tables with two years of data (e.g., 2023 and 2024), you MUST distinguish them.
-Append "PY" to the key for the Previous Year and "FY" to the key for the Current/Financial Year.
-Return ONLY a valid JSON array of objects, with each object having exactly two keys: "key" and "value".
-Example: [{{"key": "Total Assets PY", "value": "120000"}}, {{"key": "Total Assets FY", "value": "150000"}}]
-
-Document Text:
-{text_content[:8000]}
+async def extract_document_llm(
+    file: UploadFile = File(...),
+    template_name: Optional[str] = Form(None),
+    db: Session = Depends(get_db)
+):
     """
-    
-    try:
-        response = requests.post(
-            "http://192.168.112.2:11434/api/generate",
-            json={
-                "model": "qwen2.5:14b",
-                "prompt": prompt,
-                "stream": False,
-                "format": "json"
-            },
-            timeout=60
-        )
-        response.raise_for_status()
-        result = response.json()
-        extracted_text = result.get("response", "[]")
-        
-        # Parse the JSON response
-        import json as python_json
-        raw_data = python_json.loads(extracted_text)
-        extracted_data = _normalize_llm_fields(raw_data)
-            
-        return {"extracted_data": extracted_data}
-        
-    except requests.exceptions.RequestException as e:
-        print(f"[!] Ollama Connection Error: {e}")
-        # Fallback to mock data if Ollama isn't running or fails
-        return {
-            "error": "Failed to connect to local Ollama (qwen:coder). Showing mock data instead.",
-            "extracted_data": [
-                {"key": "Total Reserves & Surplus (MOCK)", "value": "3,193.00"},
-                {"key": "Total Long-term borrowings (MOCK)", "value": "1,894.84"}
-            ]
-        }
-    except Exception as e:
-        print(f"[!] Parsing Error: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to parse LLM response: {str(e)}")
+    Unified Single-Document Extraction Endpoint:
+    Routes through the production tiered pipeline:
+    Triton OCR -> Fast-Path Regex -> Adaptive DOM -> Deterministic Spatial -> Async LLM Fallback.
+    Guarantees that Studio single-document preview testing matches batch production results.
+    """
+    batch_res = await extract_batch_documents(files=[file], template_name=template_name, db=db)
+    results = batch_res.get("results", [])
+    extracted_fields = results[0].get("extracted_fields", []) if results else []
+    return {"extracted_data": extracted_fields}
 
 def _fast_path_extract_mca_fields(full_text: str, template_name: str, field_label_map: dict) -> dict:
     """
@@ -4168,11 +4151,34 @@ async def extract_batch_documents(
             except Exception as tmpl_err:
                 print(f"[Batch] Error loading template fields: {tmpl_err}")
 
-    for file in files:
-        filename = file.filename
+    # Pre-read all file bytes and filenames
+    file_payloads = []
+    for f in files:
+        b = await f.read()
+        file_payloads.append((f.filename, b))
+
+    # Parallelize Triton OCR across batch PDF documents
+    triton_ocr_cache = {}
+    pdf_files_to_ocr = [(fn, b) for fn, b in file_payloads if fn.lower().endswith('.pdf')]
+    if len(pdf_files_to_ocr) > 1:
+        print(f"[Batch] Concurrently dispatching Triton OCR across {len(pdf_files_to_ocr)} documents...")
+        import asyncio
+
+        async def _run_ocr_async(fn, b):
+            try:
+                return fn, await asyncio.to_thread(_run_triton_ocr_on_pdf_bytes, b)
+            except Exception as e:
+                print(f"[Batch] Parallel Triton OCR error on {fn}: {e}")
+                return fn, ""
+
+        ocr_results = await asyncio.gather(*[_run_ocr_async(fn, b) for fn, b in pdf_files_to_ocr])
+        for fn, md in ocr_results:
+            if md:
+                triton_ocr_cache[fn] = md
+
+    for filename, pdf_bytes in file_payloads:
         opened_pdf_instance = None
         try:
-            pdf_bytes = await file.read()
             extracted_fields = []
             extracted_lookup = {}
             any_dom_miss = False
@@ -4214,7 +4220,7 @@ async def extract_batch_documents(
                 elif fname_lower.endswith(('.md', '.txt')):
                     full_text = pdf_bytes.decode('utf-8', errors='ignore')
 
-            # Digital text extraction for PDFs via pdfplumber
+            # Text extraction for PDFs via Triton OCR (with digital text fallback)
             if fname_lower.endswith('.pdf'):
                 pdf_digital_text = ""
                 try:
@@ -4224,12 +4230,15 @@ async def extract_batch_documents(
                 except Exception as pdf_err:
                     print(f"[Batch] pdfplumber digital text extraction error: {pdf_err}")
 
-                # Run Full OCR (Triton) if possible to get structured tables for DOM
-                try:
-                    print(f"[Batch][DOM] Running Full Triton OCR on {filename}...")
-                    full_text = _run_triton_ocr_on_pdf_bytes(pdf_bytes)
-                except Exception as ocr_err:
-                    print(f"[Batch][DOM] Triton OCR failed: {ocr_err}")
+                # Use pre-computed parallel Triton OCR result if present, or run single-file OCR
+                if filename in triton_ocr_cache:
+                    full_text = triton_ocr_cache[filename]
+                else:
+                    try:
+                        print(f"[Batch][DOM] Running Full Triton OCR on {filename}...")
+                        full_text = _run_triton_ocr_on_pdf_bytes(pdf_bytes)
+                    except Exception as ocr_err:
+                        print(f"[Batch][DOM] Triton OCR failed: {ocr_err}")
 
                 if not full_text.strip() and pdf_digital_text:
                     full_text = pdf_digital_text
@@ -4264,125 +4273,125 @@ async def extract_batch_documents(
             if fast_path_data:
                 print(f"[Batch] Fast-path extracted {len(fast_path_data)} fields deterministically: {list(fast_path_data.keys())}")
 
-            # --- TIER 1: DOM-based extraction for each mapped form field ---
+            # --- TIER 1 & 1.5: UNGATED ADAPTIVE DOM & SPATIAL EXTRACTION ---
+            # Unify schema_rules and field_label_map so DOM & Spatial run deterministically for ALL templates
+            target_fields_to_evaluate = []
+            seen_target_ids = set()
+
             if schema_rules:
-                # Filter rules strictly for this document type
                 scoped_rules = [r for r in schema_rules if getattr(r, 'document_type', 'generic') == doc_type]
                 if not scoped_rules:
                     scoped_rules = [r for r in schema_rules if getattr(r, 'document_type', 'generic') in [None, 'generic', '']] or schema_rules
 
                 print(f"[Batch] Scoped {len(scoped_rules)} of {len(schema_rules)} total rules for '{filename}' ({doc_type})")
-
-                # Sort rules topologically: rules without dependencies evaluated first
-                root_rules = [r for r in scoped_rules if r.form_field not in field_dependency_map]
-                dependent_rules = [r for r in scoped_rules if r.form_field in field_dependency_map]
-                ordered_rules = root_rules + dependent_rules
-
-                seen_rule_fields = set()
-                for rule in ordered_rules:
-                    # If this field has already been extracted with a valid value (e.g. from Fast-Path), skip DOM/LLM
-                    if rule.form_field in extracted_lookup and extracted_lookup[rule.form_field] not in [None, "", "Unknown", "N/A"]:
-                        continue
-
-                    # DAG Pruning Check: evaluate condition against already extracted values
-                    dep = field_dependency_map.get(rule.form_field)
-                    if dep and isinstance(dep, dict):
-                        parent_id = dep.get("field")
-                        op = dep.get("operator", "equals")
-                        target_val = dep.get("value")
-                        parent_val = extracted_lookup.get(parent_id)
-
-                        if parent_val is not None:
-                            p_str = str(parent_val).strip().lower()
-                            t_str = str(target_val).strip().lower() if target_val is not None else ""
-                            condition_met = True
-                            if op == "equals":
-                                condition_met = (p_str == t_str)
-                            elif op == "in" and isinstance(target_val, list):
-                                condition_met = any(p_str == str(v).strip().lower() for v in target_val)
-                            
-                            if not condition_met:
-                                print(f"[Batch] ✂️ Pruning branch '{rule.form_field}': condition not met ({parent_id}='{parent_val}' vs target='{target_val}')")
-                                continue
-
-                    variable_name = rule.extracted_key
-                    dom_value = None
-
-                    # Tier 1: Try Adaptive DOM extraction first
-                    if full_text:
-                        dom_value, _ = _try_dom_extraction(full_text, variable_name, db, template_name, form_field=rule.form_field)
-
-                    # Tier 1.5: Spatial Bounding-Box / Anchor Extraction
-                    spatial_value = None
-                    if rule.spatial_meta_json and pdf_bytes:
-                        try:
-                            from .extractors.spatial import extract_text_from_spatial_meta
-                            spatial_value = extract_text_from_spatial_meta(
-                                pdf_bytes,
-                                rule.spatial_meta_json,
-                                opened_pdf=opened_pdf_instance
-                            )
-                        except Exception as sp_err:
-                            print(f"[Batch][Spatial] Spatial extraction error for {rule.form_field}: {sp_err}")
-
-                    # Hybrid Disambiguation & Resolution
-                    resolved_val = None
-                    resolved_source = None
-
-                    if dom_value and spatial_value:
-                        resolved_val = dom_value
-                        resolved_source = "dom_spatial_verified"
-                    elif dom_value:
-                        resolved_val = dom_value
-                        resolved_source = "dom"
-                    elif spatial_value:
-                        resolved_val = spatial_value
-                        resolved_source = "spatial"
-
-                    if resolved_val:
-                        extracted_lookup[rule.form_field] = resolved_val
-                        extracted_fields.append({
-                            "key": rule.form_field,
-                            "value": resolved_val,
-                            "_source": resolved_source
+                for r in scoped_rules:
+                    if r.form_field not in seen_target_ids:
+                        seen_target_ids.add(r.form_field)
+                        target_fields_to_evaluate.append({
+                            "form_field": r.form_field,
+                            "variable_name": r.extracted_key or field_label_map.get(r.form_field, r.form_field),
+                            "spatial_meta": r.spatial_meta_json,
+                            "hint": r.extracted_key
                         })
-                    else:
-                        # Mark as needing LLM fallback only if not already marked for this field
-                        if rule.form_field not in seen_rule_fields and rule.form_field not in extracted_lookup:
-                            seen_rule_fields.add(rule.form_field)
-                            any_dom_miss = True
-                            safe_hint = rule.extracted_key if is_safe_semantic_hint(rule.extracted_key) else None
-                            extracted_fields.append({
-                                "key": rule.form_field,
-                                "value": None,
-                                "_source": "pending_llm",
-                                "_hint": safe_hint
-                            })
 
             elif field_label_map:
-                # When no explicit SchemaAliasRules exist in DB, scope LLM to unextracted template fields
                 for f_id, label in field_label_map.items():
-                    if f_id not in extracted_lookup and f_id not in [f["key"] for f in extracted_fields]:
-                        # DAG Pruning Check: evaluate condition against already extracted values
-                        dep = field_dependency_map.get(f_id)
-                        if dep and isinstance(dep, dict):
-                            parent_id = dep.get("field")
-                            op = dep.get("operator", "equals")
-                            target_val = dep.get("value")
-                            parent_val = extracted_lookup.get(parent_id)
+                    if f_id not in seen_target_ids:
+                        seen_target_ids.add(f_id)
+                        target_fields_to_evaluate.append({
+                            "form_field": f_id,
+                            "variable_name": label or f_id,
+                            "spatial_meta": None,
+                            "hint": label
+                        })
 
-                            if parent_val is not None:
-                                p_str = str(parent_val).strip().lower()
-                                t_str = str(target_val).strip().lower() if target_val is not None else ""
-                                cond = (p_str == t_str) if op == "equals" else (any(p_str == str(v).strip().lower() for v in target_val) if op == "in" and isinstance(target_val, list) else True)
-                                if not cond:
-                                    continue
+            # Sort topologically: roots first, dependent fields second
+            root_targets = [t for t in target_fields_to_evaluate if t["form_field"] not in field_dependency_map]
+            dependent_targets = [t for t in target_fields_to_evaluate if t["form_field"] in field_dependency_map]
+            ordered_targets = root_targets + dependent_targets
+
+            seen_rule_fields = set()
+            for target in ordered_targets:
+                f_id = target["form_field"]
+                var_name = target["variable_name"]
+                sp_meta = target["spatial_meta"]
+                hint = target["hint"]
+
+                # If this field has already been extracted with a valid value (e.g. from Fast-Path), skip DOM/LLM
+                if f_id in extracted_lookup and extracted_lookup[f_id] not in [None, "", "Unknown", "N/A"]:
+                    continue
+
+                # DAG Pruning Check: evaluate condition against already extracted values
+                dep = field_dependency_map.get(f_id)
+                if dep and isinstance(dep, dict):
+                    parent_id = dep.get("field")
+                    op = dep.get("operator", "equals")
+                    target_val = dep.get("value")
+                    parent_val = extracted_lookup.get(parent_id)
+
+                    if parent_val is not None:
+                        p_str = str(parent_val).strip().lower()
+                        t_str = str(target_val).strip().lower() if target_val is not None else ""
+                        condition_met = True
+                        if op == "equals":
+                            condition_met = (p_str == t_str)
+                        elif op == "in" and isinstance(target_val, list):
+                            condition_met = any(p_str == str(v).strip().lower() for v in target_val)
+
+                        if not condition_met:
+                            print(f"[Batch] ✂️ Pruning branch '{f_id}': condition not met ({parent_id}='{parent_val}' vs target='{target_val}')")
+                            continue
+
+                dom_value = None
+                # Tier 1: Try Adaptive DOM extraction first
+                if full_text:
+                    dom_value, _ = _try_dom_extraction(full_text, var_name, db, template_name, form_field=f_id, dom_query=q)
+
+                # Tier 1.5: Spatial Bounding-Box / Anchor Extraction
+                spatial_value = None
+                if sp_meta and pdf_bytes:
+                    try:
+                        from .extractors.spatial import extract_text_from_spatial_meta
+                        spatial_value = extract_text_from_spatial_meta(
+                            pdf_bytes,
+                            sp_meta,
+                            opened_pdf=opened_pdf_instance
+                        )
+                    except Exception as sp_err:
+                        print(f"[Batch][Spatial] Spatial extraction error for {f_id}: {sp_err}")
+
+                # Hybrid Disambiguation & Resolution
+                resolved_val = None
+                resolved_source = None
+
+                if dom_value and spatial_value:
+                    resolved_val = dom_value
+                    resolved_source = "dom_spatial_verified"
+                elif dom_value:
+                    resolved_val = dom_value
+                    resolved_source = "dom"
+                elif spatial_value:
+                    resolved_val = spatial_value
+                    resolved_source = "spatial"
+
+                if resolved_val:
+                    extracted_lookup[f_id] = resolved_val
+                    extracted_fields.append({
+                        "key": f_id,
+                        "value": resolved_val,
+                        "_source": resolved_source
+                    })
+                else:
+                    # Mark as needing LLM fallback only if not already marked for this field
+                    if f_id not in seen_rule_fields and f_id not in extracted_lookup:
+                        seen_rule_fields.add(f_id)
                         any_dom_miss = True
+                        safe_hint = hint if is_safe_semantic_hint(hint) else None
                         extracted_fields.append({
                             "key": f_id,
                             "value": None,
                             "_source": "pending_llm",
-                            "_hint": label
+                            "_hint": safe_hint
                         })
 
             # --- TIER 2 / 3: LLM fallback for any fields that DOM missed ---
@@ -4439,42 +4448,53 @@ CRITICAL RULES:
 {targeted_fields_instruction}
 
 Document Text:
-{full_text[:8000]}
+{full_text}
                             """
                             try:
+                                import httpx
                                 ollama_url = os.getenv("OLLAMA_API_URL", "http://192.168.112.2:11434").rstrip("/")
-                                response = None
-                                try:
-                                    response = requests.post(
-                                        f"{ollama_url}/api/generate",
-                                        json={
-                                            "model": "qwen2.5:14b",
-                                            "prompt": prompt,
-                                            "stream": False,
-                                            "format": "json"
-                                        },
-                                        timeout=(3.0, 25.0)
-                                    )
-                                    response.raise_for_status()
-                                except Exception as primary_err:
-                                    print(f"[LLM] Primary endpoint ({ollama_url}) failed: {primary_err}. Trying localhost...")
+                                response_data = None
+                                timeout_cfg = httpx.Timeout(connect=5.0, read=90.0, write=30.0, pool=30.0)
+
+                                async with httpx.AsyncClient(timeout=timeout_cfg) as client:
                                     try:
-                                        response = requests.post(
-                                            "http://127.0.0.1:11434/api/generate",
+                                        resp = await client.post(
+                                            f"{ollama_url}/api/generate",
                                             json={
                                                 "model": "qwen2.5:14b",
                                                 "prompt": prompt,
                                                 "stream": False,
-                                                "format": "json"
-                                            },
-                                            timeout=(1.5, 20.0)
+                                                "format": "json",
+                                                "options": {
+                                                    "num_ctx": 32768,
+                                                    "temperature": 0.0
+                                                }
+                                            }
                                         )
-                                        response.raise_for_status()
-                                    except Exception as local_err:
-                                        raise RuntimeError(f"All Ollama endpoints unreachable: {primary_err} | {local_err}")
+                                        resp.raise_for_status()
+                                        response_data = resp.json()
+                                    except Exception as primary_err:
+                                        print(f"[LLM] Primary endpoint ({ollama_url}) failed: {primary_err}. Trying localhost...")
+                                        try:
+                                            resp = await client.post(
+                                                "http://127.0.0.1:11434/api/generate",
+                                                json={
+                                                    "model": "qwen2.5:14b",
+                                                    "prompt": prompt,
+                                                    "stream": False,
+                                                    "format": "json",
+                                                    "options": {
+                                                        "num_ctx": 32768,
+                                                        "temperature": 0.0
+                                                    }
+                                                }
+                                            )
+                                            resp.raise_for_status()
+                                            response_data = resp.json()
+                                        except Exception as local_err:
+                                            raise RuntimeError(f"All Ollama endpoints unreachable: {primary_err} | {local_err}")
 
-                                result = response.json()
-                                extracted_text = result.get("response", "[]")
+                                extracted_text = response_data.get("response", "[]") if response_data else "[]"
                                 print(f"[LLM] Raw response for '{filename}': {extracted_text[:300]}")
                                 
                                 raw_data = python_json.loads(extracted_text)
@@ -4630,6 +4650,7 @@ Document Text:
     # Build unified dossier return across all uploaded files for the session
     dossier_map = {}
     for r in results:
+        doc_type_prefix = r.get("document_type") or "generic"
         for f in r.get("extracted_fields", []):
             k = f.get("key")
             v = f.get("value")
@@ -4637,6 +4658,10 @@ Document Text:
                 # High-confidence precedence: if not yet present or previously "0", take non-empty value
                 if k not in dossier_map or dossier_map[k] in ["0", "Unknown", None]:
                     dossier_map[k] = v
+                # Store document-scoped key for collision-free multi-document referencing
+                scoped_key = f"{doc_type_prefix}:{k}"
+                if scoped_key not in dossier_map or dossier_map[scoped_key] in ["0", "Unknown", None]:
+                    dossier_map[scoped_key] = v
 
     dossier_merged_fields = [{"key": k, "value": v} for k, v in dossier_map.items()]
 

@@ -232,3 +232,68 @@ class TestFeedbackLoopAPI:
         assert payload.confirmed_fields[0].form_field == "director_din"
         assert payload.confirmed_fields[0].value == "01234567"
         assert payload.confirmed_fields[0].spatial_meta["page"] == 2
+
+
+# =====================================================================
+# 4. OPTIMIZED PIPELINE & TRITON SAFEGUARD TESTS
+# =====================================================================
+
+class TestExtractionOptimizationSafeguards:
+    def test_triton_pdf_chunking_guard(self):
+        """Verify that multi-page PDFs (>20 pages) are sliced into safe chunks."""
+        import io
+        import pypdf
+        from unittest.mock import patch
+        from automation_engine.modules.idp_studio.router import _run_triton_ocr_on_pdf_bytes
+
+        # Generate a synthetic 25-page PDF in memory
+        writer = pypdf.PdfWriter()
+        for _ in range(25):
+            writer.add_blank_page(width=72, height=72)
+        buf = io.BytesIO()
+        writer.write(buf)
+        pdf_bytes = buf.getvalue()
+
+        # Mock Triton inference client to return markdown chunks
+        with patch("tritonclient.http.InferenceServerClient") as mock_client_cls:
+            mock_client = MagicMock()
+            mock_client_cls.return_value = mock_client
+            
+            mock_resp = MagicMock()
+            mock_resp.as_numpy.return_value = [b"# Page chunk markdown output"]
+            mock_client.infer.return_value = mock_resp
+
+            result_md = _run_triton_ocr_on_pdf_bytes(pdf_bytes)
+            # 25 pages with chunk size 15 should result in 2 infer calls (15 pages + 10 pages)
+            assert mock_client.infer.call_count == 2
+            assert "Page chunk markdown output" in result_md
+
+    def test_ungated_dom_extraction_without_schema_rules(self):
+        """Verify that when schema_rules is empty, DOMQuery is still invoked for template fields."""
+        from automation_engine.modules.idp_studio.router import _try_dom_extraction
+        from dom_learner.models.node import DocumentNode, SectionNode, RowNode, CellNode
+
+        # Synthetic Document
+        root = DocumentNode(source_file="test.md")
+        sec = SectionNode(text="General Information")
+        root.add_child(sec)
+        row = RowNode(text="Corporate Identity Number: L12345DL2020PLC123456", row_index=1)
+        c0 = CellNode(text="Corporate Identity Number", column_index=0)
+        c1 = CellNode(text="L12345DL2020PLC123456", column_index=1)
+        row.add_children([c0, c1])
+        sec.add_child(row)
+
+        q = DOMQuery(root)
+        mock_db = MagicMock()
+        mock_db.query.return_value.filter.return_value.order_by.return_value.first.return_value = None
+
+        val, _ = _try_dom_extraction(
+            markdown_text="",
+            variable_name="Corporate Identity Number",
+            db=mock_db,
+            template_name="Form No. GNL-2",
+            form_field="field_cin",
+            dom_query=q
+        )
+        assert val == "L12345DL2020PLC123456"
+
